@@ -1,0 +1,64 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class LoanApplication extends Model
+{
+    use HasFactory;
+
+    // Explicit, so the table name never again depends on how the class
+    // happens to be capitalised.
+    protected $table = 'loan_applications';
+
+    protected $fillable = [
+        'user_id', 'reference', 'full_name', 'email', 'contact_number', 'address',
+        'birth_date', 'civil_status', 'employment_status', 'employer_name',
+        'monthly_income', 'loan_type', 'amount', 'term_months', 'purpose',
+        'status', 'admin_remarks', 'reviewed_at',
+    ];
+
+    protected $casts = [
+        'birth_date'     => 'date',
+        'reviewed_at'    => 'datetime',
+        'amount'         => 'decimal:2',
+        'monthly_income' => 'decimal:2',
+    ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Rough monthly amortisation used for the preview on the form and the
+     * dashboard. Flat 12% per annum add-on rate — change RATE if the
+     * cooperative uses a different one.
+     */
+    public const RATE = 0.12;
+
+    public function getMonthlyPaymentAttribute(): float
+    {
+        $years    = $this->term_months / 12;
+        $interest = (float) $this->amount * self::RATE * $years;
+
+        return round(((float) $this->amount + $interest) / $this->term_months, 2);
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return match ($this->status) {
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            default    => 'Under review',
+        };
+    }
+
+    public static function makeReference(): string
+    {
+        return 'SDCC-' . now()->format('Y') . '-' . str_pad((string) (self::max('id') + 1), 6, '0', STR_PAD_LEFT);
+    }
+}
