@@ -17,7 +17,7 @@ class LoanApplication extends Model
     protected $fillable = [
         'user_id', 'reference', 'full_name', 'email', 'contact_number', 'address',
         'birth_date', 'civil_status', 'employment_status', 'employer_name',
-        'monthly_income', 'loan_type', 'amount', 'term_months', 'purpose',
+        'source_of_income', 'monthly_income', 'loan_type', 'amount', 'term_months',
         'status', 'admin_remarks', 'reviewed_at',
     ];
 

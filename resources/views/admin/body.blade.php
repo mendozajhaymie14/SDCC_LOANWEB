@@ -32,7 +32,7 @@
   <div class="kpi-grid">
     <div class="kpi-card blue" onclick="switchPage('disbursements', null)" data-tip="View disbursements">
       <div class="kpi-top"><div class="kpi-label">Total Loan Disbursed</div><div class="kpi-icon blue"></div></div>
-      <div class="kpi-val">₱0</div>
+      <div class="kpi-val" id="totalDisbursed">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
     </div>
     <div class="kpi-card purple" onclick="window.location.href='{{ route('borrowers.index') }}'" data-tip="View borrowers" style="cursor:pointer;">
       <div class="kpi-top">
@@ -139,7 +139,6 @@
 <div class="page" id="page-applications">
   <div class="page-header">
     <div class="page-heading">All Applications</div>
-    <button class="btn-new" onclick="openModal('newApp')">+ New Application</button>
   </div>
   <div class="filter-row">
   <button class="filter-btn active" onclick="filterApps('all',this)">All ({{ $applications->count() }})</button>

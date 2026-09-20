@@ -29,10 +29,9 @@ class CreateNewUser implements CreatesNewUsers
         Validator::make($input, [
             'is_existing_member' => ['nullable', 'in:0,1'],
             'member_id'          => [Rule::requiredIf($isExisting), 'nullable', 'string', 'max:255'],
-            'date_of_birth'      => [Rule::requiredIf($isExisting), 'nullable', 'date'],
-            'first_name'         => [Rule::requiredIf(!$isExisting), 'nullable', 'string', 'max:255'],
+            'first_name'         => ['nullable', 'string', 'max:255'],
             'middle_name'        => ['nullable', 'string', 'max:255'],
-            'last_name'          => [Rule::requiredIf(!$isExisting), 'nullable', 'string', 'max:255'],
+            'last_name'          => ['nullable', 'string', 'max:255'],
             'email'              => ['required', 'string', 'email', 'max:255', 'unique:users', 'ends_with:@gmail.com'],
             'password'           => $this->passwordRules(),
             'terms'              => Jetstream::hasTermsAndPrivacyPolicyFeature() ? ['accepted', 'required'] : '',
@@ -41,12 +40,11 @@ class CreateNewUser implements CreatesNewUsers
         // 2. Existing Member Creation Flow
         if ($isExisting) {
             $member = CoopMember::where('member_id', trim($input['member_id']))
-                ->where('date_of_birth', $input['date_of_birth'])
                 ->first();
 
             if (!$member) {
                 throw ValidationException::withMessages([
-                    'member_id' => ['The provided Member ID or Date of Birth does not match our cooperative records.'],
+                    'member_id' => ['The provided Member ID does not match our cooperative records.'],
                 ]);
             }
 

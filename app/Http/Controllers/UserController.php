@@ -61,7 +61,8 @@ class UserController extends Controller
             'email'             => ['required', 'email', 'max:255'],
             'contact_number'    => ['required', 'string', 'max:30'],
             'address'           => ['required', 'string', 'max:500'],
-            'employment_status' => ['required', 'in:Employed,Self-employed,Business Owner,Retired,Unemployed'],
+            'member_status'     => ['required', 'in:Employed,Self-employed,Business Owner,Student'],
+            'source_of_income'  => ['required', 'string', 'max:255'],
             'employer_name'     => ['nullable', 'string', 'max:255'],
             'monthly_income'    => ['required', 'numeric', 'min:1', 'max:99999999'],
             'loan_type'         => ['required', 'in:' . implode(',', array_keys(self::LOAN_TYPES))],
@@ -84,7 +85,7 @@ class UserController extends Controller
         }
 
         // Employer name is required for Employed and Business Owner
-        if (in_array($data['employment_status'], ['Employed', 'Business Owner']) && empty($data['employer_name'])) {
+        if (in_array($data['member_status'], ['Employed', 'Business Owner']) && empty($data['employer_name'])) {
             return back()
                 ->withInput()
                 ->withErrors(['employer_name' => 'Employer or business name is required for this employment status.']);
@@ -102,6 +103,8 @@ class UserController extends Controller
         }
 
         unset($data['agree']);
+        $data['employment_status'] = $data['member_status'];
+        unset($data['member_status']);
         $data['user_id']   = Auth::id();
         $data['reference'] = LoanApplication::makeReference();
         $data['status']    = 'pending';

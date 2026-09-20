@@ -69,6 +69,8 @@ Route::middleware(['auth'])->group(function () {
         ->name('admins.index');
 });
 
+Route::get('/api/member/{memberId}', [\App\Http\Controllers\MemberLookupController::class, 'show'])->name('member.lookup');
+
 Route::get('/', [AdminController::class, 'index']);
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');

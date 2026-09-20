@@ -50,7 +50,6 @@
           <h2 class="panel-title">All Applications</h2>
           <span class="records-count">Total Records: {{ $applications->count() }}</span>
         </div>
-        <button class="btn-new" type="button" onclick="openModal('newApp')">+ New Application</button>
       </div>
 
       <div class="filter-row">
@@ -118,20 +117,5 @@
 <!-- TOAST CONTAINER -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script>
-  function filterApps(status, btnEl) {
-    // Mark the clicked tab as active, un-mark the rest.
-    document.querySelectorAll('.filter-row .filter-btn')
-      .forEach(b => b.classList.remove('active'));
-    if (btnEl) btnEl.classList.add('active');
-
-    // Show only rows whose data-status matches, or all rows for 'all'.
-    document.querySelectorAll('.app-table tbody tr[data-status]')
-      .forEach(row => {
-        const rowStatus = row.getAttribute('data-status');
-        row.style.display = (status === 'all' || rowStatus === status) ? '' : 'none';
-      });
-  }
-</script>
 </body>
 </html>

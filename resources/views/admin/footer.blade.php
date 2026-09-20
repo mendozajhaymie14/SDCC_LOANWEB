@@ -602,7 +602,12 @@
         if (!res.ok) throw new Error('Request failed');
         return res.json();
       })
-      .then(() => {
+      .then(data => {
+        // Update the "Total Loan Disbursed" KPI without waiting for reload
+        if (data && data.total_disbursed != null) {
+          const el = document.getElementById('totalDisbursed');
+          if (el) el.textContent = '₱' + Number(data.total_disbursed).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
         showToast(action === 'approve' ? 'success' : 'error', successMsg, action === 'approve' ? '✅' : '❌');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
@@ -626,8 +631,27 @@
 
   // ─── FILTER ───
   function filterApps(status, el) {
+    // Mark the clicked tab as active, un-mark the rest.
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     if (el) el.classList.add('active');
+
+    // Determine which table to filter:
+    //   - standalone /applications page uses .app-table
+    //   - dashboard #page-applications uses its own table
+    let rows;
+    const appPage = document.querySelector('.app-table tbody tr[data-status]');
+    if (appPage) {
+      rows = document.querySelectorAll('.app-table tbody tr[data-status]');
+    } else {
+      const dashPage = document.getElementById('page-applications');
+      rows = dashPage ? dashPage.querySelectorAll('tbody tr[data-status]') : [];
+    }
+
+    rows.forEach(row => {
+      const rowStatus = row.getAttribute('data-status');
+      row.style.display = (status === 'all' || rowStatus === status) ? '' : 'none';
+    });
+
     showToast('info', 'Filtered: ' + (status === 'all' ? 'All applications' : status), '🔍');
   }
 

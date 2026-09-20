@@ -20,8 +20,10 @@ class AdminController extends Controller
                 $applications = Application::latest()->get();
                 // Fetch total count of active borrowers
                 $activeBorrowersCount = Borrowers::where('status', 'Active')->count();
+                // Total value of all approved loans — drives the "Total Loan Disbursed" KPI
+                $totalDisbursed = (float) Application::where('status', 'Approved')->sum('amount');
 
-                return view('admin.index', compact('applications', 'activeBorrowersCount'));
+                return view('admin.index', compact('applications', 'activeBorrowersCount', 'totalDisbursed'));
             }
 
             return view('home.index');
@@ -107,9 +109,10 @@ class AdminController extends Controller
         ]);
 
         return response()->json([
-            'success' => true,
-            'app_id'  => $application->app_id,
-            'status'  => $application->status,
+            'success'        => true,
+            'app_id'         => $application->app_id,
+            'status'         => $application->status,
+            'total_disbursed' => (float) Application::where('status', 'Approved')->sum('amount'),
         ]);
     }
 
@@ -135,9 +138,10 @@ class AdminController extends Controller
         ]);
 
         return response()->json([
-            'success' => true,
-            'app_id'  => $application->app_id,
-            'status'  => $application->status,
+            'success'        => true,
+            'app_id'         => $application->app_id,
+            'status'         => $application->status,
+            'total_disbursed' => (float) Application::where('status', 'Approved')->sum('amount'),
         ]);
     }
 

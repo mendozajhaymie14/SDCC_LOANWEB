@@ -53,15 +53,23 @@
 
       <div class="grid-2">
         <div class="field">
-          <label for="employment_status">Employment status *</label>
-          <select id="employment_status" name="employment_status"
-                  class="@error('employment_status') has-error @enderror" required>
+          <label for="member_status">Member status *</label>
+          <select id="member_status" name="member_status"
+                  class="@error('member_status') has-error @enderror" required>
             <option value="">Select one</option>
-            @foreach (['Employed', 'Self-employed', 'Business Owner', 'Retired', 'Student'] as $status)
-              <option value="{{ $status }}" @selected(old('employment_status') === $status)>{{ $status }}</option>
+            @foreach (['Employed', 'Self-employed', 'Business Owner', 'Student'] as $status)
+              <option value="{{ $status }}" @selected(old('member_status') === $status)>{{ $status }}</option>
             @endforeach
           </select>
-          @error('employment_status') <span class="error-text">{{ $message }}</span> @enderror
+          @error('member_status') <span class="error-text">{{ $message }}</span> @enderror
+        </div>
+
+        <div class="field">
+          <label for="source_of_income">Source of income *</label>
+          <input type="text" id="source_of_income" name="source_of_income"
+                 value="{{ old('source_of_income') }}"
+                 class="@error('source_of_income') has-error @enderror" required
+          @error('source_of_income') <span class="error-text">{{ $message }}</span> @enderror
         </div>
 
         <div class="field" id="employerNameField">
@@ -115,6 +123,12 @@
       </div>
     </fieldset>
 
+    <div class="field checkbox-field">
+      <input type="checkbox" id="agree" name="agree" value="1" @checked(old('agree'))>
+      <label for="agree">I confirm that my details are true and correct.</label>
+      @error('agree') <span class="error-text">{{ $message }}</span> @enderror
+    </div>
+
     <div class="form-actions">
       <button type="submit" class="btn-solid">Submit application</button>
       <a href="{{ route('user.dashboard') }}" class="btn-cancel">Cancel</a>
@@ -136,14 +150,27 @@
 
 <script>
   (function () {
-    // ─── Hide/show employer name based on employment status ───
-    var employmentStatus = document.getElementById('employment_status');
+    // ─── Remove spinner arrows + disable mouse wheel on number inputs ───
+    document.querySelectorAll('input[type="number"]').forEach(function (input) {
+      // Hide spinner arrows (Chrome, Safari, Edge, Firefox)
+      input.style.mozAppearance = 'textfield';
+      input.addEventListener('mousewheel', function (e) { e.preventDefault(); }, { passive: false });
+    });
+    var style = document.createElement('style');
+    style.textContent = 'input[type="number"]::-webkit-outer-spin-button, ' +
+                        'input[type="number"]::-webkit-inner-spin-button { ' +
+                        '-webkit-appearance: none; margin: 0; } ' +
+                        'input[type="number"] { -moz-appearance: textfield; }';
+    document.head.appendChild(style);
+
+    // ─── Hide/show employer name based on member status ───
+    var memberStatus = document.getElementById('member_status');
     var employerField = document.getElementById('employerNameField');
 
-    if (employmentStatus && employerField) {
+    if (memberStatus && employerField) {
       function toggleEmployer() {
-        var val = employmentStatus.value;
-        if (val === 'Self-employed' || val === 'Unemployed' || val === 'Retired') {
+        var val = memberStatus.value;
+        if (val === 'Student') {
           employerField.style.display = 'none';
           var input = employerField.querySelector('input');
           if (input) { input.removeAttribute('name'); input.removeAttribute('required'); }
@@ -153,7 +180,7 @@
           if (input) { input.setAttribute('name', 'employer_name'); }
         }
       }
-      employmentStatus.addEventListener('change', toggleEmployer);
+      memberStatus.addEventListener('change', toggleEmployer);
       toggleEmployer();
     }
 

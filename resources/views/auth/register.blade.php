@@ -40,7 +40,48 @@
 
                 <!-- Right Form Side -->
                 <div class="register-form-side" style="padding: 40px; display: flex; align-items: center; justify-content: center; background-color: #ffffff; border-top-right-radius: 46px; border-bottom-right-radius: 46px;">
-                    <div style="width: 100%; box-sizing: border-box;" x-data="{ isExistingMember: {{ old('is_existing_member') == '1' ? '1' : '0' }} }">
+                    <div style="width: 100%; box-sizing: border-box;" x-data="{
+                        isExistingMember: {{ old('is_existing_member') == '1' ? '1' : '0' }},
+                        memberStatus: '',
+                        first_name: {{ json_encode(old('first_name')) }},
+                        middle_name: {{ json_encode(old('middle_name')) }},
+                        last_name: {{ json_encode(old('last_name')) }},
+                        lookupError: '',
+                        lookupSuccess: '',
+                        lookupMember() {
+                            this.lookupError = '';
+                            this.lookupSuccess = '';
+                            const id = (this.$refs.member_id.value || '').trim();
+                            if (!id) {
+                                this.first_name = '';
+                                this.last_name = '';
+                                this.middle_name = '';
+                                return;
+                            }
+                            fetch('{{ route('member.lookup', ['memberId' => '__MEMBER_ID__']) }}'.replace('__MEMBER_ID__', encodeURIComponent(id)), { headers: { Accept: 'application/json' } })
+                                .then(r => r.json())
+                                .then(data => {
+                                    if (data.ok) {
+                                        this.first_name = data.member.first_name;
+                                        this.middle_name = data.member.middle_name;
+                                        this.last_name = data.member.last_name;
+                                        this.lookupSuccess = 'Member details loaded from our records.';
+                                        this.lookupError = '';
+                                    } else {
+                                        this.first_name = '';
+                                        this.last_name = '';
+                                        this.middle_name = '';
+                                        this.lookupError = data.message || 'Member ID not found. Please check and try again.';
+                                    }
+                                })
+                                .catch(() => {
+                                    this.first_name = '';
+                                    this.last_name = '';
+                                    this.middle_name = '';
+                                    this.lookupError = 'Could not look up that Member ID right now.';
+                                });
+                        }
+                    }">
 
                         <x-validation-errors class="mb-4" />
 
@@ -62,15 +103,31 @@
                                 </div>
                             </div>
 
-                            <!-- Legacy Member Verification Fields (Shows ONLY when 'Yes' is selected) -->
+                            <!-- Existing Member Verification Fields (Shows ONLY when 'Yes' is selected) -->
                             <div x-show="isExistingMember === 1" x-cloak style="display: flex; flex-direction: column; gap: 10px; background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="member_id" value="{{ __('Member ID') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
-                                    <x-input id="member_id" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="member_id" :value="old('member_id')" placeholder="e.g. SDCC-2023-0001" x-bind:required="isExistingMember === 1" />
+                                    <x-input id="member_id" x-ref="member_id" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="member_id" :value="old('member_id')" placeholder="e.g. SDCC-2023-0001" x-bind:required="isExistingMember === 1" @input.debounce.500ms="lookupMember" />
                                 </div>
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <x-label for="date_of_birth" value="{{ __('Date of Birth') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
-                                    <x-input id="date_of_birth" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="date" name="date_of_birth" :value="old('date_of_birth')" x-bind:required="isExistingMember === 1" />
+                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="first_name" value="{{ __('First Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="first_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="first_name" x-bind:value="first_name" placeholder="Auto-filled from member record" x-bind:readonly="lookupSuccess !== ''" x-bind:required="isExistingMember === 1" autocomplete="given-name" />
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="middle_name" value="{{ __('Middle Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="middle_name" x-bind:value="middle_name" placeholder="Optional" x-bind:readonly="lookupSuccess !== ''" autocomplete="additional-name" />
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="last_name" value="{{ __('Last Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="last_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="last_name" x-bind:value="last_name" placeholder="Auto-filled from member record" x-bind:readonly="lookupSuccess !== ''" x-bind:required="isExistingMember === 1" autocomplete="family-name" />
+                                    </div>
+                                </div>
+                                <div x-show="lookupError" x-cloak style="font-size: 12px; color: #dc2626; font-weight: 600;">
+                                    <span x-text="lookupError"></span>
+                                </div>
+                                <div x-show="lookupSuccess" x-cloak style="font-size: 12px; color: #166534; font-weight: 600;">
+                                    <span x-text="lookupSuccess"></span>
                                 </div>
                             </div>
 
@@ -78,15 +135,15 @@
                             <div x-show="isExistingMember === 0" x-cloak style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="first_name" value="{{ __('First Name') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                    <x-input id="first_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="first_name" :value="old('first_name')" x-bind:required="isExistingMember === 0" autocomplete="given-name" />
+                                    <x-input id="first_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="first_name" x-bind:value="first_name" x-bind:required="isExistingMember === 0" autocomplete="given-name" />
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="middle_name" value="{{ __('Middle Name') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                    <x-input id="middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="middle_name" :value="old('middle_name')" autocomplete="additional-name" />
+                                    <x-input id="middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="middle_name" x-bind:value="middle_name" autocomplete="additional-name" />
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="last_name" value="{{ __('Last Name') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                    <x-input id="last_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="last_name" :value="old('last_name')" x-bind:required="isExistingMember === 0" autocomplete="family-name" />
+                                    <x-input id="last_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="last_name" x-bind:value="last_name" x-bind:required="isExistingMember === 0" autocomplete="family-name" />
                                 </div>
                             </div>
 

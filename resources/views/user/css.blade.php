@@ -254,6 +254,16 @@
 
   .error-text { display: block; margin-top: 6px; font-size: 13px; color: #a32b2b; }
 
+  /* Remove spinner arrows and disable mouse wheel on number inputs */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
   .checkbox-field {
     display: flex;
     gap: 12px;
