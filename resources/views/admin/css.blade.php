@@ -17,6 +17,7 @@
   --accent3: #059669;
   --gold: #d97706;
   --red: #dc2626;
+  --green: #22c55e;
   --orange: #ea580c;
   --text: #0f172a;
   --muted: #64748b;
@@ -66,6 +67,11 @@ body {
   gap: 0.8rem;
   cursor: pointer;
   box-sizing: border-box;
+  text-decoration: none;
+}
+
+.sidebar-logo:hover {
+  text-decoration: none;
 }
 
 /* Custom Sidebar Logo Style */
@@ -85,7 +91,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-weight: 800;
   font-size: 0.9rem;
   color: #ffffff;
@@ -93,22 +99,25 @@ body {
 }
 
 .logo-text {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-weight: 800;
-  font-size: 1.15rem;
-  color: #2e7d32;
-  letter-spacing: -0.02em;
-  text-decoration: none; /* Removes text underline if present */
-  border-bottom: none;    /* Removes bottom border line if present */
+  font-size: 0.85rem;
+  color: #1b5e20;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  border-bottom: none;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
-.logo-text span {
-  color: #4caf50;
+.logo-text a {
+  text-decoration: none;
+  color: inherit;
 }
 
-/* If the line was created using an ::after pseudo-element */
-.logo-text::after {
-  display: none;
+.logo-line {
+  display: block;
+  text-decoration: none;
 }
 
 .sidebar-section {
@@ -191,17 +200,18 @@ body {
 
 .admin-pill:hover { background: #e2e8f0; }
 
-/* Admin Avatar Image Styling */
-.admin-avatar-img {
+/* Admin Avatar Icon Styling */
+.admin-avatar-icon {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  object-fit: cover;
   flex-shrink: 0;
-  display: block;
-  background-color: #cbd5e1; /* Gray background fallback */
-  overflow: hidden;         /* Prevents alt text from spilling out */
-  font-size: 0;             /* Hides overflowing broken alt text */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green);
+  color: #ffffff;
+  font-size: 1.1rem;
 }
 .admin-role {
   font-size: 0.95rem;
@@ -222,8 +232,8 @@ body {
   display: none !important;
 }
 
-.sidebar:not(:hover) .admin-avatar-img {
-  display: block !important;
+.sidebar:not(:hover) .admin-avatar-icon {
+  display: flex !important;
   margin: 0 auto;
 }
 
@@ -294,7 +304,7 @@ body {
 }
 
 .topbar-title {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-size: 1.1rem;
   font-weight: 700;
   flex: 1;
@@ -397,7 +407,7 @@ body {
 }
 
 .page-heading {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-size: 1.4rem;
   font-weight: 800;
 }
@@ -436,7 +446,7 @@ body {
   border-radius: 50px;
   border: none;
   cursor: pointer;
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   transition: opacity 0.2s ease, transform 0.2s ease;
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
 }
@@ -474,7 +484,7 @@ body {
 }
 
 .notif-head-title {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-weight: 700;
   font-size: 0.9rem;
 }
@@ -566,7 +576,7 @@ body {
 }
 
 .kpi-val {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-size: 2.1rem;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -692,7 +702,7 @@ tbody tr:hover { background: rgba(2, 132, 199, 0.04); }
 tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 
 .td-mono {
-  font-family: 'DM Mono', monospace;
+  font-family: 'DM Sans', sans-serif;
   font-size: 0.78rem;
   color: var(--muted2);
 }
@@ -775,7 +785,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 }
 
 .modal-title {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-weight: 700;
   font-size: 1.1rem;
 }
@@ -847,7 +857,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   border-radius: 10px;
   border: none;
   cursor: pointer;
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   letter-spacing: 0.02em;
   transition: opacity 0.2s, transform 0.2s;
   margin-top: 0.5rem;
@@ -888,7 +898,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 }
 
 .panel-title {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-weight: 700;
   font-size: 1.25rem;
   color: var(--text-main, #0f172a);
@@ -1041,7 +1051,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   .sidebar .nav-badge,
   .sidebar .admin-details,
   .sidebar .admin-more { display: none !important; }
-  .sidebar .admin-avatar-img { display: block !important; margin: 0 auto; }
+  .sidebar .admin-avatar-icon { display: flex !important; margin: 0 auto; }
   .sidebar .nav-item { width: 44px; height: 44px; margin: 0.3rem auto; padding: 0; justify-content: center; }
   .sidebar .nav-icon { width: 100%; margin: 0; }
   .sidebar .sidebar-logo { width: 100%; justify-content: center; padding: 0; }

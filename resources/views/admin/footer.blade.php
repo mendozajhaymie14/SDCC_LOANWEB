@@ -1,6 +1,6 @@
 <!-- PROFILE & SETTINGS DROPDOWN -->
 <div class="profile-dropdown" id="profileDropdown">
-    <div class="pd-item" onclick="switchPage('admins', null)">👥 Admin Users</div>
+    <a href="{{ route('admins.index') }}" class="pd-item">👥 Admin Users</a>
     <div class="pd-divider"></div>
     <div class="pd-item danger" onclick="confirmLogout()">🚪 Log Out</div>
 
@@ -245,7 +245,7 @@
       pending:'Pending Review', approved:'Approved Loans', rejected:'Rejected',
       disbursements:'Disbursements', repayments:'Repayments', borrowers:'Borrowers',
       credit:'Credit Assessment', risk:'Risk Flags', settings:'Settings',
-      admins:'Admin Users', reports:'Reports'
+      reports:'Reports'
     };
     
     const topbarTitle = document.getElementById('topbarTitle');
@@ -281,8 +281,8 @@
       bodyEl.innerHTML = `
         ${row('Applicant', app.name)}
         ${row('Loan Type', app.type)}
-        ${row('Amount', `<span style="font-family:'DM Mono',monospace;">${app.amount}</span>`)}
-        ${row('AI Score', `<span style="font-family:'DM Mono',monospace;color:${scoreC};">${app.score ?? 'N/A'}</span>`)}
+        ${row('Amount', `<span style="font-family:'DM Sans',sans-serif;">${app.amount}</span>`)}
+        ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${app.score ?? 'N/A'}</span>`)}
         ${row('Date', app.date)}
         ${row('Status', `<span class="status-pill ${app.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
         
@@ -355,8 +355,8 @@
         ${row('Full Name', b.name)}
         ${row('Email Address', b.email)}
         ${row('Phone Number', b.phone)}
-        ${row('Monthly Income', `<span style="font-family:'DM Mono',monospace;">${b.income}</span>`)}
-        ${row('AI Score', `<span style="font-family:'DM Mono',monospace;color:${scoreC};">${b.score ?? 'N/A'}</span>`)}
+        ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${b.income}</span>`)}
+        ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${b.score ?? 'N/A'}</span>`)}
         ${row('Date Joined', b.date)}
         ${row('Status', `<span class="status-pill ${b.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
         

@@ -34,6 +34,8 @@
           <label for="contact_number">Mobile number *</label>
           <input type="tel" id="contact_number" name="contact_number"
                  value="{{ old('contact_number') }}" placeholder="09XX XXX XXXX"
+                 inputmode="numeric" pattern="[0-9]{11}" maxlength="11"
+                 title="Enter exactly 11 digits"
                  class="@error('contact_number') has-error @enderror" required>
           @error('contact_number') <span class="error-text">{{ $message }}</span> @enderror
         </div>
@@ -65,24 +67,26 @@
         </div>
 
         <div class="field">
+          <label for="monthly_income">Monthly income * <span class="hint">(in pesos)</span></label>
+          <input type="number" id="monthly_income" name="monthly_income" min="1" step="0.01"
+                 value="{{ old('monthly_income') }}"
+                 class="@error('monthly_income') has-error @enderror" required>
+          @error('monthly_income') <span class="error-text">{{ $message }}</span> @enderror
+        </div>
+
+        <div class="field">
           <label for="source_of_income">Source of income *</label>
           <input type="text" id="source_of_income" name="source_of_income"
                  value="{{ old('source_of_income') }}"
-                 class="@error('source_of_income') has-error @enderror" required
+                 inputmode="text" pattern="[A-Za-z][A-Za-z .'-]*"
+                 title="Letters only (no numbers)"
+                 class="@error('source_of_income') has-error @enderror" required>
           @error('source_of_income') <span class="error-text">{{ $message }}</span> @enderror
         </div>
 
         <div class="field" id="employerNameField">
           <label for="employer_name">Employer or business name</label>
           <input type="text" id="employer_name" name="employer_name" value="{{ old('employer_name') }}">
-        </div>
-
-        <div class="field">
-          <label for="monthly_income">Monthly income * <span class="hint">(in pesos)</span></label>
-          <input type="number" id="monthly_income" name="monthly_income" min="1" step="0.01"
-                 value="{{ old('monthly_income') }}"
-                 class="@error('monthly_income') has-error @enderror" required>
-          @error('monthly_income') <span class="error-text">{{ $message }}</span> @enderror
         </div>
       </div>
     </fieldset>
@@ -96,7 +100,7 @@
           <select id="loan_type" name="loan_type" class="@error('loan_type') has-error @enderror" required>
             <option value="">Select a loan product</option>
             @foreach ($loanTypes as $name => $description)
-              <option value="{{ $name }}" @selected(old('loan_type') === $name)>{{ $name }} — {{ $description }}</option>
+              <option value="{{ $name }}" @selected(old('loan_type') === $name)>{{ $name }}</option>
             @endforeach
           </select>
           @error('loan_type') <span class="error-text">{{ $message }}</span> @enderror
@@ -114,7 +118,7 @@
           <label for="term_months">Payment term *</label>
           <select id="term_months" name="term_months" class="@error('term_months') has-error @enderror" required>
             <option value="">Select term</option>
-            @foreach ([6, 12, 18, 24, 36, 48, 60] as $term)
+            @foreach ([6, 12, 18, 24, 36] as $term)
               <option value="{{ $term }}" @selected((int) old('term_months', 12) === $term)>{{ $term }} months</option>
             @endforeach
           </select>
@@ -163,6 +167,38 @@
                         'input[type="number"] { -moz-appearance: textfield; }';
     document.head.appendChild(style);
 
+    // ─── Mobile number: digits only, exactly 11 digits ───
+    var mobileInput = document.getElementById('contact_number');
+    if (mobileInput) {
+      mobileInput.addEventListener('input', function () {
+        var cleaned = mobileInput.value.replace(/\D/g, '');
+        if (cleaned.length > 11) { cleaned = cleaned.slice(0, 11); }
+        mobileInput.value = cleaned;
+      });
+      mobileInput.addEventListener('blur', function () {
+        if (mobileInput.value && mobileInput.value.length !== 11) {
+          mobileInput.setCustomValidity('Please enter exactly 11 digits.');
+        } else {
+          mobileInput.setCustomValidity('');
+        }
+      });
+    }
+
+    // ─── Source of income: letters only (no digits) ───
+    var sourceInput = document.getElementById('source_of_income');
+    if (sourceInput) {
+      sourceInput.addEventListener('input', function () {
+        sourceInput.value = sourceInput.value.replace(/[0-9]/g, '');
+      });
+      sourceInput.addEventListener('blur', function () {
+        if (sourceInput.value && /[^A-Za-z .'-]/.test(sourceInput.value)) {
+          sourceInput.setCustomValidity('Source of income must contain letters only.');
+        } else {
+          sourceInput.setCustomValidity('');
+        }
+      });
+    }
+
     // ─── Hide/show employer name based on member status ───
     var memberStatus = document.getElementById('member_status');
     var employerField = document.getElementById('employerNameField');
@@ -184,22 +220,13 @@
       toggleEmployer();
     }
 
-    // ─── Dynamic payment term based on loan product ───
+    // ─── Payment terms: 6 to 36 months for every loan product ───
     var loanType = document.getElementById('loan_type');
     var termSelect = document.getElementById('term_months');
-
-    var TERM_OPTIONS = {
-      'short': [6, 12],         // Salary, Emergency, Business
-      'long':  [6]              // Educational, Appliance
-    };
-
-    // Loan types that map to max 12 months
-    var SHORT_TERM_LOANS = ['Salary Loan', 'Emergency Loan', 'Business Loan'];
+    var TERM_OPTIONS = [6, 12, 18, 24, 36];
 
     function updateTermOptions() {
-      if (!loanType || !termSelect) return;
-      var val = loanType.value;
-      var options = SHORT_TERM_LOANS.indexOf(val) !== -1 ? TERM_OPTIONS['short'] : TERM_OPTIONS['long'];
+      if (!termSelect) return;
 
       // Rebuild options
       termSelect.innerHTML = '';
@@ -208,7 +235,7 @@
       defaultOption.textContent = 'Select term';
       termSelect.appendChild(defaultOption);
 
-      options.forEach(function (term) {
+      TERM_OPTIONS.forEach(function (term) {
         var opt = document.createElement('option');
         opt.value = term;
         opt.textContent = term + ' months';
@@ -216,9 +243,7 @@
       });
 
       // Auto-select first valid option
-      if (options.length > 0) {
-        termSelect.value = String(options[0]);
-      }
+      termSelect.value = String(TERM_OPTIONS[0]);
     }
 
     if (loanType && termSelect) {

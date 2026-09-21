@@ -59,30 +59,22 @@ class UserController extends Controller
         $data = $request->validate([
             'full_name'         => ['required', 'string', 'max:255'],
             'email'             => ['required', 'email', 'max:255'],
-            'contact_number'    => ['required', 'string', 'max:30'],
+            'contact_number'    => ['required', 'string', 'size:11', 'regex:/^[0-9]{11}$/'],
             'address'           => ['required', 'string', 'max:500'],
             'member_status'     => ['required', 'in:Employed,Self-employed,Business Owner,Student'],
-            'source_of_income'  => ['required', 'string', 'max:255'],
+            'source_of_income'  => ['required', 'string', 'max:255', 'regex:/^[A-Za-z .\'-]+$/'],
             'employer_name'     => ['nullable', 'string', 'max:255'],
             'monthly_income'    => ['required', 'numeric', 'min:1', 'max:99999999'],
             'loan_type'         => ['required', 'in:' . implode(',', array_keys(self::LOAN_TYPES))],
             'amount'            => ['required', 'numeric', 'min:1000', 'max:2000000'],
-            'term_months'       => ['required', 'integer', 'min:6', 'max:60'],
+            'term_months'       => ['required', 'integer', 'min:6', 'max:36'],
             'agree'             => ['accepted'],
         ], [
             'agree.accepted'    => 'Please confirm your details are true and correct.',
             'amount.min'        => 'The smallest loan we release is ₱1,000.',
+            'contact_number.regex' => 'Mobile number must be exactly 11 digits.',
+            'source_of_income.regex' => 'Source of income must contain letters only.',
         ]);
-
-        // Dynamic term validation based on loan type
-        $shortTermLoans = ['Salary Loan', 'Emergency Loan', 'Business Loan'];
-        $maxTerm = in_array($data['loan_type'], $shortTermLoans) ? 12 : 6;
-
-        if ($data['term_months'] > $maxTerm) {
-            return back()
-                ->withInput()
-                ->withErrors(['term_months' => "Maximum payment term for {$data['loan_type']} is {$maxTerm} months."]);
-        }
 
         // Employer name is required for Employed and Business Owner
         if (in_array($data['member_status'], ['Employed', 'Business Owner']) && empty($data['employer_name'])) {
