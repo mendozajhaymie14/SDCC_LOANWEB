@@ -40,6 +40,24 @@ return new class extends Migration
                     $table->text('admin_remarks')->nullable()->after('status');
                 });
             }
+
+            if (!in_array('share_capital', $columns)) {
+                Schema::table('loan_applications', function (Blueprint $table) {
+                    $table->decimal('share_capital', 12, 2)->nullable()->after('amount');
+                });
+            }
+
+            if (!in_array('collateral', $columns)) {
+                Schema::table('loan_applications', function (Blueprint $table) {
+                    $table->string('collateral', 60)->nullable()->after('share_capital');
+                });
+            }
+
+            if (!in_array('purpose', $columns)) {
+                Schema::table('loan_applications', function (Blueprint $table) {
+                    $table->text('purpose')->nullable()->after('collateral');
+                });
+            }
         }
     }
 

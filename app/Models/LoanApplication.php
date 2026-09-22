@@ -17,14 +17,16 @@ class LoanApplication extends Model
     protected $fillable = [
         'user_id', 'reference', 'full_name', 'email', 'contact_number', 'address',
         'birth_date', 'civil_status', 'employment_status', 'employer_name',
-        'source_of_income', 'monthly_income', 'loan_type', 'amount', 'term_months',
-        'status', 'admin_remarks', 'reviewed_at',
+        'source_of_income', 'monthly_income', 'loan_type', 'amount', 'share_capital',
+        'collateral', 'purpose', 'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
     ];
 
     protected $casts = [
         'birth_date'     => 'date',
         'reviewed_at'    => 'datetime',
+        'documents'      => 'array',
         'amount'         => 'decimal:2',
+        'share_capital'  => 'decimal:2',
         'monthly_income' => 'decimal:2',
     ];
 

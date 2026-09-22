@@ -312,6 +312,22 @@
   }
   .estimate-foot { margin-top: 20px; font-size: 12px; color: #5a7a5e; line-height: 1.6; }
 
+  /* ─── MATRIX-DRIVEN FIELDS ─── */
+  .requirements-panel {
+    background: var(--off-white);
+    border: 1px solid #d8e8db;
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .requirements-hint { font-size: 14px; color: #5a7a5e; margin: 0; }
+  .requirements-list {
+    margin: 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 8px;
+  }
+  .requirements-list li { font-size: 14px; color: var(--text-mid); line-height: 1.55; }
+
   @media (max-width: 900px) {
     .member-main { padding: 104px 20px 64px; }
     .passbook { grid-template-columns: 1fr; padding: 32px 26px; }
