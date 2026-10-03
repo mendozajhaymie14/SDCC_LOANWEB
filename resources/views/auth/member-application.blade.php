@@ -45,7 +45,7 @@
 
                         <x-validation-errors class="mb-4" />
 
-                        <form method="POST" action="{{ route('member.applications.store') }}" style="display: flex; flex-direction: column; gap: 24px; margin: 0;">
+                        <form method="POST" action="{{ route('member.applications.store') }}" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 24px; margin: 0;">
                             @csrf
 
                             <!-- ── Personal Information ── -->
@@ -250,6 +250,54 @@
                                 </fieldset>
                             </div>
 
+                            <!-- ── Supporting Documents & TIN ── -->
+                            <div class="form-card">
+                                <fieldset style="border: none; padding: 0; margin: 0;">
+                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Supporting Documents</legend>
+
+                                    <div style="font-size: 13px; color: var(--text-mid); line-height: 1.6; margin-bottom: 20px;">
+                                        Please attach a 1&times;1 ID picture and a proof of billing. All uploads accept JPG, PNG or PDF (max 5&nbsp;MB).
+                                    </div>
+
+                                    <div class="grid-2">
+                                      <div class="field">
+                                        <label for="tin">Tax Identification Number (TIN)</label>
+                                        <input type="text" id="tin" name="tin"
+                                               value="{{ old('tin') }}"
+                                               class="member-app-input"
+                                               placeholder="e.g. 123-456-789-0000000" />
+                                        @error('tin')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
+                                      </div>
+
+                                      <div class="field member-file-field">
+                                        <label for="id_picture">1&times;1 ID Picture</label>
+                                        <label for="id_picture" class="member-file-drop">
+                                          <input type="file" id="id_picture" name="id_picture"
+                                                 accept=".jpg,.jpeg,.png,.pdf"
+                                                 class="sr-file-input" />
+                                          <span class="mf-icon"><i class="fa-solid fa-id-card"></i></span>
+                                          <span class="mf-text">Tap to upload your ID picture</span>
+                                          <span class="mf-hint">JPG, PNG or PDF &middot; up to 5&nbsp;MB</span>
+                                        </label>
+                                        @error('id_picture')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
+                                      </div>
+
+                                      <div class="field member-file-field full">
+                                        <label for="proof_of_billing">Proof of Billing</label>
+                                        <label for="proof_of_billing" class="member-file-drop">
+                                          <input type="file" id="proof_of_billing" name="proof_of_billing"
+                                                 accept=".jpg,.jpeg,.png,.pdf"
+                                                 class="sr-file-input" />
+                                          <span class="mf-icon"><i class="fa-solid fa-receipt"></i></span>
+                                          <span class="mf-text">Tap to upload your proof of billing</span>
+                                          <span class="mf-hint">JPG, PNG or PDF &middot; up to 5&nbsp;MB</span>
+                                        </label>
+                                        @error('proof_of_billing')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
+                                      </div>
+                                    </div>
+                                </fieldset>
+                            </div>
+
                             <!-- ── Submit ── -->
                             <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 24px; gap: 16px;">
                                 <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
@@ -384,6 +432,53 @@
         /* Radio buttons */
         .checkbox-field { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-mid); line-height: 1.6; }
         .checkbox-field input { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; }
+
+        /* File upload drop-zone */
+        .member-file-field label { display: block; }
+        .sr-file-input {
+          position: absolute;
+          width: 1px; height: 1px;
+          padding: 0; margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
+        .member-file-drop {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 26px 20px;
+          border: 2px dashed #c3d8c6;
+          border-radius: 14px;
+          background: var(--green-wash);
+          cursor: pointer;
+          transition: border-color 0.2s, background 0.2s;
+          text-align: center;
+        }
+        .member-file-drop:hover {
+          border-color: var(--green-mid);
+          background: var(--green-wash);
+        }
+        .member-file-drop:has(.sr-file-input:focus) {
+          outline: 2px solid var(--green-mid);
+          outline-offset: 2px;
+        }
+        .member-file-drop .mf-icon {
+          font-size: 26px;
+          color: var(--green-mid);
+        }
+        .member-file-drop .mf-text {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-dark);
+        }
+        .member-file-drop .mf-hint {
+          font-size: 12px;
+          color: var(--text-muted);
+        }
 
         /* Media queries for responsive */
         @media (max-width: 991px) {
