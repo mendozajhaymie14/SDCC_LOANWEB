@@ -24,10 +24,10 @@
                                  alt="San Dionisio Credit Cooperative Logo"
                                  style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
                         </div>
-                        <h1 style="font-family: 'Bebas Neue', sans-serif; font-size: clamp(38px, 5vw, 54px); letter-spacing: 0.5px; line-height: 1; color: var(--text-dark); margin: 0; text-transform: uppercase;">
+                        <h1 style="font-family: 'Bebas Neue', sans-serif; font-size: clamp(38px, 5vw, 54px); letter-spacing: 0.5px; line-height: 1; color: #ffffff; margin: 0; text-transform: uppercase; text-shadow: 0 1px 8px rgba(0,0,0,0.35);">
                             San Dionisio<br>Credit<br>Cooperative
                         </h1>
-                        <p style="font-size: 16px; color: #5a7a5e; max-width: 260px; line-height: 1.6; margin: 0;">
+                        <p style="font-size: 15px; color: rgba(255,255,255,0.9); max-width: 260px; line-height: 1.6; margin: 0; text-shadow: 0 1px 4px rgba(0,0,0,0.25);">
                             Membership application form. Fill in your details and we will review your application.
                         </p>
                     </div>
@@ -50,7 +50,7 @@
 
                             <!-- ── Personal Information ── -->
                             <div class="form-header">
-                                <h1>Membership Application</h1>
+                                <h1>Membership <span style="color: var(--gold);">Application</span></h1>
                                 <p>Fill in your details below. Fields marked with * are required.</p>
                             </div>
 
@@ -63,7 +63,7 @@
                                         <label for="surname">Surname *</label>
                                         <input type="text" id="surname" name="surname"
                                                value="{{ old('surname') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                required autocomplete="family-name" />
                                         @error('surname')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -72,7 +72,7 @@
                                         <label for="first_name">First Name *</label>
                                         <input type="text" id="first_name" name="first_name"
                                                value="{{ old('first_name') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                required autocomplete="given-name" />
                                         @error('first_name')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -81,7 +81,7 @@
                                         <label for="middle_name">Middle Name</label>
                                         <input type="text" id="middle_name" name="middle_name"
                                                value="{{ old('middle_name') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                autocomplete="additional-name" />
                                         @error('middle_name')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -99,42 +99,42 @@
                                         <label for="house_no">House No. </label>
                                         <input type="text" id="house_no" name="house_no"
                                                value="{{ old('house_no') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="street">Street</label>
                                         <input type="text" id="street" name="street"
                                                value="{{ old('street') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="barangay">Barangay</label>
                                         <input type="text" id="barangay" name="barangay"
                                                value="{{ old('barangay') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="municipality">Municipality</label>
                                         <input type="text" id="municipality" name="municipality"
                                                value="{{ old('municipality') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="zip_code">Zip Code</label>
                                         <input type="text" id="zip_code" name="zip_code"
                                                value="{{ old('zip_code') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
                                     </div>
 
                                     <div style="display: flex; align-items: center; gap: 8px; margin-top: 24px; font-size: 14px; color: var(--text-mid);">
                                       <span style="font-weight: 600;">Tagal ng Paninirahan (Length of Stay):</span>
-                                      <input type="number" name="stay_years" value="{{ old('stay_years') }}" min="0" max="99" style="width: 52px; padding: 8px 12px; border: 1px solid border-dull; border-radius: 12px; font-size: 14px;" /> <span>yr(s)</span>
-                                      <input type="number" name="stay_months" value="{{ old('stay_months') }}" min="0" max="11" style="width: 52px; padding: 8px 12px; border: 1px solid border-dull; border-radius: 12px; font-size: 14px;" /> <span>month(s)</span>
+                                      <input type="number" name="stay_years" value="{{ old('stay_years') }}" min="0" max="99" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>yr(s)</span>
+                                      <input type="number" name="stay_months" value="{{ old('stay_months') }}" min="0" max="11" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>month(s)</span>
                                     </div>
                                 </fieldset>
                             </div>
@@ -149,42 +149,42 @@
                                         <label for="perm_house_no">House No. </label>
                                         <input type="text" id="perm_house_no" name="perm_house_no"
                                                value="{{ old('perm_house_no') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="perm_street">Street</label>
                                         <input type="text" id="perm_street" name="perm_street"
                                                value="{{ old('perm_street') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="perm_barangay">Barangay</label>
                                         <input type="text" id="perm_barangay" name="perm_barangay"
                                                value="{{ old('perm_barangay') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="perm_municipality">Municipality</label>
                                         <input type="text" id="perm_municipality" name="perm_municipality"
                                                value="{{ old('perm_municipality') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
 
                                       <div class="field">
                                         <label for="perm_zip_code">Zip Code</label>
                                         <input type="text" id="perm_zip_code" name="perm_zip_code"
                                                value="{{ old('perm_zip_code') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white" />
+                                               class="member-app-input" />
                                       </div>
                                     </div>
 
                                     <div style="display: flex; align-items: center; gap: 8px; margin-top: 24px; font-size: 14px; color: var(--text-mid);">
                                       <span style="font-weight: 600;">Tagal ng Paninirahan (Length of Stay):</span>
-                                      <input type="number" name="perm_stay_years" value="{{ old('perm_stay_years') }}" min="0" max="99" style="width: 52px; padding: 8px 12px; border: 1px solid border-dull; border-radius: 12px; font-size: 14px;" /> <span>yr(s)</span>
-                                      <input type="number" name="perm_stay_months" value="{{ old('perm_stay_months') }}" min="0" max="11" style="width: 52px; padding: 8px 12px; border: 1px solid border-dull; border-radius: 12px; font-size: 14px;" /> <span>month(s)</span>
+                                      <input type="number" name="perm_stay_years" value="{{ old('perm_stay_years') }}" min="0" max="99" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>yr(s)</span>
+                                      <input type="number" name="perm_stay_months" value="{{ old('perm_stay_months') }}" min="0" max="11" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>month(s)</span>
                                     </div>
                                 </fieldset>
                             </div>
@@ -211,7 +211,7 @@
                                         <label for="contact_number" class="field label">Contact No. </label>
                                         <input type="text" id="contact_number" name="contact_number"
                                                value="{{ old('contact_number') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                required />
                                         @error('contact_number')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -220,7 +220,7 @@
                                         <label for="email" class="field label">Email Address </label>
                                         <input type="email" id="email" name="email"
                                                value="{{ old('email') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                required autocomplete="email" />
                                         @error('email')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -238,7 +238,7 @@
                                         <label for="birthdate">Birthdate *</label>
                                         <input type="date" id="birthdate" name="birthdate"
                                                value="{{ old('birthdate') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                required autocomplete="bday" />
                                         @error('birthdate')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -247,7 +247,7 @@
                                         <label for="nationality">Nationality *</label>
                                         <input type="text" id="nationality" name="nationality"
                                                value="{{ old('nationality') }}"
-                                               class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                               class="member-app-input"
                                                required />
                                         @error('nationality')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
@@ -257,7 +257,7 @@
                                       <label for="place_of_birth" class="field label">Lugar ng Kapanganakan (Place of Birth) *</label>
                                       <input type="text" id="place_of_birth" name="place_of_birth"
                                              value="{{ old('place_of_birth') }}"
-                                             class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                             class="member-app-input"
                                              required />
                                       @error('place_of_birth')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                     </div>
@@ -285,7 +285,7 @@
                                       <label for="occupation" class="field label">Hanap-Buhay (Occupation) *</label>
                                       <input type="text" id="occupation" name="occupation"
                                              value="{{ old('occupation') }}"
-                                             class="block w-full border border-dull rounded-lg shadow-sm focus:border var(--green-mid) focus:ring var(--green-mid) text-sm py-3 px-4 bg-off-white"
+                                             class="member-app-input"
                                              required />
                                       @error('occupation')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                     </div>
@@ -306,7 +306,7 @@
 
                             <!-- ── Submit ── -->
                             <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 24px; gap: 16px;">
-                                <a href="{{ url('/') }}" style="font-size: 13px; color: var(--text-muted); text-decoration: underline; cursor: pointer;">Cancel</a>
+                                <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
                                 <button type="submit" style="font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background-color: var(--green-deep); color: var(--white); padding: 12px 28px; border-radius: 10px; border: none; cursor: pointer; transition: background 0.2s;">
                                     {{ __('Submit Application') }}
                                 </button>
@@ -320,6 +320,8 @@
         </div>
 
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap');
+
         :root {
           --off-white: #f4faf5;
           --text-dark: #1a2a1a;
@@ -330,6 +332,7 @@
           --green-pale: #b8efc2;
           --green-wash: #e8f9eb;
           --dull: #e2e8f0;
+          --gold: #d4af37;
         }
 
         .error-text { display: block; margin-top: 6px; font-size: 13px; color: #a32b2b; }
@@ -391,8 +394,19 @@
 
         /* Form actions */
         .form-actions { margin-top: 36px; display: flex; gap: 16px; align-items: center; }
-        .btn-cancel { text-decoration: none; font-size: 15px; color: #5a7a5e; }
-        .btn-cancel:hover { color: var(--green-deep); }
+        .btn-cancel {
+          text-decoration: none;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-mid);
+          padding: 12px 24px;
+          border: 1px solid #d8e8db;
+          border-radius: 10px;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .btn-cancel:hover { background: var(--green-wash); color: var(--green-deep); border-color: var(--green-mid); }
 
         /* Submit button */
         button[type="submit"] {
