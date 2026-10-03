@@ -89,53 +89,9 @@
                                 </fieldset>
                             </div>
 
-                            <!-- ── Present Address ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Kasalukuyang Tirahan <span style="font-weight: 500; color: #7a927e; text-transform: none; letter-spacing: 0;">(Present Address)</span></legend>
-
-                                    <div class="grid-2">
-                                      <div class="field">
-                                        <label for="house_no">House No. </label>
-                                        <input type="text" id="house_no" name="house_no"
-                                               value="{{ old('house_no') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="street">Street</label>
-                                        <input type="text" id="street" name="street"
-                                               value="{{ old('street') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="barangay">Barangay</label>
-                                        <input type="text" id="barangay" name="barangay"
-                                               value="{{ old('barangay') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="municipality">Municipality</label>
-                                        <input type="text" id="municipality" name="municipality"
-                                               value="{{ old('municipality') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="zip_code">Zip Code</label>
-                                        <input type="text" id="zip_code" name="zip_code"
-                                               value="{{ old('zip_code') }}"
-                                               class="member-app-input" />
-                                      </div>
-                                    </div>
-                                </fieldset>
-                            </div>
-
                             <!-- ── Permanent Address ── -->
                             <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 40px 0;">
+                                <fieldset style="border: none; padding: 0; margin: 0;">
                                     <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Permanenteng Tirahan <span style="font-weight: 500; color: #7a927e; text-transform: none; letter-spacing: 0;">(Permanent Address)</span></legend>
 
                                     <div class="grid-2">
@@ -237,12 +193,6 @@
                                           <option value="">Select nationality…</option>
                                           <option value="Filipino" @selected(old('nationality') === 'Filipino')>Filipino</option>
                                           <option value="Filipino (dual)" @selected(old('nationality') === 'Filipino (dual)')>Filipino (dual citizen)</option>
-                                          <option value="Naturalized Filipino" @selected(old('nationality') === 'Naturalized Filipino')>Naturalized Filipino</option>
-                                          <option value="Chinese" @selected(old('nationality') === 'Chinese')>Chinese</option>
-                                          <option value="American" @selected(old('nationality') === 'American')>American</option>
-                                          <option value="Korean" @selected(old('nationality') === 'Korean')>Korean</option>
-                                          <option value="Japanese" @selected(old('nationality') === 'Japanese')>Japanese</option>
-                                          <option value="Indian" @selected(old('nationality') === 'Indian')>Indian</option>
                                           <option value="Other" @selected(old('nationality') === 'Other')>Other</option>
                                         </select>
                                         @error('nationality')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
