@@ -5,7 +5,6 @@
   </a>
 
   <ul class="nav-links">
-    <li><a href="#home">Home</a></li>
     <li><a href="#features">About</a></li>
     <li><a href="#how">How</a></li>
     <li><a href="#contact">Contact</a></li>
@@ -14,30 +13,26 @@
   <div class="nav-auth">
     @if (Route::has('login'))
       @auth
-        <div class="user-menu-wrapper" style="position: relative;">
-          <span class="welcome-user">Welcome, <strong>{{ Auth::user()->name }}</strong></span>
-
+        <div class="user-menu-wrapper">
           <div class="profile-dropdown">
-            <button type="button" class="fb-profile-btn" id="profileDropdownBtn" aria-label="User menu" aria-expanded="false">
-              <img
-                src="{{ Auth::user()->profile_photo_url ?? asset('images/default-avatar.jpg') }}"
-                alt="Profile picture"
-                class="fb-avatar-img"
-                onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name={{ urlencode(Auth::user()->name) }}&color=1a5c2a&background=e8f9eb';"
-              >
+            <button type="button" class="fb-profile-btn" id="profileDropdownBtn" aria-haspopup="true" aria-expanded="false">
+              <img src="{{ Auth::user()->profile_photo_url ?? asset('images/default-avatar.jpg') }}"
+                   alt="Profile picture" class="fb-avatar-img"
+                   onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name={{ urlencode(Auth::user()->name) }}&color=1a5c2a&background=e8f9eb';">
               <span class="arrow-badge"><i class="fa-solid fa-chevron-down"></i></span>
             </button>
 
-            <div class="dropdown-menu-custom" id="profileDropdownMenu" style="display: none;">
-              <a href="{{ url('/user/profile') }}" class="dropdown-menu-item">
-                <i class="fa-solid fa-user-pen"></i> Edit Profile
-              </a>
-
-              <form id="logout-form" method="POST" action="{{ route('logout') }}" style="margin: 0;">
+            <div class="dropdown-menu-custom" id="profileDropdown">
+              <div class="dropdown-header">
+                <div class="dropdown-name">{{ Auth::user()->name }}</div>
+                <div class="dropdown-email">{{ Auth::user()->email }}</div>
+              </div>
+              <a href="{{ url('/user/dashboard') }}" class="dropdown-menu-item"><i class="fa-solid fa-gauge"></i> Dashboard</a>
+              <a href="{{ url('/user/loans/apply') }}" class="dropdown-menu-item"><i class="fa-solid fa-hand-holding-dollar"></i> Apply for a loan</a>
+              <a href="{{ url('/user/profile') }}" class="dropdown-menu-item"><i class="fa-solid fa-user-pen"></i> Edit profile</a>
+              <form method="POST" action="{{ route('logout') }}">
                 @csrf
-                <button type="submit" class="dropdown-menu-item logout-btn" style="width: 100%; border: none; background: none; text-align: left; cursor: pointer;">
-                  <i class="fa-solid fa-right-from-bracket"></i> Logout
-                </button>
+                <button type="submit" class="dropdown-menu-item logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
               </form>
             </div>
           </div>
@@ -47,8 +42,12 @@
         @if (Route::has('register'))
           <a href="{{ url('register') }}" class="btn-register">Register</a>
         @endif
-      @endauth
+      @endif
     @endif
+
+    <a href="{{ route('faqs') }}" class="nav-search-icon" title="FAQs">
+      <i class="fa-solid fa-circle-question"></i>
+    </a>
 
     <button type="button" class="nav-toggle" id="sidebarOpenBtn"
             aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
@@ -58,24 +57,23 @@
 </nav>
 
 <script>
+  // ─── Profile dropdown toggle ───
   document.addEventListener('DOMContentLoaded', function () {
     const btn = document.getElementById('profileDropdownBtn');
-    const menu = document.getElementById('profileDropdownMenu');
+    const menu = document.getElementById('profileDropdown');
+    if (!btn || !menu) return;
 
-    if (btn && menu) {
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        const isVisible = menu.style.display === 'block';
-        menu.style.display = isVisible ? 'none' : 'block';
-        btn.setAttribute('aria-expanded', !isVisible);
-      });
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const open = menu.classList.toggle('show');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
 
-      document.addEventListener('click', function (e) {
-        if (!menu.contains(e.target) && !btn.contains(e.target)) {
-          menu.style.display = 'none';
-          btn.setAttribute('aria-expanded', 'false');
-        }
-      });
-    }
+    document.addEventListener('click', function (e) {
+      if (!menu.contains(e.target) && e.target !== btn) {
+        menu.classList.remove('show');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
   });
 </script>

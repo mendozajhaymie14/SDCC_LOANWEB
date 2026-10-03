@@ -60,7 +60,7 @@
 
           {{-- Category: Loan Products --}}
           <details data-category="loans" open>
-            <summary>What loan products does SDCC offer?</summary>
+            <summary>What loan products does SDCC offer? <span class="faq-badge">Most viewed</span></summary>
             <p>We offer six loan products tailored to different needs: <strong>Salary Loan</strong> (short-term against your regular income), <strong>Emergency Loan</strong> (quick release for medical or urgent needs), <strong>Business Loan</strong> (capital for small businesses or expansion), <strong>Educational Loan</strong> (tuition and school expenses), <strong>Appliance Loan</strong> (purchase household appliances on instalment), and <strong>Multi-Purpose Loan</strong> (flexible use for any personal need). Each product has specific eligibility criteria and terms.</p>
           </details>
 
@@ -149,12 +149,12 @@
           {{-- Category: Account --}}
           <details data-category="account">
             <summary>Who can become a member and apply for a loan?</summary>
-            <p>Any resident or worker within the <strong>San Dionisio</strong> community area can become a member. You'll need to register with a valid email address (@gmail.com accepted), provide your contact details, and agree to our terms and privacy policy. Membership requires a minimum share capital of ₱1,000 (payable in instalments).</p>
+            <p>Any resident or worker within the <strong>San Dionisio</strong> community area can become a member. You'll need to register with a valid email address (Gmail accounts are accepted), provide your contact details, and agree to our terms and privacy policy. Membership requires a minimum share capital of ₱1,000 (payable in instalments).</p>
           </details>
 
           <details data-category="account">
             <summary>How do I check my loan application status?</summary>
-            <p>Log in to your member dashboard at <strong>/user/dashboard</strong>. Your application status shows as: <strong>Pending Review</strong>, <strong>For Compliance</strong> (needs more docs), <strong>Approved</strong>, <strong>Released</strong>, or <strong>Rejected</strong>. You'll also receive email updates at each stage.</p>
+            <p>Log in to your member dashboard. Your application status shows as: <strong>Pending Review</strong>, <strong>For Compliance</strong> (needs more docs), <strong>Approved</strong>, <strong>Released</strong>, or <strong>Rejected</strong>. You'll also receive email updates at each stage.</p>
           </details>
 
           <details data-category="account">
@@ -195,12 +195,19 @@
 
         </div>
 
+        {{-- Empty state (shown when search/filter matches nothing) --}}
+        <div class="faq-empty" id="faqEmpty" hidden>
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <p>No matching questions found.</p>
+          <p class="faq-empty-sub">Try a different keyword or select another category above.</p>
+        </div>
+
         {{-- FAQ CTA --}}
         <div class="faq-cta">
           <p>Still have questions?</p>
           <div>
             <a href="{{ url('/contact') }}" class="btn-primary btn-primary-green">Contact Us</a>
-            <a href="{{ route('user.loans.create') }}" class="btn-primary btn-primary-gold">Apply for a Loan</a>
+            <a href="{{ url('/register') }}" class="btn-primary btn-primary-gold">Apply for a Loan</a>
           </div>
         </div>
 
@@ -208,7 +215,65 @@
     </section>
   </main>
 
-  @include('home.footer')
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const searchInput = document.getElementById('faqSearch');
+      const items = Array.from(document.querySelectorAll('.faq-list details'));
+      const catButtons = Array.from(document.querySelectorAll('.faq-cat-btn'));
+      const emptyState = document.getElementById('faqEmpty');
+      let activeCategory = 'all';
+
+      // ── Build per-category counts and append to the buttons ──
+      const counts = { all: items.length };
+      items.forEach((item) => {
+        const cat = item.dataset.category;
+        counts[cat] = (counts[cat] || 0) + 1;
+      });
+      catButtons.forEach((btn) => {
+        const cat = btn.dataset.cat;
+        const n = counts[cat] || 0;
+        btn.innerHTML += ' <span class="faq-cat-count">' + n + '</span>';
+      });
+
+      function applyFilters() {
+        const query = (searchInput.value || '').toLowerCase().trim();
+        let visible = 0;
+
+        items.forEach((item) => {
+          const cat = item.dataset.category;
+          const text = item.textContent.toLowerCase();
+          const matchesSearch = query === '' || text.includes(query);
+          const matchesCategory = activeCategory === 'all' || cat === activeCategory;
+          const show = matchesSearch && matchesCategory;
+          item.style.display = show ? '' : 'none';
+          if (show) visible++;
+        });
+
+        if (emptyState) emptyState.hidden = visible > 0;
+      }
+
+      if (searchInput) {
+        searchInput.addEventListener('input', applyFilters);
+      }
+
+      catButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activeCategory = btn.dataset.cat;
+          catButtons.forEach((b) => {
+            b.classList.remove('active');
+            b.setAttribute('aria-pressed', 'false');
+          });
+          btn.classList.add('active');
+          btn.setAttribute('aria-pressed', 'true');
+          applyFilters();
+        });
+      });
+
+      // Mark the initially-active button ("All") for assistive tech
+      const initial = catButtons.find((b) => b.classList.contains('active'));
+      if (initial) initial.setAttribute('aria-pressed', 'true');
+    });
+  </script>
 
 </body>
 </html>

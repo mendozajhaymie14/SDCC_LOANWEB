@@ -28,19 +28,21 @@
       <div class="slider-tagg">
       </div>
       <h1 class="slider-title">
-        Member AI<br>
-        <em>Loan</em>
+        Member<br>
+        <em>AI</em> Loan<br>
         Marketplace
       </h1>
       <p class="slider-sub">
         Access fast loans from San Dionisio Credit Cooperative — all in one intelligent platform built for our members.
       </p>
+      <p class="slider-trust">
+        <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+        Trusted by 12,000+ members since 1985
+      </p>
       <div class="slider-cta-group">
-  <a href="{{ url('/register') }}" class="btn-primary">Get Started</a>
-  
-  <!-- PLACE IT HERE -->
-  <a href="#how" class="btn-ghost">Learn More</a>
-</div>
+        <a href="{{ url('/register') }}" class="btn-primary">Create Account</a>
+        <a href="{{ url('/member-application') }}" class="btn-ghost">Become a Member</a>
+      </div>
     </div>
 
     <div class="slider-right">
@@ -58,6 +60,34 @@
           <div class="stat-label">Active Members</div>
         </div>
       </div>
+      <div class="hero-mini-preview">
+        <div class="hero-mini-preview-header">
+          <i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i>
+          <span>How it works</span>
+        </div>
+        <div class="hero-mini-preview-steps">
+          <div class="hmp-step">
+            <span class="hmp-num">1</span>
+            <span>Register</span>
+          </div>
+          <div class="hmp-arrow">→</div>
+          <div class="hmp-step">
+            <span class="hmp-num">2</span>
+            <span>Choose Loan</span>
+          </div>
+          <div class="hmp-arrow">→</div>
+          <div class="hmp-step">
+            <span class="hmp-num">3</span>
+            <span>Get Approved</span>
+          </div>
+          <div class="hmp-arrow">→</div>
+          <div class="hmp-step">
+            <span class="hmp-num">4</span>
+            <span>Receive Funds</span>
+          </div>
+        </div>
+        <a href="#how" class="hero-mini-preview-link">See full process <i class="fa-solid fa-arrow-right"></i></a>
+      </div>
     </div>
   </div>
 </section>
@@ -71,29 +101,39 @@
     <p class="section-sub">San Dionisio Credit Cooperative brings member-focused financial services into the digital age.</p>
     <div class="features-grid">
       <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-bolt"></i></div>
         <div class="feature-name">Fast Processing</div>
         <p class="feature-desc">AI-assisted loan evaluation gets you an answer in record time — without the long queues or paperwork piles.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-robot"></i></div>
         <div class="feature-name">AI Loan Matching</div>
         <p class="feature-desc">Smart algorithms match you to the best loan product based on your membership standing and financial profile.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-name">Secure & Trusted</div>
+        <div class="feature-icon"><i class="fa-solid fa-shield-halved"></i></div>
+        <div class="feature-name">Secure &amp; Trusted</div>
         <p class="feature-desc">Member data is protected with bank-grade encryption. Your financial information stays private and safe.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-globe"></i></div>
         <div class="feature-name">Anytime, Anywhere</div>
         <p class="feature-desc">Apply for loans, check your balance, and track repayments from any device at any time of day.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-hands-holding"></i></div>
         <div class="feature-name">Member-Centric</div>
         <p class="feature-desc">Built exclusively for SDCC members — lower rates, flexible terms, and a cooperative spirit at the core.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-chart-line"></i></div>
         <div class="feature-name">Real-Time Dashboard</div>
         <p class="feature-desc">See your loan status, payment schedule, and share capital growth in a clean, easy-to-read dashboard.</p>
       </div>
+    </div>
+    <div class="features-cta">
+      <a href="{{ url('/register') }}" class="btn-primary">Create Account</a>
+      <a href="{{ url('/member-application') }}" class="btn-outline">Become a Member</a>
     </div>
   </div>
 </section>
@@ -106,7 +146,7 @@
     <h2 class="section-title">Apply in 4 Simple Steps</h2>
     <p class="section-sub">From registration to disbursement — the smoothest loan experience you'll find in any cooperative.</p>
     <div class="steps">
-      <div class="step">
+      <div class="step step-active">
         <div class="step-num">01</div>
         <div class="step-title">Register / Login</div>
         <p class="step-desc">Create your member account or log in with your existing SDCC credentials.</p>
@@ -126,6 +166,10 @@
         <div class="step-title">Receive Funds</div>
         <p class="step-desc">Approved loans are disbursed directly to your account within 48 hours.</p>
       </div>
+    </div>
+    <div class="process-cta">
+      <a href="{{ url('/register') }}" class="btn-primary">Create Account</a>
+      <a href="{{ url('/member-application') }}" class="btn-ghost">Become a Member</a>
     </div>
   </div>
 </section>
