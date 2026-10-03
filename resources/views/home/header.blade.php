@@ -38,16 +38,8 @@
           </div>
         </div>
       @else
-        <a href="{{ url('login') }}" class="btn-login">Login</a>
-        @if (Route::has('register'))
-          <a href="{{ url('register') }}" class="btn-register">Register</a>
-        @endif
       @endif
     @endif
-
-    <a href="{{ route('faqs') }}" class="nav-search-icon" title="FAQs">
-      <i class="fa-solid fa-circle-question"></i>
-    </a>
 
     <button type="button" class="nav-toggle" id="sidebarOpenBtn"
             aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
