@@ -1220,6 +1220,17 @@ footer {
     .sidebar-nav i { width: 18px; text-align: center; color: var(--green-mid); }
     .sidebar-nav .logout i { color: #d9534f; }
     .sidebar-nav .logout:hover { background: #fff0f0; color: #c9302c; }
+
+    .sidebar-register {
+      background: var(--green-deep);
+      color: var(--white);
+      border-radius: 100px;
+      font-weight: 700;
+      justify-content: center;
+      margin: 6px 24px 14px;
+      padding: 13px 20px;
+    }
+    .sidebar-register:hover { background: var(--green-mid); color: var(--white); }
     .sidebar-divider { height: 1px; background: #edf5ee; margin: 10px 24px; }
 
     .sidebar-foot {
