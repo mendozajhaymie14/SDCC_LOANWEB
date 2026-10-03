@@ -1226,11 +1226,19 @@ footer {
       color: var(--white);
       border-radius: 100px;
       font-weight: 700;
-      justify-content: center;
-      margin: 6px 24px 14px;
-      padding: 13px 20px;
+      padding: 15px 24px;
     }
     .sidebar-register:hover { background: var(--green-mid); color: var(--white); }
+
+    .sidebar-nav-label {
+      padding: 8px 24px 4px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-mid);
+    }
     .sidebar-divider { height: 1px; background: #edf5ee; margin: 10px 24px; }
 
     .sidebar-foot {
