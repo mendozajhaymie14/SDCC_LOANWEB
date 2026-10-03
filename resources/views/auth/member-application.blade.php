@@ -130,12 +130,6 @@
                                                class="member-app-input" />
                                       </div>
                                     </div>
-
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 24px; font-size: 14px; color: var(--text-mid);">
-                                      <span style="font-weight: 600;">Tagal ng Paninirahan (Length of Stay):</span>
-                                      <input type="number" name="stay_years" value="{{ old('stay_years') }}" min="0" max="99" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>yr(s)</span>
-                                      <input type="number" name="stay_months" value="{{ old('stay_months') }}" min="0" max="11" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>month(s)</span>
-                                    </div>
                                 </fieldset>
                             </div>
 
@@ -179,12 +173,6 @@
                                                value="{{ old('perm_zip_code') }}"
                                                class="member-app-input" />
                                       </div>
-                                    </div>
-
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 24px; font-size: 14px; color: var(--text-mid);">
-                                      <span style="font-weight: 600;">Tagal ng Paninirahan (Length of Stay):</span>
-                                      <input type="number" name="perm_stay_years" value="{{ old('perm_stay_years') }}" min="0" max="99" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>yr(s)</span>
-                                      <input type="number" name="perm_stay_months" value="{{ old('perm_stay_months') }}" min="0" max="11" style="width: 52px; padding: 8px 12px; border: 1px solid #d8e8db; border-radius: 12px; font-size: 14px;" /> <span>month(s)</span>
                                     </div>
                                 </fieldset>
                             </div>
@@ -245,10 +233,18 @@
 
                                       <div class="field">
                                         <label for="nationality">Nationality *</label>
-                                        <input type="text" id="nationality" name="nationality"
-                                               value="{{ old('nationality') }}"
-                                               class="member-app-input"
-                                               required />
+                                        <select id="nationality" name="nationality" class="member-app-input" required>
+                                          <option value="">Select nationality…</option>
+                                          <option value="Filipino" @selected(old('nationality') === 'Filipino')>Filipino</option>
+                                          <option value="Filipino (dual)" @selected(old('nationality') === 'Filipino (dual)')>Filipino (dual citizen)</option>
+                                          <option value="Naturalized Filipino" @selected(old('nationality') === 'Naturalized Filipino')>Naturalized Filipino</option>
+                                          <option value="Chinese" @selected(old('nationality') === 'Chinese')>Chinese</option>
+                                          <option value="American" @selected(old('nationality') === 'American')>American</option>
+                                          <option value="Korean" @selected(old('nationality') === 'Korean')>Korean</option>
+                                          <option value="Japanese" @selected(old('nationality') === 'Japanese')>Japanese</option>
+                                          <option value="Indian" @selected(old('nationality') === 'Indian')>Indian</option>
+                                          <option value="Other" @selected(old('nationality') === 'Other')>Other</option>
+                                        </select>
                                         @error('nationality')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
                                       </div>
                                     </div>
