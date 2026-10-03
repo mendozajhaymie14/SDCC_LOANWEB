@@ -32,11 +32,13 @@
     <li><a href="#contact"><i class="fa-solid fa-envelope"></i> Contact</a></li>
     <li><a href="{{ route('faqs') }}"><i class="fa-solid fa-circle-question"></i> FAQs</a></li>
 
-    <li class="sidebar-divider"></li>
-    <li class="sidebar-nav-label">ACCOUNT</li>
-    <li><a href="{{ url('login') }}"><i class="fa-solid fa-right-to-bracket"></i> Login</a></li>
-    <li><a href="{{ url('register') }}" class="sidebar-register"><i class="fa-solid fa-user-plus"></i> Register</a></li>
-    <li><a href="{{ url('/member-application') }}" class="sidebar-register"><i class="fa-solid fa-id-card"></i> Become a Member</a></li>
+    @guest
+      <li class="sidebar-divider"></li>
+      <li class="sidebar-nav-label">ACCOUNT</li>
+      <li><a href="{{ url('login') }}"><i class="fa-solid fa-right-to-bracket"></i> Login</a></li>
+      <li><a href="{{ url('register') }}" class="sidebar-register"><i class="fa-solid fa-user-plus"></i> Register</a></li>
+      <li><a href="{{ url('/member-application') }}" class="sidebar-register"><i class="fa-solid fa-id-card"></i> Become a Member</a></li>
+    @endguest
 
     @auth
       <li class="sidebar-divider"></li>
