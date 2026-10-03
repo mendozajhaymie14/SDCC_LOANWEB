@@ -30,6 +30,7 @@
     <li><a href="#features"><i class="fa-solid fa-circle-info"></i> About</a></li>
     <li><a href="#how"><i class="fa-solid fa-list-check"></i> How it works</a></li>
     <li><a href="#contact"><i class="fa-solid fa-envelope"></i> Contact</a></li>
+    <li><a href="{{ route('faqs') }}"><i class="fa-solid fa-circle-question"></i> FAQs</a></li>
 
     @auth
       <li class="sidebar-divider"></li>
@@ -45,14 +46,4 @@
       </li>
     @endauth
   </ul>
-
-  @guest
-    <div class="sidebar-foot">
-      <a href="{{ url('login') }}" class="btn-login">Login</a>
-      @if (Route::has('register'))
-        <a href="{{ url('register') }}" class="btn-register">Register</a>
-      @endif
-    </div>
-  @endguest
-
 </aside>
