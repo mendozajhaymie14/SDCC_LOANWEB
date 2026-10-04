@@ -542,6 +542,11 @@
 
         /* Character references table */
         .ref-table {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .ref-row {
           display: grid;
           grid-template-columns: 36px 1fr 1.4fr 1.2fr;
           gap: 1px;
@@ -550,6 +555,9 @@
           border-radius: 14px;
           overflow: hidden;
         }
+        .ref-row:first-child {
+          background: var(--green-wash);
+        }
         .ref-head {
           background: var(--green-wash);
           font-size: 12px;
@@ -557,10 +565,9 @@
           letter-spacing: 0.4px;
           text-transform: uppercase;
           color: var(--green-deep);
-        }
-        .ref-row {
-          background: var(--white);
-          align-items: stretch;
+          display: flex;
+          align-items: center;
+          padding: 10px 12px;
         }
         .ref-no, .ref-col {
           background: var(--white);
@@ -599,7 +606,7 @@
           background: #f8fdfa;
         }
         @media (max-width: 768px) {
-          .ref-table { grid-template-columns: 1fr; }
+          .ref-row { grid-template-columns: 1fr; }
           .ref-head { display: none; }
           .ref-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
           .ref-no { padding: 0; }
