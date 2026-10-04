@@ -46,6 +46,7 @@ class MemberApplication extends Model
         'tin',
         'id_picture',
         'proof_of_billing',
+        'character_references',
         'status',
         'reviewed_at',
         'reviewed_by',
@@ -67,6 +68,7 @@ class MemberApplication extends Model
             'stay_months' => 'int',
             'perm_stay_years' => 'int',
             'perm_stay_months' => 'int',
+        'character_references' => 'array',
         ];
     }
 

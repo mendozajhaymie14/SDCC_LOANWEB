@@ -298,6 +298,55 @@
                                 </fieldset>
                             </div>
 
+                            <!-- ── Character References ── -->
+                            <div class="form-card">
+                                <fieldset style="border: none; padding: 0; margin: 0;">
+                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Character References</legend>
+
+                                    <div style="font-size: 13px; color: var(--text-mid); line-height: 1.6; margin-bottom: 20px;">
+                                        Please provide up to three (3) character references. All details are optional but will help us verify your application.
+                                    </div>
+
+                                    <div class="ref-table" role="table" aria-label="Character references">
+                                      <div class="ref-head" role="row">
+                                        <span class="ref-no" role="columnheader">No.</span>
+                                        <span class="ref-col" role="columnheader">Full Name</span>
+                                        <span class="ref-col" role="columnheader">Address</span>
+                                        <span class="ref-col" role="columnheader">Contact No.</span>
+                                      </div>
+
+                                      @for ($i = 0; $i < 3; $i++)
+                                        <div class="ref-row" role="row">
+                                          <span class="ref-no">{{ $i + 1 }}.</span>
+
+                                          <span class="ref-col" role="cell">
+                                            <label for="ref_full_name_{{ $i }}" class="sr-only">Full name of reference {{ $i + 1 }}</label>
+                                            <input type="text" id="ref_full_name_{{ $i }}" name="character_references[{{ $i }}][full_name]"
+                                                   value="{{ old('character_references.' . $i . '.full_name') }}"
+                                                   class="member-app-input" placeholder="Full name" autocomplete="off" />
+                                          </span>
+
+                                          <span class="ref-col" role="cell">
+                                            <label for="ref_address_{{ $i }}" class="sr-only">Address of reference {{ $i + 1 }}</label>
+                                            <input type="text" id="ref_address_{{ $i }}" name="character_references[{{ $i }}][address]"
+                                                   value="{{ old('character_references.' . $i . '.address') }}"
+                                                   class="member-app-input" placeholder="Address" autocomplete="street-address" />
+                                          </span>
+
+                                          <span class="ref-col" role="cell">
+                                            <label for="ref_contact_{{ $i }}" class="sr-only">Contact number of reference {{ $i + 1 }}</label>
+                                            <input type="tel" id="ref_contact_{{ $i }}" name="character_references[{{ $i }}][contact_number]"
+                                                   value="{{ old('character_references.' . $i . '.contact_number') }}"
+                                                   class="member-app-input" placeholder="09XX XXX XXXX" inputmode="tel" autocomplete="off" />
+                                          </span>
+                                        </div>
+                                      @endfor
+                                    </div>
+
+                                    @error('character_references')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
+                                </fieldset>
+                            </div>
+
                             <!-- ── Submit ── -->
                             <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 24px; gap: 16px;">
                                 <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
@@ -478,6 +527,83 @@
         .member-file-drop .mf-hint {
           font-size: 12px;
           color: var(--text-muted);
+        }
+
+        /* Visually hidden labels */
+        .sr-only {
+          position: absolute;
+          width: 1px; height: 1px;
+          padding: 0; margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
+
+        /* Character references table */
+        .ref-table {
+          display: grid;
+          grid-template-columns: 36px 1fr 1.4fr 1.2fr;
+          gap: 1px;
+          background: #e2f0e4;
+          border: 1px solid #e2f0e4;
+          border-radius: 14px;
+          overflow: hidden;
+        }
+        .ref-head {
+          background: var(--green-wash);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          color: var(--green-deep);
+        }
+        .ref-row {
+          background: var(--white);
+          align-items: stretch;
+        }
+        .ref-no, .ref-col {
+          background: var(--white);
+          display: flex;
+          align-items: center;
+        }
+        .ref-no {
+          justify-content: center;
+          font-weight: 700;
+          font-size: 13px;
+          color: var(--text-mid);
+          padding: 10px 4px;
+        }
+        .ref-col {
+          padding: 6px 10px;
+        }
+        .ref-col input {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid #d8e8db;
+          border-radius: 10px;
+          background: var(--off-white);
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          color: var(--text-dark);
+          transition: border-color 0.2s, background 0.2s;
+        }
+        .ref-col input:focus {
+          outline: 2px solid var(--green-mid);
+          outline-offset: 1px;
+          border-color: var(--green-mid);
+          background: var(--white);
+        }
+        .ref-row:nth-child(even) .ref-col input,
+        .ref-row:nth-child(even) .ref-no {
+          background: #f8fdfa;
+        }
+        @media (max-width: 768px) {
+          .ref-table { grid-template-columns: 1fr; }
+          .ref-head { display: none; }
+          .ref-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+          .ref-no { padding: 0; }
+          .ref-col { padding: 0; }
         }
 
         /* Media queries for responsive */

@@ -72,6 +72,12 @@ class MemberApplicationController extends Controller
             'tin'             => ['nullable', 'string', 'max:30'],
             'id_picture'      => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
             'proof_of_billing' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
+
+            // ── Character references (up to three) ──
+            'character_references'            => ['nullable', 'array', 'max:3'],
+            'character_references.*.full_name' => ['nullable', 'string', 'max:255'],
+            'character_references.*.address'   => ['nullable', 'string', 'max:255'],
+            'character_references.*.contact_number' => ['nullable', 'string', 'max:20'],
         ])->validate();
 
         // Normalize strings so the DB never stores stray whitespace
@@ -100,6 +106,31 @@ class MemberApplicationController extends Controller
             $data['tin'] = strtoupper(trim($data['tin']));
         } else {
             $data['tin'] = null;
+        }
+
+        // Normalize character references; drop fully-empty rows and cap at three
+        if (!empty($data['character_references']) && is_array($data['character_references'])) {
+            $refs = [];
+            foreach (array_slice($data['character_references'], 0, 3) as $ref) {
+                if (!is_array($ref)) {
+                    continue;
+                }
+
+                $full_name  = isset($ref['full_name']) && $ref['full_name'] !== '' ? $this->normalize($ref['full_name']) : null;
+                $address    = isset($ref['address']) && $ref['address'] !== '' ? $this->normalize($ref['address']) : null;
+                $contact_no = isset($ref['contact_number']) && $ref['contact_number'] !== '' ? trim($ref['contact_number']) : null;
+
+                if ($full_name || $address || $contact_no) {
+                    $refs[] = [
+                        'full_name'  => $full_name,
+                        'address'    => $address,
+                        'contact_number' => $contact_no,
+                    ];
+                }
+            }
+            $data['character_references'] = $refs;
+        } else {
+            $data['character_references'] = null;
         }
 
         // Store the supporting documents and keep only their public paths
