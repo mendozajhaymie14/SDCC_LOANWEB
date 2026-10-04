@@ -30,6 +30,13 @@
     <span class="nav-label">Repayments</span>
   </a>
 
+  <div class="sidebar-section">Membership</div>
+  <a href="{{ route('memberships.index') }}" class="nav-item {{ request()->is('memberships') ? 'active' : '' }}">
+    <i class="fa-solid fa-id-card nav-icon"></i>
+    <span class="nav-label">Membership Applications</span>
+    <span class="nav-badge" id="badge-memberships"></span>
+  </a>
+
   <div class="sidebar-section">Clients</div>
 <a href="{{ route('borrowers.index') }}" class="nav-item {{ request()->routeIs('borrowers.index') ? 'active' : '' }}">
   <i class="fa-solid fa-users nav-icon"></i>

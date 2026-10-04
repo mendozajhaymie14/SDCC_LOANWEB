@@ -13,32 +13,14 @@
 
   <div class="nav-auth">
     <div class="user-menu-wrapper">
-      <span class="welcome-user">Welcome, <strong>{{ Auth::user()->name }}</strong></span>
+      <span class="welcome-user" title="Welcome, {{ Auth::user()->name }}">Welcome, <strong>{{ Auth::user()->name }}</strong></span>
 
-      <div class="profile-dropdown">
-        <button type="button" class="fb-profile-btn" id="profileDropdownBtn" aria-label="User menu">
-          <img
-            src="{{ Auth::user()->profile_photo_url ?? asset('images/default-avatar.jpg') }}"
-            alt="Profile picture"
-            class="fb-avatar-img"
-            onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name={{ urlencode(Auth::user()->name) }}&color=1a5c2a&background=e8f9eb';"
-          >
-          <span class="arrow-badge"><i class="fa-solid fa-chevron-down"></i></span>
+      <form method="POST" action="{{ route('logout') }}" class="nav-logout">
+        @csrf
+        <button type="submit" class="nav-logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
-
-        <div class="dropdown-menu-custom" id="profileDropdownMenu">
-          <a href="{{ url('/user/profile') }}" class="dropdown-menu-item">
-            <i class="fa-solid fa-user-pen"></i> Edit Profile
-          </a>
-
-          <form method="POST" action="{{ route('logout') }}">
-            @csrf
-            <button type="submit" class="dropdown-menu-item logout-btn">
-              <i class="fa-solid fa-right-from-bracket"></i> Logout
-            </button>
-          </form>
-        </div>
-      </div>
+      </form>
     </div>
 
     <button type="button" class="nav-toggle" id="sidebarOpenBtn"

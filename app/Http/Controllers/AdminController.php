@@ -277,4 +277,85 @@ class AdminController extends Controller
         $admins = \App\Models\User::where('usertype', 'admin')->latest()->get();
         return view('admin.admins', compact('admins'));
     }
+
+    // 14. Membership Applications — list
+    public function memberships()
+    {
+        $applications = \App\Models\MemberApplication::latest()->get();
+        return view('admin.memberships', compact('applications'));
+    }
+
+    // 15. Approve a membership application — creates / links a CoopMember
+    public function approveMember($id)
+    {
+        $application = \App\Models\MemberApplication::findOrFail($id);
+
+        // If this applicant is already a registered member, just link them.
+        $existing = \App\Models\CoopMember::where('email', $application->email)->first();
+
+        if (!$existing) {
+            $lastId = \App\Models\CoopMember::max('id') ?? 0;
+            $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+
+            $existing = \App\Models\CoopMember::create([
+                'member_id'     => $memberId,
+                'full_name'     => $application->fullName,
+                'date_of_birth' => $application->birthdate,
+                'email'         => $application->email,
+                'is_registered' => false,
+            ]);
+        }
+
+        $application->status             = 'approved';
+        $application->reviewed_at        = now();
+        $application->reviewed_by        = Auth::id();
+        $application->approved_member_id = $existing->id;
+        $application->save();
+
+        return response()->json([
+            'success'     => true,
+            'id'          => $id,
+            'status'      => 'approved',
+            'member_id'   => $existing->member_id,
+        ]);
+    }
+
+    // 16. Reject a membership application
+    public function rejectMember($id)
+    {
+        $application = \App\Models\MemberApplication::findOrFail($id);
+
+        $application->status      = 'rejected';
+        $application->reviewed_at = now();
+        $application->reviewed_by = Auth::id();
+        $application->save();
+
+        return response()->json([
+            'success' => true,
+            'id'      => $id,
+            'status'  => 'rejected',
+        ]);
+    }
+
+    // 17. Delete a membership application
+    public function destroyMember($id)
+    {
+        $application = \App\Models\MemberApplication::findOrFail($id);
+
+        // If this application had already been approved into a member,
+        // remove the created member so the registry stays consistent.
+        if ($application->approved_member_id) {
+            $member = \App\Models\CoopMember::find($application->approved_member_id);
+            if ($member && !$member->is_registered && !$member->user_id) {
+                $member->delete();
+            }
+        }
+
+        $application->delete();
+
+        return response()->json([
+            'success' => true,
+            'id'      => $id,
+        ]);
+    }
 }

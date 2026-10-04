@@ -5,10 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LoanApplication extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     // Explicit, so the table name never again depends on how the class
     // happens to be capitalised.
@@ -16,9 +17,9 @@ class LoanApplication extends Model
 
     protected $fillable = [
         'user_id', 'reference', 'full_name', 'email', 'contact_number', 'address',
-        'birth_date', 'civil_status', 'employment_status', 'employer_name',
+        'birth_date', 'employment_status', 'employer_name',
         'source_of_income', 'monthly_income', 'loan_type', 'amount', 'share_capital',
-        'collateral', 'purpose', 'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
+        'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
     ];
 
     protected $casts = [
@@ -59,8 +60,20 @@ class LoanApplication extends Model
         };
     }
 
+    /**
+     * Human-readable loan product name, resolved from the config matrix.
+     */
+    public function getLoanTypeLabelAttribute(): string
+    {
+        return config('loan_matrix.loan_types.' . $this->loan_type, $this->loan_type);
+    }
+
     public static function makeReference(): string
     {
-        return 'SDCC-' . now()->format('Y') . '-' . str_pad((string) (self::max('id') + 1), 6, '0', STR_PAD_LEFT);
+        // Include soft-deleted rows so a withdrawn application's reference can
+        // never be reissued. (max('id') alone adds WHERE deleted_at IS NULL.)
+        $nextId = static::withTrashed()->max('id') + 1;
+
+        return 'SDCC-' . now()->format('Y') . '-' . str_pad((string) $nextId, 6, '0', STR_PAD_LEFT);
     }
 }

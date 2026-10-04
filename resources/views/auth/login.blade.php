@@ -1,6 +1,6 @@
 <x-guest-layout>
     <!-- Page Container -->
-    <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #E5E7EB; padding: 2rem; font-family: sans-serif;">
+    <div class="login-page" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #E5E7EB; padding: 2rem; font-family: sans-serif;">
         
         <!-- Expanded Width Wrapper -->
         <div style="width: 100%; max-width: 1100px; margin: 0 auto;">
@@ -16,10 +16,10 @@
             </div>
 
             <!-- Main Black Frame Container (Border reduced to 2px) -->
-            <div style="width: 100%; border: 2px solid #000000; border-radius: 48px; padding: 0; overflow: hidden; background-color: #ffffff; display: grid; grid-template-columns: 1fr 1fr; box-sizing: border-box; min-height: 480px; align-items: stretch; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-                
+            <div class="login-frame" style="width: 100%; border: 2px solid #000000; border-radius: 48px; padding: 0; overflow: hidden; background-color: #ffffff; display: grid; grid-template-columns: 1fr 1fr; box-sizing: border-box; min-height: 480px; align-items: stretch; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+
                 <!-- Left Banner with bg.png -->
-                <div style="position: relative; height: 100%; width: 100%; min-height: 480px; border-top-left-radius: 46px; border-bottom-left-radius: 46px; border-top-right-radius: 40px; border-bottom-right-radius: 40px; overflow: hidden; display: flex; align-items: center; justify-content: center; background-image: url('{{ asset('images/bg.png') }}'); background-size: cover; background-position: center; padding: 32px;">
+                <div class="login-banner" style="position: relative; height: 100%; width: 100%; min-height: 480px; border-top-left-radius: 46px; border-bottom-left-radius: 46px; border-top-right-radius: 40px; border-bottom-right-radius: 40px; overflow: hidden; display: flex; align-items: center; justify-content: center; background-image: url('{{ asset('images/bg.png') }}'); background-size: cover; background-position: center; padding: 32px;">
 
                     <!-- Banner Content -->
                     <div style="position: relative; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 22px; width: 100%;">
@@ -39,7 +39,7 @@
                 </div>
 
                 <!-- Right Form Side -->
-                <div style="padding: 40px; display: flex; align-items: center; justify-content: center; background-color: #ffffff; border-top-right-radius: 46px; border-bottom-right-radius: 46px;">
+                <div class="login-form-side" style="padding: 40px; display: flex; align-items: center; justify-content: center; background-color: #ffffff; border-top-right-radius: 46px; border-bottom-right-radius: 46px;">
                     <div style="width: 100%; box-sizing: border-box;">
                         
                         <x-validation-errors class="mb-4" />
@@ -94,4 +94,33 @@
             </div>
         </div>
     </div>
+
+    <style>
+        @media (max-width: 991px) {
+            .login-page { padding: 1rem; }
+            .login-frame { border-radius: 28px; min-height: auto; display: block !important; }
+            .login-banner { min-height: 200px !important; border-radius: 24px 24px 0 0; }
+            .login-form-side { border-radius: 0 0 24px 24px; }
+        }
+
+        @media (max-width: 768px) {
+            .login-page { padding: 0.75rem; }
+            .login-frame { border-radius: 20px; }
+            .login-banner { min-height: 160px !important; padding: 20px; }
+            .login-form-side { padding: 28px 20px; }
+            .login-form-side > div { max-width: 100%; }
+        }
+
+        @media (max-width: 480px) {
+            .login-page { padding: 0.5rem; }
+            .login-banner { min-height: 130px !important; padding: 14px; }
+            .login-form-side { padding: 24px 16px; }
+        }
+
+        @media (max-width: 768px) {
+            .login-banner [style*="width: 130px"] { width: 90px !important; height: 90px !important; }
+            .login-banner h1 { font-size: 18px !important; }
+            .login-banner { padding: 16px !important; }
+        }
+    </style>
 </x-guest-layout>

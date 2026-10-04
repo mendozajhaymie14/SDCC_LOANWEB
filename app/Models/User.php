@@ -6,7 +6,7 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -16,7 +16,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens;
+    use HasApiTokens, SoftDeletes;
 
     /** @use HasFactory<UserFactory> */
     use HasFactory;
@@ -119,6 +119,31 @@ class User extends Authenticatable
             get: function () {
                 $parts = explode(' ', trim($this->name ?? ''));
                 return count($parts) > 1 ? end($parts) : '';
+            }
+        );
+    }
+
+    /**
+     * Accessor for the year the member joined the cooperative.
+     *
+     * Prefers the year encoded in the member_id (last 4 digits), falling
+     * back to the coop member record's creation date, then the user's own.
+     */
+    public function memberSince(): Attribute
+    {
+        return Attribute::make(
+            get: function () {
+                $memberId = $this->coopMember?->member_id;
+                if (is_string($memberId) && preg_match('/(\d{4})$/', $memberId, $matches)) {
+                    $year = (int) $matches[1];
+                    if ($year >= 1990 && $year <= 2030) {
+                        return $matches[1];
+                    }
+                }
+
+                return $this->coopMember?->created_at?->format('Y')
+                    ?? $this->created_at?->format('Y')
+                    ?? 'today';
             }
         );
     }

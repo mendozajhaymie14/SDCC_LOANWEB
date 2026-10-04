@@ -67,18 +67,37 @@ Route::middleware(['auth'])->group(function () {
     // Admin Users page — lists accounts with usertype = 'admin'
     Route::get('/admin/users', [AdminController::class, 'adminUsers'])
         ->name('admins.index');
+
+    // Cooperative membership applications (from the public form)
+    Route::get('/memberships', [AdminController::class, 'memberships'])
+        ->name('memberships.index');
+    Route::post('/memberships/{id}/approve', [AdminController::class, 'approveMember'])
+        ->name('memberships.approve');
+    Route::post('/memberships/{id}/reject', [AdminController::class, 'rejectMember'])
+        ->name('memberships.reject');
+    Route::delete('/memberships/{id}', [AdminController::class, 'destroyMember'])
+        ->name('memberships.destroy');
 });
 
 Route::get('/api/member/{memberId}', [\App\Http\Controllers\MemberLookupController::class, 'show'])->name('member.lookup');
+
+// Cooperative membership application (guests only — for people who are not
+// yet registered members). Kept separate from the regular register flow so
+// the two paths stay easy to distinguish.
+Route::get('/member-application', [\App\Http\Controllers\MemberApplicationController::class, 'create'])->name('member.applications.create');
+Route::post('/member-application', [\App\Http\Controllers\MemberApplicationController::class, 'store'])->name('member.applications.store');
+Route::get('/member-application/{id}', [\App\Http\Controllers\MemberApplicationController::class, 'show'])->name('member.applications.show');
 
 Route::get('/', [AdminController::class, 'index']);
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
 // Fixed /admin/data route
-Route::get('/admin/data', function () {
-    $applications = Application::latest()->get();
-    return view('admin.data', compact('applications'));
+Route::middleware(['auth'])->group(function () {
+    Route::get('/admin/data', function () {
+        $applications = Application::latest()->get();
+        return view('admin.data', compact('applications'));
+    });
 });
 
 Route::get('/exit', function () {

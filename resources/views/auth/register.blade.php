@@ -101,6 +101,10 @@
                                         <span>No, I am new</span>
                                     </label>
                                 </div>
+                                <p style="font-size: 11px; color: #6b7280; margin: 8px 0 0;">
+                                    Select “Yes” if you already have a Member ID. Select “No” to create an online account — note that this does not yet make you a cooperative member.
+                                    Not a member yet? <a href="{{ route('member.applications.create') }}" style="color: #16a34a; font-weight: 600; text-decoration: underline;">Apply for membership here</a>.
+                                </p>
                             </div>
 
                             <!-- Existing Member Verification Fields (Shows ONLY when 'Yes' is selected) -->
@@ -227,23 +231,35 @@
 
         @media (max-width: 991px) {
             .register-page { padding: 1rem; }
-            .register-frame { border-radius: 28px; min-height: auto; display: block; }
-            .register-banner { min-height: 240px; border-radius: 24px 24px 0 0; }
+            .register-frame { border-radius: 28px; min-height: auto; display: block !important; }
+            .register-banner { min-height: 200px !important; border-radius: 24px 24px 0 0; }
             .register-form-side { border-radius: 0 0 24px 24px; }
         }
 
         @media (max-width: 768px) {
             .register-page { padding: 0.75rem; }
             .register-frame { border-radius: 20px; }
-            .register-banner { min-height: 200px; padding: 24px 20px; }
+            .register-banner { min-height: 160px !important; padding: 20px; }
             .register-form-side { padding: 28px 20px; }
             .register-actions > div:last-child > button { width: 100%; padding: 12px 16px; }
         }
 
         @media (max-width: 480px) {
             .register-page { padding: 0.5rem; }
-            .register-banner { min-height: 180px; padding: 16px; }
+            .register-banner { min-height: 130px !important; padding: 14px; }
             .register-form-side { padding: 24px 16px; }
+        }
+
+        @media (max-width: 768px) {
+            .register-banner [style*="width: 130px"] { width: 90px !important; height: 90px !important; }
+            .register-banner h1 { font-size: 18px !important; }
+            .register-banner { padding: 16px !important; }
+        }
+
+        @media (max-width: 600px) {
+            [style*="grid-template-columns: repeat(3"] { grid-template-columns: 1fr !important; }
+            [style*="grid-template-columns: repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+            .register-form-side [style*="gap: 16px"] { gap: 8px; }
         }
     </style>
 </x-guest-layout>

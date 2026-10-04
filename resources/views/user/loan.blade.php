@@ -17,7 +17,6 @@
     @include('user.loan-form')
   </main>
 
-  @include('user.footer')
 
   @include('user.scripts')
 

@@ -7,22 +7,6 @@
 
   document.addEventListener('DOMContentLoaded', function () {
 
-    // ─── Profile dropdown ───
-    const profileBtn   = document.getElementById('profileDropdownBtn');
-    const dropdownMenu = document.getElementById('profileDropdownMenu');
-
-    if (profileBtn && dropdownMenu) {
-      profileBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        dropdownMenu.classList.toggle('show');
-      });
-      document.addEventListener('click', function (e) {
-        if (!profileBtn.contains(e.target) && !dropdownMenu.contains(e.target)) {
-          dropdownMenu.classList.remove('show');
-        }
-      });
-    }
-
     // ─── Sidebar ───
     const sidebar  = document.getElementById('sidebar');
     const overlay  = document.getElementById('sidebarOverlay');

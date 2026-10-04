@@ -60,6 +60,16 @@
     line-height: 1.7;
     max-width: 44ch;
   }
+  .passbook-empty-hint {
+    font-size: 13px;
+    color: var(--gold-light);
+    background: rgba(212,175,55,0.12);
+    border: 1px solid rgba(212,175,55,0.3);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-top: 16px;
+    max-width: 360px;
+  }
   .passbook-ledger {
     position: relative;
     z-index: 1;
@@ -112,6 +122,7 @@
   .app-type { font-size: 16px; font-weight: 600; color: var(--text-dark); margin-top: 4px; }
   .app-cell-label { font-size: 12px; color: #7a927e; margin-bottom: 4px; }
   .app-cell-value { font-size: 16px; font-weight: 600; color: var(--text-dark); }
+  .app-actions { text-align: right; align-self: center; }
 
   .badge {
     display: inline-block;
@@ -160,6 +171,21 @@
     transition: background 0.2s, transform 0.15s;
   }
   .btn-solid:hover { background: var(--green-deep); transform: translateY(-2px); }
+
+  .btn-primary {
+    display: inline-block;
+    text-decoration: none;
+    padding: 10px 20px;
+    border-radius: 9999px;
+    background: var(--white);
+    color: var(--green-deep);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+  }
+  .btn-primary:hover { background: var(--green-pale); transform: translateY(-2px); }
 
   .btn-outline {
     display: inline-block;
@@ -210,7 +236,7 @@
     font-size: 22px;
     letter-spacing: 1.2px;
     color: var(--green-deep);
-    margin-bottom: 22px;
+    margin-bottom: 10px;
   }
 
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -278,6 +304,16 @@
   .btn-cancel { text-decoration: none; font-size: 15px; color: #5a7a5e; }
   .btn-cancel:hover { color: var(--green-deep); }
 
+  /* ─── Disabled nav links (profile not yet available) ─── */
+  .nav-links a.disabled,
+  .sidebar-nav a.disabled,
+  .dropdown-menu-item.disabled {
+    color: #9ca3af !important;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .sidebar-nav a.disabled { opacity: 0.6; }
+
   /* ─── REPAYMENT ESTIMATE ─── */
   .estimate {
     position: sticky;
@@ -285,7 +321,44 @@
     background: var(--green-wash);
     border: 1px solid var(--green-pale);
     border-radius: 22px;
-    padding: 32px 28px;
+    padding: 40px 30px;
+  }
+  .estimate-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: rgba(46,139,62,0.08);
+    border-radius: 16px;
+    font-size: 14px;
+    color: var(--text-mid);
+  }
+  .estimate-status.active {
+    background: rgba(46,139,62,0.15);
+    border: 1px solid var(--green-pale);
+    color: var(--green-deep);
+  }
+  .status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9ca3af;
+    transition: background 0.3s ease;
+  }
+  .estimate-status.active .status-indicator {
+    background: var(--green-mid);
+    animation: pulse 2s infinite;
+  }
+  .estimate-breakdown {
+    margin-top: 16px;
+  }
+  .estimate-breakdown .estimate-line.total {
+    font-weight: 600;
+    color: var(--green-deep);
+    border-top: 2px solid var(--green-pale);
+    margin-top: 8px;
+    padding-top: 12px;
   }
   .estimate h2 {
     font-family: 'Bebas Neue', sans-serif;
@@ -333,10 +406,11 @@
     .passbook { grid-template-columns: 1fr; padding: 32px 26px; }
     .passbook-ledger { border-left: none; border-top: 1px solid rgba(255,255,255,0.18); padding-left: 0; padding-top: 26px; }
     .form-shell { grid-template-columns: 1fr; }
-    .estimate { position: static; order: -1; }
+    .estimate { position: static; margin-top: 32px; }
     .form-card { padding: 28px 22px; }
     .grid-2 { grid-template-columns: 1fr; }
     .app-row { grid-template-columns: 1fr 1fr; gap: 16px; }
+    .app-actions { grid-column: 1 / -1; text-align: right; }
     .passbook-actions { flex-direction: column; align-items: stretch; }
     .passbook-actions a { text-align: center; }
   }
@@ -358,5 +432,155 @@
   @media (max-width: 380px) {
     .member-main { padding: 88px 12px 40px; }
     .form-header h1 { font-size: 32px; }
+  }
+
+  /* ─── Stepper / progress indicator (always visible) ─── */
+  .form-stepper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 28px;
+    font-size: 13px;
+    color: var(--text-mid);
+  }
+  .form-stepper .step { display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+  .form-stepper .step-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: #e2f0e4;
+    color: var(--green-deep);
+    font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .form-stepper .step.active .step-num { background: var(--green-mid); color: var(--white); }
+  .form-stepper .step.done .step-num { background: var(--green-mid); color: var(--white); }
+  .form-stepper .step-sep { flex: 1; height: 2px; background: #e2f0e4; min-width: 12px; }
+
+  /* ─── Sticky submit bar (always visible on small screens) ─── */
+  .form-sticky-submit {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: var(--white);
+    border-top: 1px solid #e2f0e4;
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+    z-index: 100;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+  }
+  .form-sticky-submit.show { display: flex; }
+  .form-sticky-submit .sticky-inner {
+    max-width: 720px; margin: 0 auto;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .form-sticky-submit .sticky-text { flex: 1; font-size: 13px; color: var(--text-mid); line-height: 1.5; }
+  .form-sticky-submit .sticky-text strong { color: var(--text-dark); }
+  .form-sticky-submit .sticky-btn { flex: 0 0 auto; }
+
+  /* On small viewports the sticky bar is always visible so members
+     never have to scroll back down to submit. */
+  @media (max-width: 760px) {
+    .form-sticky-submit { display: flex; }
+    .member-main { padding-bottom: 96px; }
+  }
+
+  /* ─── MOBILE: Floating flash messages ─── */
+  .flash-floating {
+    position: fixed;
+    left: 50%; bottom: calc(80px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 200;
+    min-width: 280px; max-width: calc(100% - 32px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+  }
+  .flash-floating.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ─── MOBILE: Touch targets (min 44×44px) ─── */
+  .link-withdraw {
+    min-height: 44px;
+    padding: 12px 16px;
+    margin: -12px -16px;
+    background: none; border: none;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; color: #a32b2b;
+    cursor: pointer; text-decoration: underline;
+  }
+  .app-row { cursor: pointer; }
+  .app-row:active { background: #f0f7f2; }
+
+  /* ─── MOBILE: Welcome text truncation ─── */
+  .welcome-user {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ─── Nav logout button (replaces the profile dropdown) ─── */
+  .nav-logout { display: inline-flex; }
+  .nav-logout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 2px solid #d9534f;
+    color: #d9534f;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 100px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.22s, color 0.22s, border-color 0.22s;
+  }
+  .nav-logout-btn:hover {
+    background: #d9534f;
+    color: var(--white);
+    border-color: #d9534f;
+  }
+
+  /* Sidebar variant: full-width red pill */
+  .sidebar-nav .nav-logout-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 24px;
+  }
+
+  /* ─── MOBILE: Passbook ledger vertical stack on tiny screens ─── */
+  @media (max-width: 480px) {
+    .ledger-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .ledger-label { font-size: 12px; }
+  }
+
+  /* ─── MOBILE: File upload dropzone + preview ─── */
+  .file-dropzone {
+    border: 2px dashed #d8e8db;
+    border-radius: 12px;
+    padding: 24px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .file-dropzone:hover, .file-dropzone.dragover {
+    border-color: var(--green-mid);
+    background: #f0f7f2;
+  }
+  .file-dropzone input[type="file"] { display: none; }
+  .file-dropzone .dz-icon { font-size: 28px; margin-bottom: 8px; display: block; }
+  .file-dropzone .dz-text { font-size: 14px; color: var(--text-mid); }
+  .file-dropzone .dz-hint { font-size: 12px; color: #7a927e; margin-top: 4px; }
+  .file-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .file-preview-item { position: relative; width: 64px; height: 64px; }
+  .file-preview-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+  .file-preview-item .remove {
+    position: absolute; top: -6px; right: -6px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #dc2626; color: #fff;
+    border: none; font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
   }
 </style>

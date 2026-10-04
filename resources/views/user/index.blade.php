@@ -17,8 +17,6 @@
     @include('user.body')
   </main>
 
-  @include('user.footer')
-
   @include('user.scripts')
 
 </body>

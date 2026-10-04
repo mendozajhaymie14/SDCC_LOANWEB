@@ -26,7 +26,6 @@
   <ul class="sidebar-nav">
     <li><a href="{{ route('user.dashboard') }}"><i class="fa-solid fa-gauge"></i> My account</a></li>
     <li><a href="{{ route('user.loans.create') }}"><i class="fa-solid fa-hand-holding-dollar"></i> Apply for a loan</a></li>
-    <li><a href="{{ url('/user/profile') }}"><i class="fa-solid fa-user-pen"></i> Edit profile</a></li>
 
     <li class="sidebar-divider"></li>
 
@@ -36,11 +35,22 @@
     <li class="sidebar-divider"></li>
 
     <li>
-      <form method="POST" action="{{ route('logout') }}">
+      <form method="POST" action="{{ route('logout') }}" class="nav-logout">
         @csrf
-        <button type="submit" class="logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+        <button type="submit" class="nav-logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
       </form>
     </li>
   </ul>
+
+  @guest
+    <div class="sidebar-foot">
+      <a href="{{ url('login') }}" class="btn-login">Login</a>
+      @if (Route::has('register'))
+        <a href="{{ url('register') }}" class="btn-register">Register</a>
+      @endif
+    </div>
+  @endguest
 
 </aside>

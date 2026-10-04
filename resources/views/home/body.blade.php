@@ -40,7 +40,7 @@
         Trusted by 12,000+ members since 1985
       </p>
       <div class="slider-cta-group">
-        <a href="{{ url('/register') }}" class="btn-primary">Create Account</a>
+        <a href="{{ url('/register') }}" class="btn-primary">Get Started</a>
         <a href="{{ url('/member-application') }}" class="btn-ghost">Become a Member</a>
       </div>
     </div>
