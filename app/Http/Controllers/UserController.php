@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessLoanDocuments;
 use App\Models\Application;
 use App\Models\LoanApplication;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Queue;
 
 class UserController extends Controller
 {
@@ -165,6 +167,19 @@ class UserController extends Controller
 
         $application = LoanApplication::create($data);
 
+        // ─── AI DOCUMENT ANALYSIS ───
+        // Run asynchronously so the member isn't kept waiting. The score
+        // is written back to both tables when the job finishes.
+        $declaredIncome = (float) $request->input('monthly_income');
+        $requestedAmount = (float) $request->input('amount');
+
+        Queue::push(new ProcessLoanDocuments(
+            $application->id,
+            $documentPaths,
+            $declaredIncome,
+            $requestedAmount
+        ));
+
         // ─── MIRROR INTO THE ADMIN APPLICATIONS TABLE ───
         // Your admin dashboard reads from `applications`, not
         // `loan_applications`, so every member submission gets a matching
@@ -182,7 +197,7 @@ class UserController extends Controller
             'loan_type' => $application->loan_type,
             'amount'    => $application->amount,
             'status'    => 'Pending',
-            'ai_score'  => rand(70, 99),
+            'ai_score'  => null, // Filled in by the document analysis job
         ]);
 
         return redirect()
