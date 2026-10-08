@@ -82,7 +82,12 @@
         {{ ucfirst($app->status) }}
       </span>
     </td>
-    <td class="td-mono"><span style="font-weight:700; color: {{ $app->ai_score !== null && $app->ai_score >= 700 ? 'var(--accent)' : ($app->ai_score !== null ? 'var(--red)' : 'var(--muted)' }}">{{ $app->ai_score ?? 'N/A' }}</span></td>
+    <td class="td-mono">
+      @php
+        $aiColor = $app->ai_score !== null && $app->ai_score >= 700 ? 'var(--accent)' : ($app->ai_score !== null ? 'var(--red)' : 'var(--muted)');
+      @endphp
+      <span style="font-weight:700; color: {{ $aiColor }}">{{ $app->ai_score ?? 'N/A' }}</span>
+    </td>
     <td class="td-date">{{ \Carbon\Carbon::parse($app->created_at)->format('M d, Y') }}</td>
     <td>
       <button class="btn-review" type="button" onclick="openAppDetail('{{ $app->app_id }}')">View</button>
