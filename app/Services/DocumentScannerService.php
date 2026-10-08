@@ -4,7 +4,7 @@ namespace App\Services;
 
 use Gemini\Data\Blob;
 use Gemini\Enums\MimeType;
-use Gemini\Facades\Gemini;
+use Gemini\Laravel\Facades\Gemini;
 
 class DocumentScannerService
 {
@@ -56,7 +56,7 @@ PROMPT;
                 data: base64_encode($fileContent),
             );
 
-            $response = Gemini::generativeModel('gemini-1.5-flash')->generateContent(
+            $response = Gemini::generativeModel('gemini-3.1-flash-lite-preview')->generateContent(
                 $prompt,
                 $blob
             );
