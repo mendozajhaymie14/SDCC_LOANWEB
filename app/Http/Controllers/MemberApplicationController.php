@@ -24,12 +24,12 @@ class MemberApplicationController extends Controller
         $data = $request->all();
 
         Validator::make($data, [
-            // ── Identity ──
+            // Identity
             'surname'       => ['required', 'string', 'max:255'],
             'first_name'    => ['required', 'string', 'max:255'],
             'middle_name'   => ['nullable', 'string', 'max:255'],
 
-            // ── Present address ──
+            // Present address
             'house_no'      => ['nullable', 'string', 'max:50'],
             'street'        => ['nullable', 'string', 'max:255'],
             'barangay'      => ['nullable', 'string', 'max:255'],
@@ -38,24 +38,20 @@ class MemberApplicationController extends Controller
             'stay_years'    => ['nullable', 'integer', 'min:0', 'max:99'],
             'stay_months'   => ['nullable', 'integer', 'min:0', 'max:11'],
 
-            // ── Permanent address ──
+            // Permanent address
             'perm_house_no'      => ['nullable', 'string', 'max:50'],
             'perm_street'        => ['nullable', 'string', 'max:255'],
-            'perm barangay'      => ['nullable', 'string', 'max:255'],
+            'perm_barangay'      => ['nullable', 'string', 'max:255'],
             'perm_municipality'  => ['nullable', 'string', 'max:255'],
             'perm_zip_code'      => ['nullable', 'string', 'max:12'],
             'perm_stay_years'    => ['nullable', 'integer', 'min:0', 'max:99'],
             'perm_stay_months'   => ['nullable', 'integer', 'min:0', 'max:11'],
 
-            // ── Demographics ──
+            // Demographics
             'residency_type' => ['required', 'in:owned,rented,mortgage,living_with_relatives'],
             'contact_number' => ['required', 'string', 'max:20'],
             'email'          => ['required', 'string', 'email', 'max:255', 'unique:member_applications', function ($attribute, $value, $fail) {
                 $email = strtolower(trim($value));
-
-                if (\App\Models\User::where('email', $email)->exists()) {
-                    $fail('This email address is already registered as a user account.');
-                }
 
                 if (\App\Models\CoopMember::where('email', $email)->exists()) {
                     $fail('This email address is already registered as a cooperative member.');
@@ -68,12 +64,12 @@ class MemberApplicationController extends Controller
             'occupation'     => ['required', 'string', 'max:255'],
             'civil_status'   => ['required', 'in:single,married,legally_separated,annulled,widowed,widower'],
 
-            // ── Membership requirements ──
+            // Membership requirements
             'tin'             => ['nullable', 'string', 'max:30'],
             'id_picture'      => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
             'proof_of_billing' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
 
-            // ── Character references (up to three) ──
+            // Character references (up to three)
             'character_references'            => ['nullable', 'array', 'max:3'],
             'character_references.*.full_name' => ['nullable', 'string', 'max:255'],
             'character_references.*.address'   => ['nullable', 'string', 'max:255'],
@@ -143,6 +139,14 @@ class MemberApplicationController extends Controller
         }
 
         $application = MemberApplication::create($data);
+
+        // Link the application to the submitting user account so the
+        // membership flow can later connect the approved CoopMember back
+        // to this same user (see UserController::dashboard / createApplication).
+        if (Auth::check()) {
+            $application->user_id = Auth::id();
+            $application->save();
+        }
 
         return redirect()->route('member.applications.show', $application->id)
             ->with('success', 'Your membership application has been submitted. We will review it and get back to you.');

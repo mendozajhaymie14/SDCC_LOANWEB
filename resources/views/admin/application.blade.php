@@ -16,7 +16,7 @@
 <!-- MAIN WRAPPER -->
 <div class="main">
   <div class="topbar">
-    <div class="topbar-title" id="topbarTitle">All Applications <span>/ Loan Management</span></div>
+    <div class="topbar-title" id="topbarTitle"> Loan Applications <span>/ Loan Management</span></div>
     <div class="search-wrap">
       <div class="search-box">
         <span class="search-icon">🔍</span>
@@ -41,14 +41,10 @@
 
   <!-- PAGE CONTENT -->
   <div class="content-body">
-    @php
-    $applications = \Illuminate\Support\Facades\DB::table('applications')->orderBy('id', 'desc')->get();
-@endphp
-
     <div class="panel app-panel">
       <div class="page-header">
         <div>
-          <h2 class="panel-title">All Applications</h2>
+          <h2 class="panel-title">All Loan Applications</h2>
           <span class="records-count">Total Records: {{ $applications->count() }}</span>
         </div>
       </div>
@@ -103,20 +99,12 @@
     </div>
   </div>
 
-  @include('admin.footer')
-</div>
-
-<!-- ═══ DRAWER: Application Detail ═══ -->
-<div class="drawer" id="drawer" style="display: none;">
-  <div class="drawer-header">
-    <div class="drawer-title">Application Detail</div>
-    <div class="modal-close" type="button" onclick="closeDrawer()">✕</div>
-  </div>
-  <div class="drawer-body" id="drawer-body"></div>
 </div>
 
 <!-- TOAST CONTAINER -->
 <div class="toast-container" id="toastContainer"></div>
+
+@include('admin.footer')
 
 </body>
 </html>

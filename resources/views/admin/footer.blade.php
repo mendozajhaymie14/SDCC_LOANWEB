@@ -57,24 +57,29 @@
     <div id="appDetailBody"></div>
   </div>
 
-  <!-- Borrower Detail / Approve-Reject-Delete Modal -->
-  <div class="modal" id="modal-borrowerDetail" onclick="event.stopPropagation()">
+  <!-- Active Member Detail / Activate-Suspend-Delete Modal -->
+  <div class="modal" id="modal-activeMemberDetail" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title" id="borrowerDetailTitle">Borrower Detail</div>
+      <div class="modal-title" id="activeMemberDetailTitle">Member Detail</div>
       <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
     </div>
-    <div id="borrowerDetailBody"></div>
+    <div id="activeMemberDetailBody"></div>
   </div>
 
-  <!-- 2. Add Borrower Modal -->
-  <div class="modal" id="modal-addBorrower" onclick="event.stopPropagation()">
+  <!-- 2. Add Active Member Modal -->
+  <div class="modal" id="modal-addActiveMember" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">👤 Add New Borrower</div>
+      <div class="modal-title">👤 Add New Member</div>
       <div class="modal-close" onclick="closeAllModals()">✕</div>
     </div>
-    <form action="{{ route('borrowers.store') }}" method="POST">
+    <form action="{{ route('active-members.store') }}" method="POST">
       @csrf
-      
+
+      <div class="form-group">
+        <label class="form-label">Member ID</label>
+        <input type="text" name="member_id" class="form-input" placeholder="e.g. SDCC-2024-0001" required/>
+      </div>
+
       <div class="form-group">
         <label class="form-label">Full Name</label>
         <input type="text" name="full_name" class="form-input" placeholder="e.g. Juan Santos" required/>
@@ -87,37 +92,301 @@
         </div>
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" name="phone_number" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+          <input type="text" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Date of Birth</label>
+        <input type="date" name="date_of_birth" class="form-input" required/>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Website Account</label>
+          <select name="is_registered" class="form-select">
+            <option value="0">No</option>
+            <option value="1">Yes</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn-submit" type="submit">Register Member</button>
+      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
+    </form>
+  </div>
+
+  <!-- 2d. Add Admin Modal -->
+  <div class="modal" id="modal-addAdmin" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">👤 Add Admin User</div>
+      <div class="modal-close" onclick="closeAllModals()">✕</div>
+    </div>
+    <form id="addAdminForm" action="/admin/users" method="POST">
+      @csrf
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" name="name" id="addAdminName" class="form-input" placeholder="e.g. Juan Santos" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input type="email" name="email" id="addAdminEmail" class="form-input" placeholder="juan@email.com" required/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Phone Number</label>
+          <input type="text" name="phone" id="addAdminPhone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" name="password" id="addAdminPassword" class="form-input" placeholder="Min. 6 characters" required/>
+        </div>
+      </div>
+      <button class="btn-submit" type="button" onclick="submitAddAdmin()">Create Admin Account</button>
+      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
+    </form>
+  </div>
+
+  <!-- 2e. Edit Admin Modal -->
+  <div class="modal" id="modal-editAdmin" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">✏️ Edit Admin User</div>
+      <div class="modal-close" onclick="closeAllModals()">✕</div>
+    </div>
+    <form id="editAdminForm" method="POST" action="">
+      @csrf
+      <input type="hidden" name="_method" value="PUT">
+      <input type="hidden" id="editAdminId" name="id" value="">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="editAdminName" name="name" class="form-input" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input type="email" id="editAdminEmail" name="email" class="form-input" required/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone Number</label>
+        <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+      </div>
+
+      <button class="btn-submit" type="button" onclick="submitEditAdmin()">Save Changes</button>
+      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
+    </form>
+  </div>
+
+  <!-- 2f. Admin Detail Modal -->
+  <div class="modal" id="modal-adminDetail" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" id="adminDetailTitle">Admin Detail</div>
+      <div class="modal-close" onclick="closeAllModals()">✕</div>
+    </div>
+    <div id="adminDetailBody"></div>
+  </div>
+
+  <!-- 2c2. Member Detail Modal -->
+  <div class="modal" id="modal-memberDetail" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" id="memberDetailTitle">Membership Application Detail</div>
+      <div class="modal-close" onclick="closeAllModals()">✕</div>
+    </div>
+    <div id="memberDetailBody"></div>
+  </div>
+
+  <!-- 2c. Edit Membership Application Modal -->
+  <div class="modal" id="modal-editMember" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">✏️ Edit Membership Application</div>
+      <div class="modal-close" onclick="closeAllModals()">✕</div>
+    </div>
+    <form id="editMemberForm" method="POST" action="">
+      @csrf
+      @method('PUT')
+      <input type="hidden" name="_method" value="PUT">
+      <input type="hidden" id="editMemberId" name="id" value="">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">First Name</label>
+          <input type="text" id="editFirstName" name="first_name" class="form-input" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Middle Name</label>
+          <input type="text" id="editMiddleName" name="middle_name" class="form-input"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Surname</label>
+          <input type="text" id="editSurname" name="surname" class="form-input" required/>
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Monthly Income (₱)</label>
-          <input type="number" step="0.01" name="monthly_income" class="form-input" placeholder="25000.00" required/>
+          <label class="form-label">Email Address</label>
+          <input type="email" id="editEmail" name="email" class="form-input" required/>
         </div>
         <div class="form-group">
-          <label class="form-label">AI Credit Score</label>
-          <input type="number" name="ai_credit_score" class="form-input" placeholder="650" min="300" max="850" value="650"/>
+          <label class="form-label">Contact Number</label>
+          <input type="text" id="editContact" name="contact_number" class="form-input"/>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">TIN</label>
+          <input type="text" id="editTin" name="tin" class="form-input"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nationality</label>
+          <input type="text" id="editNationality" name="nationality" class="form-input"/>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Place of Birth</label>
+          <input type="text" id="editPlaceOfBirth" name="place_of_birth" class="form-input"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Gender</label>
+          <select id="editGender" name="gender" class="form-select">
+            <option value="">—</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Occupation</label>
+          <input type="text" id="editOccupation" name="occupation" class="form-input"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Civil Status</label>
+          <select id="editCivilStatus" name="civil_status" class="form-select">
+            <option value="">—</option>
+            <option value="single">Single</option>
+            <option value="married">Married</option>
+            <option value="divorced">Divorced</option>
+            <option value="widowed">Widowed</option>
+          </select>
         </div>
       </div>
 
       <div class="form-group">
-        <label class="form-label">Status</label>
-        <select name="status" class="form-select">
-          <option value="Active">Active</option>
-          <option value="Pending">Pending</option>
-          <option value="Inactive">Inactive</option>
-          <option value="Blacklisted">Blacklisted</option>
+        <label class="form-label">Residency Type</label>
+        <select id="editResidency" name="residency_type" class="form-select">
+          <option value="">—</option>
+          <option value="renter">Renter</option>
+          <option value="homeowner">Homeowner</option>
+          <option value="family_home">With Family</option>
         </select>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Address</label>
-        <textarea name="address" class="form-textarea" placeholder="Full residential address…"></textarea>
+      <div style="margin-top:1rem;">
+        <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Permanent Address</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">House No.</label>
+            <input type="text" id="editPermHouseNo" name="perm_house_no" class="form-input"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Street</label>
+            <input type="text" id="editPermStreet" name="perm_street" class="form-input"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Barangay</label>
+            <input type="text" id="editPermBarangay" name="perm_barangay" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Municipality</label>
+            <input type="text" id="editPermMunicipality" name="perm_municipality" class="form-input"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Zip Code</label>
+            <input type="text" id="editPermZipCode" name="perm_zip_code" class="form-input"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stay (Years)</label>
+            <input type="number" id="editPermStayYears" name="perm_stay_years" class="form-input" min="0"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stay (Months)</label>
+            <input type="number" id="editPermStayMonths" name="perm_stay_months" class="form-input" min="0" max="11"/>
+          </div>
+        </div>
       </div>
 
-      <button class="btn-submit" type="submit">Register Borrower</button>
+      <button class="btn-submit" type="button" onclick="submitEditMember()">Save Changes</button>
+      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
+    </form>
+  </div>
+
+  <!-- 2b. Add Membership Application Modal -->
+  <div class="modal" id="modal-addMember" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">📋 Add Membership Application</div>
+      <div class="modal-close" onclick="closeAllModals()">✕</div>
+    </div>
+    <form id="addMemberForm" action="/memberships" method="POST">
+      @csrf
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">First Name</label>
+          <input type="text" name="first_name" class="form-input" placeholder="e.g. Juan" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Middle Name</label>
+          <input type="text" name="middle_name" class="form-input" placeholder="e.g. Dela"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Surname</label>
+          <input type="text" name="surname" class="form-input" placeholder="e.g. Cruz" required/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input type="email" name="email" class="form-input" placeholder="juan@email.com" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact Number</label>
+          <input type="text" name="contact_number" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">TIN</label>
+          <input type="text" name="tin" class="form-input" placeholder="1234567890"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-submit" type="submit">Save Application</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
@@ -197,18 +466,24 @@
     @endforeach
   };
 
-  const borrowersData = {
-    @foreach (\App\Models\Borrowers::latest()->get() as $b)
-      "{{ $b->id }}": {
-        id: @json($b->id),
-        borrower_id: @json($b->borrower_id),
-        name: @json($b->full_name),
-        email: @json($b->email),
-        phone: @json($b->phone_number ?? 'N/A'),
-        income: @json('₱' . number_format($b->monthly_income, 2)),
-        score: {{ $b->ai_credit_score ?? 'null' }},
-        status: @json(strtolower($b->status)),
-        date: @json(optional($b->created_at)->format('M d, Y'))
+  const activeMembersData = {
+    @foreach (\App\Models\CoopMember::with('user')->latest()->get() as $m)
+      @php
+        $latestBorrower = \App\Models\Borrowers::where('full_name', $m->full_name)->latest()->first();
+        $income = $latestBorrower ? number_format($latestBorrower->monthly_income, 2) : '';
+        $aiScore = $latestBorrower ? $latestBorrower->ai_credit_score : null;
+        $rawScore = $aiScore !== null ? (int) round(($aiScore - 300) / 550 * 100) : null;
+      @endphp
+      "{{ $m->id }}": {
+        id: @json($m->id),
+        member_id: @json($m->member_id),
+        name: @json($m->full_name),
+        email: @json($m->email),
+        income: @json($income),
+        aiScore: @json($rawScore),
+        status: @json(strtolower($m->status)),
+        is_registered: @json($m->is_registered),
+        date: @json(optional($m->created_at)->format('M d, Y'))
       },
     @endforeach
   };
@@ -243,7 +518,7 @@
     const titles = {
       dashboard:'Dashboard', analytics:'Analytics', applications:'All Applications',
       pending:'Pending Review', approved:'Approved Loans', rejected:'Rejected',
-      disbursements:'Disbursements', repayments:'Repayments', borrowers:'Borrowers',
+      disbursements:'Disbursements', repayments:'Repayments', members:'Active Members',
       credit:'Credit Assessment', risk:'Risk Flags', settings:'Settings',
       reports:'Reports'
     };
@@ -328,22 +603,22 @@
       });
   }
 
-  // ─── BORROWER DETAIL MODAL ───
-  function openBorrowerDetail(id) {
+  // ─── ACTIVE MEMBER DETAIL MODAL ───
+  function openActiveMemberDetail(id) {
     closeAllDropdowns();
-    const b = borrowersData[id];
-    if (!b) {
-      showToast('error', 'Borrower record not found', '❌');
+    const m = activeMembersData[id];
+    if (!m) {
+      showToast('error', 'Member record not found', '❌');
       return;
     }
 
-    const statusLabel = b.status.charAt(0).toUpperCase() + b.status.slice(1);
-    const scoreC = b.score != null ? (b.score >= 600 ? '#10b981' : '#ef4444') : 'var(--muted)';
+    const statusLabel = m.status.charAt(0).toUpperCase() + m.status.slice(1);
+    const scoreC = m.aiScore != null ? (m.aiScore >= 600 ? '#10b981' : '#ef4444') : 'var(--muted)';
 
-    const titleEl = document.getElementById('borrowerDetailTitle');
-    if (titleEl) titleEl.textContent = '#' + b.borrower_id + ' — ' + b.name;
+    const titleEl = document.getElementById('activeMemberDetailTitle');
+    if (titleEl) titleEl.textContent = '#' + m.member_id + ' — ' + m.name;
 
-    const bodyEl = document.getElementById('borrowerDetailBody');
+    const bodyEl = document.getElementById('activeMemberDetailBody');
     if (bodyEl) {
       const row = (label, value) => `
         <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
@@ -352,42 +627,42 @@
         </div>`;
 
       bodyEl.innerHTML = `
-        ${row('Full Name', b.name)}
-        ${row('Email Address', b.email)}
-        ${row('Phone Number', b.phone)}
-        ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${b.income}</span>`)}
-        ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${b.score ?? 'N/A'}</span>`)}
-        ${row('Date Joined', b.date)}
-        ${row('Status', `<span class="status-pill ${b.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
-        
+        ${row('Member ID', m.member_id)}
+        ${row('Full Name', m.name)}
+        ${row('Email Address', m.email)}
+        ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income}</span>`)}
+        ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${m.aiScore ?? 'N/A'}</span>`)}
+        ${row('Date Joined', m.date)}
+        ${row('Status', `<span class="status-pill ${m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
+
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
-          ${(b.status === 'pending' || b.status === 'inactive') ? `
-            <form id="approve-borrower-form-${b.id}" action="/borrowers/${b.id}/approve" method="POST" style="display:none;">
+          ${(m.status === 'inactive' || m.status === 'suspended') ? `
+            <form id="activate-form-${m.id}" action="/active-members/${m.id}/approve" method="POST" style="display:none;">
               <input type="hidden" name="_token" value="${csrfToken}">
             </form>
-            <form id="reject-borrower-form-${b.id}" action="/borrowers/${b.id}/reject" method="POST" style="display:none;">
+            <form id="suspend-form-${m.id}" action="/active-members/${m.id}/reject" method="POST" style="display:none;">
               <input type="hidden" name="_token" value="${csrfToken}">
             </form>
             <div style="display:flex;gap:.7rem;">
-              <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);" onclick="document.getElementById('reject-borrower-form-${b.id}').submit()">✗ Reject</button>
-              <button class="btn-submit" type="button" style="width:auto;flex:1;" onclick="document.getElementById('approve-borrower-form-${b.id}').submit()">✓ Approve</button>
+              <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);" onclick="document.getElementById('suspend-form-${m.id}').submit()">✗ Suspend</button>
+              <button class="btn-submit" type="button" style="width:auto;flex:1;" onclick="document.getElementById('activate-form-${m.id}').submit()">✓ Activate</button>
             </div>` : ''
           }
-          <button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteBorrower('${b.id}')">🗑️ Delete Borrower</button>
+          <button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteActiveMember('${m.id}')">🗑️ Delete Member</button>
         </div>
       `;
     }
 
-    openModal('borrowerDetail');
+    openModal('activeMemberDetail');
   }
 
-  // ─── DELETE BORROWER ACTION ───
-  function deleteBorrower(id) {
-    if (!confirm('Are you sure you want to permanently delete this borrower?')) {
+  // ─── DELETE ACTIVE MEMBER ACTION ───
+  function deleteActiveMember(id) {
+    if (!confirm('Are you sure you want to permanently delete this member?')) {
       return;
     }
 
-    fetch(`/borrowers/${id}`, {
+    fetch(`/active-members/${id}`, {
       method: 'DELETE',
       headers: {
         'X-CSRF-TOKEN': csrfToken,
@@ -399,12 +674,12 @@
         return res.json();
       })
       .then(() => {
-        showToast('error', 'Borrower deleted', '🗑️');
+        showToast('error', 'Member deleted', '🗑️');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
       })
       .catch(() => {
-        showToast('error', 'Failed to delete borrower.', '❌');
+        showToast('error', 'Failed to delete member.', '❌');
       });
   }
 

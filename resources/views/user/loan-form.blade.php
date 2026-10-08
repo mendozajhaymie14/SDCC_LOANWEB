@@ -18,8 +18,8 @@
       <div class="form-error-summary" role="alert">
         <p><strong>{{ $errors->count() }} issue{{ $errors->count() > 1 ? 's' : '' }} found:</strong></p>
         <ul>
-          @foreach ($errors->all() as $error)
-            <li><a href="#{{ $error->field() }}" onclick="document.getElementById('{{ $error->field() }}')?.focus()">{{ $error->getMessage() }}</a></li>
+          @foreach ($errors->keys() as $field)
+            <li><a href="#{{ $field }}" onclick="document.getElementById('{{ $field }}')?.focus()">{{ $errors->first($field) }}</a></li>
           @endforeach
         </ul>
       </div>
@@ -166,7 +166,7 @@
             @error('term_months') <span class="error-text">{{ $message }}</span> @enderror
           </div>
 
-          </div>
+        </div>
       </fieldset>
 
       <fieldset class="fieldset" data-step="4">

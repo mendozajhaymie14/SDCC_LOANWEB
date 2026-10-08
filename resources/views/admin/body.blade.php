@@ -34,9 +34,9 @@
       <div class="kpi-top"><div class="kpi-label">Total Loan Disbursed</div><div class="kpi-icon blue"></div></div>
       <div class="kpi-val" id="totalDisbursed">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
     </div>
-    <div class="kpi-card purple" onclick="window.location.href='{{ route('borrowers.index') }}'" data-tip="View borrowers" style="cursor:pointer;">
+    <div class="kpi-card purple" onclick="window.location.href='{{ route('active-members.index') }}'" data-tip="View active members" style="cursor:pointer;">
       <div class="kpi-top">
-        <div class="kpi-label">Active Borrowers</div>
+        <div class="kpi-label">Active Members</div>
         <div class="kpi-icon purple"></div>
       </div>
       <div class="kpi-val">{{ $activeBorrowersCount ?? 0 }}</div>
@@ -44,18 +44,18 @@
     </div>
     <div class="kpi-card green" onclick="switchPage('repayments', null)" data-tip="View repayments">
       <div class="kpi-top"><div class="kpi-label">Repayment Rate</div><div class="kpi-icon green"></div></div>
-      <div class="kpi-val">0</div>
+      <div class="kpi-val" style="color:var(--muted2);">—</div>
       <div class="kpi-sub"><span class="kpi-delta up"></span></div>
     </div>
-    <div class="kpi-card gold" onclick="switchPage('applications', document.querySelectorAll('.nav-item')[1])" data-tip="Review pending">
-      <div class="kpi-top"><div class="kpi-label">Pending Applications</div><div class="kpi-icon gold"></div></div>
-      <div class="kpi-val">{{ $applications->where('status', 'Pending')->count() }}</div>
-      <div class="kpi-sub"><span class="kpi-delta down"></span></div>
-    </div>
+    <div class="kpi-card gold" onclick="window.location.href='{{ route('applications.index') }}'" data-tip="Review pending" style="cursor:pointer;">
+  <div class="kpi-top"><div class="kpi-label">Pending Applications</div><div class="kpi-icon gold"></div></div>
+  <div class="kpi-val">{{ $pendingApplicationsCount ?? $applications->where('status', 'Pending')->count() }}</div>
+  <div class="kpi-sub"><span class="kpi-delta down"></span></div>
+</div>
   </div>
 
   <!-- RECENT APPLICATIONS, LIVE ACTIVITY, & QUICK ACTIONS PANELS -->
-  <div class="body-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.6rem;">
+  <div class="body-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.6rem;align-items:stretch;">
     <!-- RECENT APPLICATIONS CARD CONTAINER -->
     <div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
@@ -106,8 +106,18 @@
           <span style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1rem;">Live Activity</span>
         </div>
         <div style="display:flex;flex-direction:column;gap:0.8rem;">
-          <div style="display:flex;gap:0.8rem;align-items:flex-start;font-size:0.85rem;cursor:pointer;" onclick="openAppDetail('SCC-20891')">
-          </div>
+          @forelse($notifications as $n)
+            <div style="display:flex;gap:0.8rem;align-items:flex-start;font-size:0.85rem;cursor:pointer;" onclick="openAppDetail('{{ $n->app_id }}')">
+              <span style="width:8px;height:8px;border-radius:50%;background:{{ $n->type === 'approved' ? '#10b981' : '#ef4444' }};margin-top:5px;flex-shrink:0;"></span>
+              <div>
+                <div style="font-weight:600;">{{ $n->message }}</div>
+                <div style="color:var(--muted2);font-size:0.75rem;">{{ $n->applicant }} · #{{ $n->app_id }}</div>
+                <div style="color:var(--muted2);font-size:0.7rem;">{{ $n->created_at?->diffForHumans() }}</div>
+              </div>
+            </div>
+          @empty
+            <div style="color:var(--muted2);font-size:0.85rem;text-align:center;padding:1rem;">No recent activity.</div>
+          @endforelse
         </div>
       </div>
 
@@ -122,13 +132,15 @@
             <span style="font-size:1.5rem;">👤</span>
             <span>Add Borrower</span>
           </div>
-          <div class="qa-card-classic" onclick="openModal('processPayout')">
-            <span style="font-size:1.5rem;">💸</span>
+          <div class="qa-card-classic qa-disabled" title="Coming soon">
+            <span style="font-size:1.5rem;opacity:0.5;">💸</span>
             <span>Process Payout</span>
+            <span style="font-size:0.65rem;color:var(--muted2);">Coming soon</span>
           </div>
-          <div class="qa-card-classic" onclick="openModal('generateReport')">
-            <span style="font-size:1.5rem;">📊</span>
+          <div class="qa-card-classic qa-disabled" title="Coming soon">
+            <span style="font-size:1.5rem;opacity:0.5;">📊</span>
             <span>Generate Report</span>
+            <span style="font-size:0.65rem;color:var(--muted2);">Coming soon</span>
           </div>
         </div>
       </div>
@@ -163,7 +175,7 @@
         </thead>
         <tbody>
           @forelse($applications as $app)
-            <tr>
+            <tr data-status="{{ strtolower($app->status) }}">
               <td class="td-mono">#{{ $app->app_id }}</td>
               <td><strong>{{ $app->applicant }}</strong></td>
               <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
@@ -176,7 +188,7 @@
               <td class="td-mono">{{ $app->ai_score ?? 'N/A' }}</td>
               <td>{{ $app->created_at?->format('M d') ?? '—' }}</td>
               <td>
-                <button class="btn-review" onclick="openAppDetail('{{ $app->app_id }}')">View</button>
+                <button class="btn-review" type="button" onclick="openAppDetail('{{ $app->app_id }}')">View</button>
               </td>
             </tr>
           @empty

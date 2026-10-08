@@ -18,7 +18,7 @@
                 <!-- Left Banner -->
                 <div class="member-app-banner" style="position: relative; width: 100%; min-height: 300px; border-top-left-radius: 22px; border-bottom-left-radius: 22px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; background-image: url('{{ asset('images/bg.png') }}'); background-size: cover; background-position: center; padding: 32px; text-align: center;">
 
-                    <div style="position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%;;">
+                    <div style="position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%;">
                         <div style="width: 110px; height: 110px; border-radius: 50%; background-color: var(--white); display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
                             <img src="{{ asset('images/Logo.jpg') }}"
                                  alt="San Dionisio Credit Cooperative Logo"
@@ -361,6 +361,7 @@
             </div>
 
         </div>
+    </div>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap');
@@ -376,12 +377,13 @@
           --green-wash: #e8f9eb;
           --dull: #e2e8f0;
           --gold: #d4af37;
+          --white: #ffffff;
         }
 
         .error-text { display: block; margin-top: 6px; font-size: 13px; color: #a32b2b; }
 
         /* Form field base styles */
-        .field input, .field select, .field textarea {
+        .field input, .field select, .field textarea, .member-app-input {
           width: 100%;
           padding: 13px 16px;
           border: 1px solid #d8e8db;
@@ -391,14 +393,14 @@
           font-size: 15px;
           color: var(--text-dark);
           transition: border-color 0.2s, background 0.2s;
+          box-sizing: border-box;
         }
-        .field input:focus, .field select:focus, .field textarea:focus {
+        .field input:focus, .field select:focus, .field textarea:focus, .member-app-input:focus {
           outline: 2px solid var(--green-mid);
           outline-offset: 1px;
           border-color: var(--green-mid);
           background: var(--white);
         }
-        .field input.has-error, .field select.has-error, .field textarea.has-error { border-color: #d98a8a; background: #fdf7f7; }
 
         /* Grid-2 layout */
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -422,21 +424,10 @@
           border: 1px solid #e2f0e4;
           border-radius: 22px;
           padding: 40px;
+          margin-bottom: 20px;
         }
 
-        /* Fieldset legend */
-        .fieldset { border: none; }
-        .fieldset + .fieldset { margin-top: 40px; padding-top: 36px; border-top: 1px solid #edf5ee; }
-        .fieldset legend {
-          font-family: 'Bebas Neue', sans-serif;
-          font-size: 22px;
-          letter-spacing: 1.2px;
-          color: var(--green-deep);
-          margin-bottom: 10px;
-        }
-
-        /* Form actions */
-        .form-actions { margin-top: 36px; display: flex; gap: 16px; align-items: center; }
+        /* Cancel button */
         .btn-cancel {
           text-decoration: none;
           font-family: 'DM Sans', sans-serif;
@@ -450,37 +441,6 @@
           white-space: nowrap;
         }
         .btn-cancel:hover { background: var(--green-wash); color: var(--green-deep); border-color: var(--green-mid); }
-
-        /* Submit button */
-        button[type="submit"] {
-          font-family: 'DM Sans', sans-serif;
-          font-size: 14px;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          background-color: var(--green-deep);
-          color: var(--white);
-          padding: 12px 28px;
-          border-radius: 10px;
-          border: none;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-        button[type="submit"]:hover { background-color: var(--green-mid); }
-
-        /* Number input spinner removal */
-        input[type="number"]::-webkit-outer-spin-button,
-        input[type="number"]::-webkit-inner-spin-button {
-          -webkit-appearance: none;
-          margin: 0;
-        }
-        input[type="number"] {
-          -moz-appearance: textfield;
-        }
-
-        /* Radio buttons */
-        .checkbox-field { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-mid); line-height: 1.6; }
-        .checkbox-field input { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; }
 
         /* File upload drop-zone */
         .member-file-field label { display: block; }
@@ -510,10 +470,6 @@
         .member-file-drop:hover {
           border-color: var(--green-mid);
           background: var(--green-wash);
-        }
-        .member-file-drop:has(.sr-file-input:focus) {
-          outline: 2px solid var(--green-mid);
-          outline-offset: 2px;
         }
         .member-file-drop .mf-icon {
           font-size: 26px;
@@ -555,9 +511,6 @@
           border-radius: 14px;
           overflow: hidden;
         }
-        .ref-row:first-child {
-          background: var(--green-wash);
-        }
         .ref-head {
           background: var(--green-wash);
           font-size: 12px;
@@ -565,7 +518,8 @@
           letter-spacing: 0.4px;
           text-transform: uppercase;
           color: var(--green-deep);
-          display: flex;
+          display: grid;
+          grid-template-columns: 36px 1fr 1.4fr 1.2fr;
           align-items: center;
           padding: 10px 12px;
         }
@@ -584,36 +538,8 @@
         .ref-col {
           padding: 6px 10px;
         }
-        .ref-col input {
-          width: 100%;
-          padding: 10px 12px;
-          border: 1px solid #d8e8db;
-          border-radius: 10px;
-          background: var(--off-white);
-          font-family: 'DM Sans', sans-serif;
-          font-size: 14px;
-          color: var(--text-dark);
-          transition: border-color 0.2s, background 0.2s;
-        }
-        .ref-col input:focus {
-          outline: 2px solid var(--green-mid);
-          outline-offset: 1px;
-          border-color: var(--green-mid);
-          background: var(--white);
-        }
-        .ref-row:nth-child(even) .ref-col input,
-        .ref-row:nth-child(even) .ref-no {
-          background: #f8fdfa;
-        }
-        @media (max-width: 768px) {
-          .ref-row { grid-template-columns: 1fr; }
-          .ref-head { display: none; }
-          .ref-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
-          .ref-no { padding: 0; }
-          .ref-col { padding: 0; }
-        }
 
-        /* Media queries for responsive */
+        /* Media queries for responsiveness */
         @media (max-width: 991px) {
           .member-app-frame { border-radius: 28px; display: block !important; }
           .member-app-banner { min-height: 200px !important; border-radius: 24px 24px 0 0; }
@@ -628,14 +554,14 @@
           .member-app-banner h1 { font-size: 18px !important; }
           .member-app-form-side { padding: 28px 20px; }
           .grid-2 { grid-template-columns: 1fr; }
+          .ref-row { grid-template-columns: 1fr; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+          .ref-head { display: none; }
         }
 
         @media (max-width: 480px) {
           .member-app-page { padding: 0.5rem; }
           .member-app-banner { min-height: 130px !important; padding: 14px; }
           .member-app-form-side { padding: 24px 16px; }
-          .member-app-form-side [style*="repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
-          .member-app-form-side [style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
         }
     </style>
 </x-guest-layout>

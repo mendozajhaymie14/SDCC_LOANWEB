@@ -49,26 +49,32 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/notifications/mark-read', [AdminController::class, 'markNotificationsRead'])
         ->name('notifications.markRead');
 
-    Route::get('/borrowers', [AdminController::class, 'borrowers'])
-        ->name('borrowers.index');
+    Route::get('/active-members', [AdminController::class, 'borrowers'])
+        ->name('active-members.index');
 
-    Route::post('/borrowers', [AdminController::class, 'storeBorrower'])
-        ->name('borrowers.store');
+    Route::post('/active-members', [AdminController::class, 'storeBorrower'])
+        ->name('active-members.store');
 
-    Route::post('/borrowers/{id}/approve', [AdminController::class, 'approveBorrower'])
-        ->name('borrowers.approve');
+    Route::post('/active-members/{id}/approve', [AdminController::class, 'approveBorrower'])
+        ->name('active-members.approve');
 
-    Route::post('/borrowers/{id}/reject', [AdminController::class, 'rejectBorrower'])
-        ->name('borrowers.reject');
+    Route::post('/active-members/{id}/reject', [AdminController::class, 'rejectBorrower'])
+        ->name('active-members.reject');
 
-    Route::delete('/borrowers/{id}', [AdminController::class, 'destroyBorrower'])
-        ->name('borrowers.destroy');
+    Route::delete('/active-members/{id}', [AdminController::class, 'destroyBorrower'])
+        ->name('active-members.destroy');
 
     // Admin Users page — lists accounts with usertype = 'admin'
     Route::get('/admin/users', [AdminController::class, 'adminUsers'])
         ->name('admins.index');
+    Route::post('/admin/users', [AdminController::class, 'storeAdmin'])
+        ->name('admins.store');
+    Route::put('/admin/users/{id}', [AdminController::class, 'updateAdmin'])
+        ->name('admins.update');
+    Route::delete('/admin/users/{id}', [AdminController::class, 'destroyAdmin'])
+        ->name('admins.destroy');
 
-    // Cooperative membership applications (from the public form)
+    // Cooperative membership applications
     Route::get('/memberships', [AdminController::class, 'memberships'])
         ->name('memberships.index');
     Route::post('/memberships/{id}/approve', [AdminController::class, 'approveMember'])
@@ -77,6 +83,22 @@ Route::middleware(['auth'])->group(function () {
         ->name('memberships.reject');
     Route::delete('/memberships/{id}', [AdminController::class, 'destroyMember'])
         ->name('memberships.destroy');
+    Route::put('/memberships/{id}', [AdminController::class, 'updateMember'])
+        ->name('memberships.update');
+
+    // Dashboard navigation routes
+    Route::get('/disbursements', [AdminController::class, 'disbursements'])
+        ->name('disbursements.index');
+    Route::get('/repayments', [AdminController::class, 'repayments'])
+        ->name('repayments.index');
+    Route::get('/credit', [AdminController::class, 'creditAssessment'])
+        ->name('credit.index');
+    Route::get('/risk', [AdminController::class, 'riskFlags'])
+        ->name('risk.index');
+    Route::get('/settings', [AdminController::class, 'settings'])
+        ->name('settings.index');
+    Route::get('/reports', [AdminController::class, 'reports'])
+        ->name('reports.index');
 });
 
 Route::get('/api/member/{memberId}', [\App\Http\Controllers\MemberLookupController::class, 'show'])->name('member.lookup');
@@ -91,6 +113,8 @@ Route::get('/member-application/{id}', [\App\Http\Controllers\MemberApplicationC
 Route::get('/', [AdminController::class, 'index']);
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+Route::get('/disbursements', [AdminController::class, 'disbursements'])->name('disbursements.index');
 
 // Fixed /admin/data route
 Route::middleware(['auth'])->group(function () {

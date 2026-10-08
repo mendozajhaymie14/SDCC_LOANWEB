@@ -16,9 +16,13 @@
 /public/build
 /public/hot
 /public/storage
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
 /storage/*.key
 /storage/pail
 /vendor
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/storage/framework/views/
+/AI_DOCUMENT_ANALYSIS_RECOMMENDATIONS.md

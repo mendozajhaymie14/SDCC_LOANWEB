@@ -5,8 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Application;
 use App\Models\AppNotification;
 use App\Models\Borrowers;
+use App\Models\CoopMember;
+use App\Models\MemberApplication;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 
 class AdminController extends Controller
 {
@@ -18,12 +23,12 @@ class AdminController extends Controller
 
             if ($usertype === 'admin') {
                 $applications = Application::latest()->get();
-                // Fetch total count of active borrowers
                 $activeBorrowersCount = Borrowers::where('status', 'Active')->count();
-                // Total value of all approved loans — drives the "Total Loan Disbursed" KPI
                 $totalDisbursed = (float) Application::where('status', 'Approved')->sum('amount');
+                $notifications = AppNotification::latest()->take(5)->get();
+                $pendingApplicationsCount = Application::where('status', 'Pending')->count();
 
-                return view('admin.index', compact('applications', 'activeBorrowersCount', 'totalDisbursed'));
+                return view('admin.index', compact('applications', 'activeBorrowersCount', 'totalDisbursed', 'notifications'));
             }
 
             return view('home.index');
@@ -70,8 +75,6 @@ class AdminController extends Controller
         $application->status = 'Approved';
         $application->save();
 
-        // If this admin row came from a member's own submission, reflect
-        // the decision back onto their loan_applications record too.
         if ($application->loan_application_id) {
             \App\Models\LoanApplication::where('id', $application->loan_application_id)->update([
                 'status'       => 'approved',
@@ -79,25 +82,39 @@ class AdminController extends Controller
             ]);
         }
 
-        // ─── AUTOMATICALLY CREATE / UPDATE BORROWER ───
-        $borrower = Borrowers::where('full_name', $application->applicant)->first();
+        $borrower = Borrowers::withTrashed()->where('full_name', $application->applicant)->first();
+
+        $loanApp = $application->loan_application_id
+            ? \App\Models\LoanApplication::find($application->loan_application_id)
+            : null;
+        $monthlyIncome = $loanApp?->monthly_income ?? 0.00;
+        $phone         = $loanApp?->contact_number ?? 'N/A';
+
+        $rawScore = $application->ai_score;
+        $aiCreditScore = is_numeric($rawScore)
+            ? (int) round(300 + ($rawScore / 100) * 550)
+            : rand(300, 850);
 
         if (!$borrower) {
-            $lastId = Borrowers::max('id') ?? 0;
+            $lastId = Borrowers::withTrashed()->max('id') ?? 0;
             $borrowerId = 'BOR-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
             Borrowers::create([
                 'borrower_id'     => $borrowerId,
                 'full_name'       => $application->applicant,
                 'email'           => strtolower(str_replace(' ', '', $application->applicant)) . '@gmail.com',
-                'phone_number'    => 'N/A',
-                'monthly_income'  => 0.00,
-                'ai_credit_score' => $application->ai_score ?? rand(600, 750),
+                'phone_number'    => $phone,
+                'monthly_income'  => $monthlyIncome,
+                'ai_credit_score' => $aiCreditScore,
                 'status'          => 'Active',
                 'address'         => null,
             ]);
         } else {
-            $borrower->status = 'Active';
+            $borrower->status          = 'Active';
+            $borrower->monthly_income  = $monthlyIncome;
+            $borrower->phone_number    = $phone;
+            $borrower->ai_credit_score = $aiCreditScore;
+            $borrower->restore();
             $borrower->save();
         }
 
@@ -151,20 +168,12 @@ class AdminController extends Controller
         $application = Application::where('app_id', $appId)->firstOrFail();
         $applicantName = $application->applicant;
 
-        // If this admin row came from a member's own submission, delete
-        // their loan_applications record too, so it disappears from their
-        // dashboard as well — not just from the admin queue.
         if ($application->loan_application_id) {
             \App\Models\LoanApplication::where('id', $application->loan_application_id)->delete();
         }
 
-        // Delete the application
         $application->delete();
-
-        // Delete matching notifications
         AppNotification::where('app_id', $appId)->delete();
-
-        // Delete corresponding borrower by matching name
         Borrowers::where('full_name', $applicantName)->delete();
 
         return response()->json([
@@ -192,117 +201,211 @@ class AdminController extends Controller
         return redirect('/login');
     }
 
-    // 9. Borrowers Page Route
+    // 10. Active Members Page Route
     public function borrowers()
     {
-        $borrowers = Borrowers::latest()->get();
-        return view('admin.borrowers', compact('borrowers'));
+        $members = CoopMember::with('user')->where('status', 'active')->latest()->get();
+        return view('admin.activemember', compact('members'));
     }
 
-    // 10. Store New Borrower manually
+    // 11. Store New Member manually
     public function storeBorrower(Request $request)
     {
         $validated = $request->validate([
-            'full_name'       => 'required|string|max:255',
-            'email'           => 'required|email|unique:borrowers,email',
-            'phone_number'    => 'nullable|string|max:20',
-            'monthly_income'  => 'required|numeric|min:0',
-            'ai_credit_score' => 'nullable|integer',
-            'status'          => 'required|string',
-            'address'         => 'nullable|string',
+            'member_id'     => 'required|string|max:255|unique:coop_members,member_id',
+            'full_name'     => 'required|string|max:255',
+            'email'         => 'required|email|unique:coop_members,email',
+            'phone'         => 'nullable|string|max:20',
+            'date_of_birth' => 'nullable|date',
+            'is_registered' => 'boolean',
+            'status'        => 'required|string|in:active,inactive,suspended',
         ]);
 
-        $lastId = Borrowers::max('id') ?? 0;
-        $borrowerId = 'BOR-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+        $lastId = CoopMember::withTrashed()->max('id') ?? 0;
+        $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
-        Borrowers::create([
-            'borrower_id'     => $borrowerId,
-            'full_name'       => $validated['full_name'],
-            'email'           => $validated['email'],
-            'phone_number'    => $validated['phone_number'],
-            'monthly_income'  => $validated['monthly_income'],
-            'ai_credit_score' => $validated['ai_credit_score'] ?? rand(600, 750),
-            'status'          => $validated['status'],
-            'address'         => $validated['address'],
+        $coopMemberId = $validated['member_id'] ?? $memberId;
+
+        $member = CoopMember::create([
+            'member_id'      => $coopMemberId,
+            'full_name'      => $validated['full_name'],
+            'email'          => $validated['email'],
+            'date_of_birth'  => $validated['date_of_birth'] ?? now(),
+            'is_registered'  => $request->boolean('is_registered'),
+            'status'         => $validated['status'] ?? 'active',
         ]);
 
-        return redirect()->route('borrowers.index')->with('success', 'Borrower added successfully!');
+        return redirect()->route('active-members.index')->with('success', 'Member added successfully!');
     }
 
-    // 11. Approve Borrower
+    // 12. Activate Member
     public function approveBorrower($id)
     {
-        $borrower = Borrowers::findOrFail($id);
-        $borrower->status = 'Active';
-        $borrower->save();
+        $member = CoopMember::findOrFail($id);
+        $member->status = 'active';
+        $member->save();
 
-        return redirect()->back()->with('success', 'Borrower status updated to Active.');
+        return redirect()->back()->with('success', 'Member status updated to Active.');
     }
 
-    // 12. Reject Borrower
+    // 13. Suspend Member
     public function rejectBorrower($id)
     {
-        $borrower = Borrowers::findOrFail($id);
-        $borrower->status = 'Blacklisted';
-        $borrower->save();
+        $member = CoopMember::findOrFail($id);
+        $member->status = 'inactive';
+        $member->save();
 
-        return redirect()->back()->with('success', 'Borrower status updated to Blacklisted.');
+        return redirect()->back()->with('success', 'Member status updated to Inactive.');
     }
 
-    // 13. Delete Borrower
+    // 14. Delete Member
     public function destroyBorrower($id)
     {
-        $borrower = Borrowers::findOrFail($id);
-        $borrowerName = $borrower->full_name;
+        $member = CoopMember::findOrFail($id);
 
-        // Delete the borrower
-        $borrower->delete();
+        $memberId = $member->member_id;
 
-        // Delete corresponding applications by matching name
-        $applications = Application::where('applicant', $borrowerName)->get();
-        foreach ($applications as $app) {
-            AppNotification::where('app_id', $app->app_id)->delete();
-            $app->delete();
-        }
+        $member->delete();
 
         return response()->json([
             'success' => true,
             'id'      => $id,
         ]);
     }
-    
 
+    // 14. Admin Users Page
     public function adminUsers()
     {
-        $admins = \App\Models\User::where('usertype', 'admin')->latest()->get();
+        $admins = User::where('usertype', 'admin')->latest()->get();
         return view('admin.admins', compact('admins'));
     }
 
-    // 14. Membership Applications — list
+    // 15. Store a new admin account
+    public function storeAdmin(Request $request)
+    {
+        $validated = $request->validate([
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|email|max:255|unique:users,email',
+            'phone'    => 'nullable|string|max:20',
+            'password' => 'required|string|min:6',
+        ]);
+
+        $user = User::create([
+            'name'     => $validated['name'],
+            'email'    => $validated['email'],
+            'phone'    => $validated['phone'] ?? null,
+            'usertype' => 'admin',
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'id'      => $user->id,
+        ]);
+    }
+
+    // 16. Update an admin account
+    public function updateAdmin(Request $request, $id)
+    {
+        $admin = User::where('usertype', 'admin')->findOrFail($id);
+
+        $validated = $request->validate([
+            'name'  => 'required|string|max:255',
+            'email' => 'required|email|max:255',
+            'phone' => 'nullable|string|max:20',
+        ]);
+
+        Validator::make(
+            ['email' => $validated['email']],
+            ['email' => 'required|email|max:255|unique:users,email,' . $admin->id]
+        )->validated();
+
+        $admin->name  = $validated['name'];
+        $admin->email = $validated['email'];
+        $admin->phone = $validated['phone'] ?? null;
+        $admin->save();
+
+        return response()->json([
+            'success' => true,
+            'id'      => $id,
+        ]);
+    }
+
+    // 17. Delete an admin account
+    public function destroyAdmin($id)
+    {
+        $admin = User::where('usertype', 'admin')->findOrFail($id);
+
+        if ($admin->id === Auth::id()) {
+            return response()->json(['success' => false, 'message' => 'You cannot delete your own account.'], 422);
+        }
+
+        $admin->delete();
+
+        return response()->json([
+            'success' => true,
+            'id'      => $id,
+        ]);
+    }
+
+    // 18. Membership Applications — List
     public function memberships()
     {
-        $applications = \App\Models\MemberApplication::latest()->get();
+        $applications = MemberApplication::latest()->get();
         return view('admin.memberships', compact('applications'));
     }
 
-    // 15. Approve a membership application — creates / links a CoopMember
+    // 19. Approve a membership application
     public function approveMember($id)
     {
-        $application = \App\Models\MemberApplication::findOrFail($id);
+        $application = MemberApplication::findOrFail($id);
 
-        // If this applicant is already a registered member, just link them.
-        $existing = \App\Models\CoopMember::where('email', $application->email)->first();
+        $existing = CoopMember::where('email', $application->email)->first();
+
+        // Resolve the user account this application belongs to. The
+        // application may carry a user_id (logged-in applicant) or the
+        // applicant may have registered as a user before submitting.
+        $userId = $application->user_id;
+        if (!$userId) {
+            $existingUser = \App\Models\User::where('email', $application->email)->first();
+            if ($existingUser) {
+                $userId = $existingUser->id;
+            }
+        }
 
         if (!$existing) {
-            $lastId = \App\Models\CoopMember::max('id') ?? 0;
+            $lastId = CoopMember::max('id') ?? 0;
             $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
-            $existing = \App\Models\CoopMember::create([
+            $existing = CoopMember::create([
                 'member_id'     => $memberId,
                 'full_name'     => $application->fullName,
                 'date_of_birth' => $application->birthdate,
                 'email'         => $application->email,
-                'is_registered' => false,
+                'is_registered' => (bool) $userId,
+                'user_id'       => $userId,
+            ]);
+        } elseif ($application->user_id && !$existing->user_id) {
+            // The member already existed (e.g. applied before registering),
+            // but this application was submitted by a logged-in user — link
+            // them so the dashboard recognizes the member as belonging to
+            // this account.
+            $existing->user_id = $application->user_id;
+            $existing->save();
+        }
+
+        // If the applicant already has a user account, mark the member as
+        // registered and mirror the link on the users table too. Without
+        // this the approved member is invisible to the account that
+        // submitted the application (UserController::dashboard resolves
+        // `$user->coopMember` via users.coop_member_id).
+        if ($userId) {
+            $existing->is_registered = true;
+            $existing->user_id = $userId;
+            $existing->save();
+
+            \App\Models\User::where('id', $userId)->update([
+                'coop_member_id' => $existing->id,
             ]);
         }
 
@@ -313,17 +416,17 @@ class AdminController extends Controller
         $application->save();
 
         return response()->json([
-            'success'     => true,
-            'id'          => $id,
-            'status'      => 'approved',
-            'member_id'   => $existing->member_id,
+            'success'   => true,
+            'id'        => $id,
+            'status'    => 'approved',
+            'member_id' => $existing->member_id,
         ]);
     }
 
-    // 16. Reject a membership application
+    // 20. Reject a membership application
     public function rejectMember($id)
     {
-        $application = \App\Models\MemberApplication::findOrFail($id);
+        $application = MemberApplication::findOrFail($id);
 
         $application->status      = 'rejected';
         $application->reviewed_at = now();
@@ -337,15 +440,67 @@ class AdminController extends Controller
         ]);
     }
 
-    // 17. Delete a membership application
+    // 21. Update a membership application
+    public function updateMember(Request $request, $id)
+    {
+        $application = MemberApplication::findOrFail($id);
+
+        $validated = $request->validate([
+            'first_name'        => 'required|string|max:255',
+            'middle_name'       => 'nullable|string|max:255',
+            'surname'           => 'required|string|max:255',
+            'email'             => 'required|email|max:255',
+            'contact_number'    => 'nullable|string|max:20',
+            'tin'               => 'nullable|string|max:20',
+            'nationality'       => 'nullable|string|max:100',
+            'place_of_birth'    => 'nullable|string|max:255',
+            'gender'            => 'nullable|string|max:20',
+            'occupation'        => 'nullable|string|max:255',
+            'civil_status'      => 'nullable|string|max:50',
+            'residency_type'    => 'nullable|string|max:50',
+            'perm_house_no'     => 'nullable|string|max:50',
+            'perm_street'       => 'nullable|string|max:255',
+            'perm_barangay'     => 'nullable|string|max:255',
+            'perm_municipality' => 'nullable|string|max:255',
+            'perm_zip_code'     => 'nullable|string|max:20',
+            'perm_stay_years'   => 'nullable|integer|min:0',
+            'perm_stay_months'  => 'nullable|integer|min:0|max:11',
+        ]);
+
+        $application->surname           = $validated['surname'];
+        $application->first_name        = $validated['first_name'];
+        $application->middle_name       = $validated['middle_name'] ?? '';
+        $application->email             = $validated['email'];
+        $application->contact_number    = $validated['contact_number'] ?? null;
+        $application->tin               = $validated['tin'] ?? null;
+        $application->nationality        = $validated['nationality'] ?? null;
+        $application->place_of_birth    = $validated['place_of_birth'] ?? null;
+        $application->gender            = $validated['gender'] ?? null;
+        $application->occupation        = $validated['occupation'] ?? null;
+        $application->civil_status      = $validated['civil_status'] ?? null;
+        $application->residency_type    = $validated['residency_type'] ?? null;
+        $application->perm_house_no     = $validated['perm_house_no'] ?? null;
+        $application->perm_street       = $validated['perm_street'] ?? null;
+        $application->perm_barangay    = $validated['perm_barangay'] ?? null;
+        $application->perm_municipality = $validated['perm_municipality'] ?? null;
+        $application->perm_zip_code     = $validated['perm_zip_code'] ?? null;
+        $application->perm_stay_years   = $validated['perm_stay_years'] ?? null;
+        $application->perm_stay_months  = $validated['perm_stay_months'] ?? null;
+        $application->save();
+
+        return response()->json([
+            'success' => true,
+            'id'      => $id,
+        ]);
+    }
+
+    // 22. Delete a membership application
     public function destroyMember($id)
     {
-        $application = \App\Models\MemberApplication::findOrFail($id);
+        $application = MemberApplication::findOrFail($id);
 
-        // If this application had already been approved into a member,
-        // remove the created member so the registry stays consistent.
         if ($application->approved_member_id) {
-            $member = \App\Models\CoopMember::find($application->approved_member_id);
+            $member = CoopMember::find($application->approved_member_id);
             if ($member && !$member->is_registered && !$member->user_id) {
                 $member->delete();
             }
@@ -358,4 +513,38 @@ class AdminController extends Controller
             'id'      => $id,
         ]);
     }
+
+    
+
+    // 23. Navigation Placeholder Routes
+    public function repayments()        { return view('admin.index'); }
+    public function creditAssessment()  { return view('admin.index'); }
+    public function riskFlags()         { return view('admin.index'); }
+    public function settings()          { return view('admin.index'); }
+    public function reports()           { return view('admin.index'); }
+
+    public function disbursements()
+    {
+        $applications = \App\Models\Application::whereIn('status', ['Approved', 'approved', 'Disbursed', 'disbursed'])
+            ->latest()
+            ->get();
+
+        $disbursements = $applications->map(function ($app) {
+            return (object)[
+                'id'             => $app->id ?? 1,
+                'reference_no'   => 'DISB-' . str_pad($app->id ?? 1, 5, '0', STR_PAD_LEFT),
+                'applicant_name' => $app->applicant ?? $app->full_name ?? 'Applicant',
+                'loan_type'      => $app->loan_type ?? 'Personal Loan',
+                'amount'         => $app->amount ?? 0,
+                'channel'        => 'Bank Transfer',
+                'account_number' => '—',
+                'notes'          => 'Approved loan application payout.',
+                'status'         => 'Disbursed',
+                'created_at'     => $app->created_at ?? now(),
+            ];
+        });
+
+        return view('admin.disbursements', compact('disbursements'));
+    }
 }
+

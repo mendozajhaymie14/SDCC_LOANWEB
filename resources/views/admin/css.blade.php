@@ -220,6 +220,16 @@ body {
   line-height: 1.2;
 }
 
+.admin-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .admin-more { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
 
 /* COLLAPSED MODE: STRICT HIDE FOR TEXT AND DESCRIPTIVE ELEMENTS */
@@ -387,6 +397,16 @@ body {
   border-radius: 16px;
   padding: 1.4rem 1.6rem;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Dashboard: let the Recent Applications card fill the full row height so it
+   lines up with the taller right-hand column. */
+#page-dashboard .body-grid > .panel {
+  display: flex;
+  flex-direction: column;
+}
+#page-dashboard .body-grid > .panel .table-wrap {
+  flex: 1;
 }
 
 .page {
@@ -635,6 +655,17 @@ body {
   background: rgba(2, 132, 199, 0.08);
   color: var(--accent);
   transform: translateY(-2px);
+}
+
+/* Quick-action cards that are not wired up yet. */
+.qa-card-classic.qa-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.qa-card-classic.qa-disabled:hover {
+  transform: none;
+  background: var(--card2);
+  border-color: var(--border);
 }
 
 .qa-icon {
@@ -1050,6 +1081,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   .sidebar .nav-label,
   .sidebar .nav-badge,
   .sidebar .admin-details,
+  .sidebar .admin-name,
   .sidebar .admin-more { display: none !important; }
   .sidebar .admin-avatar-icon { display: flex !important; margin: 0 auto; }
   .sidebar .nav-item { width: 44px; height: 44px; margin: 0.3rem auto; padding: 0; justify-content: center; }

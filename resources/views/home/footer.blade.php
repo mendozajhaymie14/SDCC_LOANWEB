@@ -22,8 +22,7 @@
         <li><a href="#features">About Us</a></li>
         <li><a href="#how">How It Works</a></li>
         <li><a href="{{ url('/register') }}">Apply for a Loan</a></li>
-        <li><a href="{{ url('/member-application') }}">Membership</a></li>
-        <li><a href="{{ route('faqs') }}">FAQs</a></li>
+                <li><a href="{{ route('faqs') }}">FAQs</a></li>
       </ul>
     </div>
 
