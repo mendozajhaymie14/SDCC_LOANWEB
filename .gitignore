@@ -26,3 +26,6 @@ Homestead.yaml
 Thumbs.db
 /storage/framework/views/
 /AI_DOCUMENT_ANALYSIS_RECOMMENDATIONS.md
+graphify-out/
+memory/
+*.sql
