@@ -583,4 +583,224 @@
     display: flex; align-items: center; justify-content: center;
     line-height: 1;
   }
+
+  /* ─── NOTIFICATION SYSTEM ─── */
+  .notif-btn {
+    background: transparent;
+    border: 2px solid var(--green-pale);
+    color: var(--green-deep);
+    width: 44px; height: 44px;
+    border-radius: 100px;
+    font-size: 20px;
+    cursor: pointer;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.22s, border-color 0.22s, color 0.22s;
+  }
+  .notif-btn:hover {
+    background: var(--green-wash);
+    border-color: var(--green-deep);
+  }
+  .notif-badge {
+    position: absolute;
+    top: -4px; right: -4px;
+    min-width: 20px; height: 20px;
+    background: var(--red);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 100px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--white);
+  }
+  .notif-dropdown {
+    position: fixed;
+    top: 90px; right: 20px;
+    width: 360px;
+    max-height: 400px;
+    background: var(--white);
+    border: 1px solid #e2f0e4;
+    border-radius: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+    z-index: 200;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .notif-dropdown.open { display: flex; }
+  .notif-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid #e2f0e4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .notif-head-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px;
+    letter-spacing: 1px;
+    color: var(--green-deep);
+    margin: 0;
+  }
+  .notif-items {
+    overflow-y: auto;
+    flex: 1;
+  }
+  .notif-item {
+    padding: 12px 18px;
+    border-bottom: 1px solid #f0f7f2;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-item:hover { background: var(--green-wash); }
+  .notif-item strong {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dark);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .notif-msg {
+    font-size: 12px;
+    color: var(--text-mid);
+    margin-bottom: 4px;
+    line-height: 1.5;
+  }
+  .notif-time {
+    font-size: 11px;
+    color: #9ca3af;
+  }
+  .notif-mark-all {
+    font-size: 13px;
+    color: var(--green-deep);
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .notif-mark-all:hover { color: var(--green-mid); }
+
+  /* ─── BALANCE / DUE CARD ─── */
+  .balance-due-card, .reminder-alerts {
+    background: var(--white);
+    border: 1px solid #e2f0e4;
+    border-radius: 20px;
+    padding: 24px 28px;
+  }
+  .balance-due-card .panel-head, .reminder-alerts .panel-head {
+    margin-bottom: 20px;
+  }
+  .balance-due-card .panel-body, .reminder-alerts .panel-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .balance-due-item {
+    display: flex;
+    flex-direction: column;
+  }
+  .balance-due-label {
+    font-size: 12px;
+    color: #7a927e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .balance-due-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px;
+    letter-spacing: 0.5px;
+    color: var(--green-deep);
+    margin: 0;
+    line-height: 1;
+  }
+  .reminder-list {
+    display: grid;
+    gap: 14px;
+  }
+  .reminder-item {
+    border: 1px solid #e2f0e4;
+    border-radius: 14px;
+    padding: 14px 18px;
+    background: var(--green-wash);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .reminder-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+  }
+  .reminder-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .reminder-header strong {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--green-deep);
+  }
+  .reminder-message {
+    font-size: 13px;
+    color: var(--text-dark);
+    margin: 8px 0;
+    line-height: 1.5;
+  }
+  .reminder-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(46,139,62,0.12);
+  }
+  .reminder-time {
+    font-size: 11px;
+    color: #7a927e;
+  }
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--green-deep);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+  .btn-link:hover {
+    color: var(--green-mid);
+  }
+
+  /* Status pill variants for reminder alerts */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-pill.due-today {
+    background: #fdf4dd;
+    color: #8a6d13;
+  }
+  .status-pill.due-soon {
+    background: #e8f5e9;
+    color: var(--green-deep);
+  }
+  .status-pill.overdue {
+    background: #fdeeee;
+    color: #a32b2b;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
 </style>

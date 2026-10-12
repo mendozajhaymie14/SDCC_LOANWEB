@@ -72,7 +72,7 @@
           </thead>
           <tbody>
             @forelse($applications as $app)
-  <tr data-status="{{ strtolower($app->status) }}">
+  <tr data-status="{{ strtolower($app->status) }}" data-app-id="{{ $app->app_id }}">
     <td class="td-mono">#{{ $app->app_id }}</td>
     <td class="applicant-name">{{ $app->applicant }}</td>
     <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
@@ -84,13 +84,14 @@
     </td>
     <td class="td-mono">
       @php
-        $aiColor = $app->ai_score !== null && $app->ai_score >= 700 ? 'var(--accent)' : ($app->ai_score !== null ? 'var(--red)' : 'var(--muted)');
+        $aiScore = $app->ai_score ?? ($app->loanApplication ? $app->loanApplication->ai_score : null);
+        $aiColor = $aiScore !== null && $aiScore >= 51 ? 'var(--accent3)' : ($aiScore !== null ? 'var(--red)' : 'var(--muted)');
       @endphp
-      <span style="font-weight:700; color: {{ $aiColor }}">{{ $app->ai_score ?? 'N/A' }}</span>
+      <span style="font-weight:700; color: {{ $aiColor }}">{{ $aiScore ?? 'N/A' }}</span>
     </td>
     <td class="td-date">{{ \Carbon\Carbon::parse($app->created_at)->format('M d, Y') }}</td>
     <td>
-      <button class="btn-review" type="button" onclick="openAppDetail('{{ $app->app_id }}')">View</button>
+      <button class="btn-review" type="button" data-app-id="{{ $app->app_id }}" data-documents='@json($app->loanApplication?->documents ?? [])' data-ai-notes='@json($app->loanApplication?->ai_analysis_notes ?? null)' onclick="openAppDetail(event)">View</button>
     </td>
   </tr>
 @empty

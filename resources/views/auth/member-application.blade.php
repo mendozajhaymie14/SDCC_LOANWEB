@@ -1,567 +1,846 @@
-<x-guest-layout>
-    <div class="member-app-page" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; background-color: var(--off-white); padding: 2rem; font-family: 'DM Sans', sans-serif;">
+@php
+    $isAuth = auth()->check();
+    $authEmail = $isAuth ? auth()->user()->email : '';
+    $user = $isAuth ? auth()->user() : null;
+    $firstName = $isAuth ? ($user->first_name ?? $user->name ?? '') : '';
+    $surname = $isAuth ? ($user->last_name ?? '') : '';
+    $contactNo = $isAuth ? ($user->contact_number ?? $user->phone ?? '') : '';
+    $middleName = $isAuth ? ($user->middle_name ?? '') : '';
+    $sex = $isAuth ? ($user->sex ?? '') : '';
+    $civilStatus = $isAuth ? ($user->civil_status ?? '') : '';
+    $dob = $isAuth ? ($user->birthdate ?? '') : '';
+    $tin = $isAuth ? ($user->tin ?? '') : '';
+    $email = $isAuth ? auth()->user()->email : '';
+    $phone = $isAuth ? ($user->phone ?? $user->contact_number ?? '') : '';
+    $suffix = $isAuth ? ($user->suffix ?? '') : '';
+    // $errors is normally shared by Laravel's ShareErrorsFromSession middleware
+    // in real browser requests. Initialize to null for safety outside requests.
+    $errors ??= null;
+@endphp
 
-        <div style="width: 100%; max-width: 1100px; margin: 0 auto;">
+<div class="member-app-page" style="width: 100%; min-height: 100vh; overflow-x: hidden; padding: 0; font-family: 'DM Sans', sans-serif;">
+    <!-- Page container: centered wrapper with max-w-7xl -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
 
-            <!-- Go Back Button -->
-            <div style="width: 100%; display: flex; justify-content: flex-start; margin-bottom: 24px;">
-                <a href="/" style="display: inline-flex; align-items: center; gap: 8px; color: var(--text-dark); font-weight: 600; font-size: 16px; text-decoration: none;">
-                    <svg style="width: 20px; height: 20px; stroke: var(--text-dark);" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-                    </svg>
-                    <span>Go Back</span>
-                </a>
+        <div class="member-app-frame flex flex-col lg:grid lg:grid-cols-12 lg:gap-8 items-start"
+             style="width: 100%; min-height: 100vh; border: 2px solid var(--green-deep); border-radius: 22px; padding: 0; overflow: hidden; background-color: var(--white); box-sizing: border-box; align-items: stretch; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+
+            <!-- Left Hero Banner (desktop sidebar: sticky) -->
+            <div class="member-app-banner lg:col-span-4 lg:sticky lg:top-8"
+                 style="position: relative; width: 100%; overflow: hidden; background-image: url('{{ asset('images/bg.png') }}'); background-size: cover; background-position: center;">
+
+                <div style="position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; padding: 32px; text-align: center;
+                            background: linear-gradient(135deg, var(--green-deep) 0%, var(--green-mid) 100%);
+                            border-radius: 22px;">
+
+                    <div style="width: 120px; height: 120px; border-radius: 50%; background-color: var(--white); display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
+                        <img src="{{ asset('images/Logo.jpg') }}"
+                             alt="San Dionisio Credit Cooperative Logo"
+                             style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                    </div>
+
+                    <h1 style="font-family: 'Bebas Neue', sans-serif; font-size: clamp(32px, 5vw, 46px); letter-spacing: 0.5px; line-height: 1.2; color: #ffffff; margin: 0; text-transform: uppercase; text-shadow: 0 2px 10px rgba(0,0,0,0.35);">
+                        San Dionisio<br>Credit<br>Cooperative
+                    </h1>
+
+                    <p style="font-size: 14px; color: rgba(255,255,255,0.92); max-width: 280px; line-height: 1.6; margin: 0; text-shadow: 0 1px 4px rgba(0,0,0,0.25);">
+                        Membership application form. Fill in your details and we will review your application.
+                    </p>
+                </div>
             </div>
 
-            <div class="member-app-frame" style="width: 100%; border: 2px solid var(--green-deep); border-radius: 22px; padding: 0; overflow: hidden; background-color: var(--white); display: grid; grid-template-columns: 1fr 1.6fr; box-sizing: border-box; align-items: stretch; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <!-- Right Form Column (scrollable) -->
+            <div class="member-app-form-side lg:col-span-8"
+                 style="background-color: var(--white); padding: 24px; border-radius: 22px; overflow-y: auto; overflow-x: hidden;">
 
-                <!-- Left Banner -->
-                <div class="member-app-banner" style="position: relative; width: 100%; min-height: 300px; border-top-left-radius: 22px; border-bottom-left-radius: 22px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; background-image: url('{{ asset('images/bg.png') }}'); background-size: cover; background-position: center; padding: 32px; text-align: center;">
+                @if (session('success'))
+                    <div style="margin-bottom: 20px; font-weight: 500; font-size: 15px; color: #16a34a; padding: 12px; background: #e8f9eb; border-radius: 10px; border-left: 4px solid #16a34a;">
+                        {{ session('success') }}
+                    </div>
+                @endif
 
-                    <div style="position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%;">
-                        <div style="width: 110px; height: 110px; border-radius: 50%; background-color: var(--white); display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-                            <img src="{{ asset('images/Logo.jpg') }}"
-                                 alt="San Dionisio Credit Cooperative Logo"
-                                 style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
-                        </div>
-                        <h1 style="font-family: 'Bebas Neue', sans-serif; font-size: clamp(38px, 5vw, 54px); letter-spacing: 0.5px; line-height: 1; color: #ffffff; margin: 0; text-transform: uppercase; text-shadow: 0 1px 8px rgba(0,0,0,0.35);">
-                            San Dionisio<br>Credit<br>Cooperative
+                <x-validation-errors class="mb-4" />
+
+                <form method="POST" action="{{ route('member.applications.store') }}" enctype="multipart/form-data"
+                      style="display: flex; flex-direction: column; gap: 24px; margin: 0; padding-bottom: 16px;">
+                    @csrf
+
+                    <!-- Page / form header -->
+                    <div class="form-header" style="max-width: 60ch; margin-bottom: 8px;">
+                        <h1 style="font-family: 'Bebas Neue', sans-serif; font-size: clamp(28px, 5vw, 38px); letter-spacing: 0.5px; line-height: 1; color: var(--text-dark); margin: 0 0 6px 0;">
+                            Membership <span style="color: var(--gold);">Application</span>
                         </h1>
-                        <p style="font-size: 15px; color: rgba(255,255,255,0.9); max-width: 260px; line-height: 1.6; margin: 0; text-shadow: 0 1px 4px rgba(0,0,0,0.25);">
-                            Membership application form. Fill in your details and we will review your application.
+                        <p style="color: #5a7a5e; line-height: 1.7; font-size: 15px; margin: 0;">
+                            Fill in your details below. Fields marked with <strong style="color: #b91c1c;">*</strong> are required.
                         </p>
                     </div>
-                </div>
 
-                <!-- Right Form Side -->
-                <div class="member-app-form-side" style="padding: 40px; background-color: var(--white); border-top-right-radius: 22px; border-bottom-right-radius: 22px; box-sizing: border-box;">
-                    <div style="width: 100%; box-sizing: border-box;">
+                    <!-- ── Basic Information ── -->
+                    <div class="form-card">
+                        <fieldset style="border: none; padding: 0; margin: 0;">
+                            <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin: 0 0 18px 0; border: none; padding: 0;">
+                                Basic Information
+                            </legend>
 
-                        @if (session('success'))
-                            <div style="margin-bottom: 20px; font-weight: 500; font-size: 15px; color: #16a34a;">
-                                {{ session('success') }}
-                            </div>
-                        @endif
+                            <!-- Row 1: First / Given Name * | Middle Name -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="first_name" class="field label">First / Given Name *</label>
+                                <input type="text" id="first_name" name="first_name"
+                                       value="{{ old('first_name', $firstName) }}"
+                                       {{ $isAuth ? 'readonly' : '' }}
+                                       class="{{ $isAuth ? 'member-app-input bg-gray-100 cursor-not-allowed' : 'member-app-input' }}"
+                                       required autocomplete="given-name" />
+                                @isset($errors)@error('first_name')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
 
-                        <x-validation-errors class="mb-4" />
-
-                        <form method="POST" action="{{ route('member.applications.store') }}" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 24px; margin: 0;">
-                            @csrf
-
-                            <!-- ── Personal Information ── -->
-                            <div class="form-header">
-                                <h1>Membership <span style="color: var(--gold);">Application</span></h1>
-                                <p>Fill in your details below. Fields marked with * are required.</p>
-                            </div>
-
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Personal Information</legend>
-
-                                    <div class="grid-2">
-                                      <div class="field">
-                                        <label for="surname">Surname *</label>
-                                        <input type="text" id="surname" name="surname"
-                                               value="{{ old('surname') }}"
-                                               class="member-app-input"
-                                               required autocomplete="family-name" />
-                                        @error('surname')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="first_name">First Name *</label>
-                                        <input type="text" id="first_name" name="first_name"
-                                               value="{{ old('first_name') }}"
-                                               class="member-app-input"
-                                               required autocomplete="given-name" />
-                                        @error('first_name')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="middle_name">Middle Name</label>
-                                        <input type="text" id="middle_name" name="middle_name"
-                                               value="{{ old('middle_name') }}"
-                                               class="member-app-input"
-                                               autocomplete="additional-name" />
-                                        @error('middle_name')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-                                    </div>
-                                </fieldset>
+                              <div class="field">
+                                <label for="middle_name" class="field label">Middle Name</label>
+                                <input type="text" id="middle_name" name="middle_name"
+                                       value="{{ old('middle_name', $middleName) }}"
+                                       {{ $isAuth ? 'readonly' : '' }}
+                                       class="{{ $isAuth ? 'member-app-input bg-gray-100 cursor-not-allowed' : 'member-app-input' }}"
+                                       autocomplete="additional-name" />
+                                @isset($errors)@error('middle_name')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
                             </div>
 
-                            <!-- ── Permanent Address ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Permanenteng Tirahan <span style="font-weight: 500; color: #7a927e; text-transform: none; letter-spacing: 0;">(Permanent Address)</span></legend>
+                            <!-- Row 2: Last Name * | Suffix (Optional) -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="last_name" class="field label">Last Name *</label>
+                                <input type="text" id="last_name" name="last_name"
+                                       value="{{ old('last_name', $surname) }}"
+                                       {{ $isAuth ? 'readonly' : '' }}
+                                       class="{{ $isAuth ? 'member-app-input bg-gray-100 cursor-not-allowed' : 'member-app-input' }}"
+                                       required autocomplete="family-name" />
+                                @isset($errors)@error('last_name')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
 
-                                    <div class="grid-2">
-                                      <div class="field">
-                                        <label for="perm_house_no">House No. </label>
-                                        <input type="text" id="perm_house_no" name="perm_house_no"
-                                               value="{{ old('perm_house_no') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="perm_street">Street</label>
-                                        <input type="text" id="perm_street" name="perm_street"
-                                               value="{{ old('perm_street') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="perm_barangay">Barangay</label>
-                                        <input type="text" id="perm_barangay" name="perm_barangay"
-                                               value="{{ old('perm_barangay') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="perm_municipality">Municipality</label>
-                                        <input type="text" id="perm_municipality" name="perm_municipality"
-                                               value="{{ old('perm_municipality') }}"
-                                               class="member-app-input" />
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="perm_zip_code">Zip Code</label>
-                                        <input type="text" id="perm_zip_code" name="perm_zip_code"
-                                               value="{{ old('perm_zip_code') }}"
-                                               class="member-app-input" />
-                                      </div>
-                                    </div>
-                                </fieldset>
+                              <div class="field">
+                                <label for="suffix" class="field label">Suffix (Optional)</label>
+                                <select id="suffix" name="suffix" class="member-app-input">
+                                    <option value="">None</option>
+                                    <option value="Jr." {{ old('suffix') == 'Jr.' ? 'selected' : '' }}>Jr.</option>
+                                    <option value="Sr." {{ old('suffix') == 'Sr.' ? 'selected' : '' }}>Sr.</option>
+                                    <option value="I" {{ old('suffix') == 'I' ? 'selected' : '' }}>I</option>
+                                    <option value="II" {{ old('suffix') == 'II' ? 'selected' : '' }}>II</option>
+                                    <option value="III" {{ old('suffix') == 'III' ? 'selected' : '' }}>III</option>
+                                    <option value="IV" {{ old('suffix') == 'IV' ? 'selected' : '' }}>IV</option>
+                                    <option value="V" {{ old('suffix') == 'V' ? 'selected' : '' }}>V</option>
+                                </select>
+                                @isset($errors)@error('suffix')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
                             </div>
 
-                            <!-- ── Residency & Contact ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Residency & Contact</legend>
+                            <!-- Row 3: Email Address * | Mobile Number * -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="email" class="field label">Email Address *</label>
+                                <input type="email" id="email" name="email"
+                                       value="{{ old('email', $authEmail) }}"
+                                       {{ $isAuth ? 'readonly class="bg-gray-100 cursor-not-allowed"' : 'autocomplete="email"' }} />
+                                @isset($errors)@error('email')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
 
-                                    <div style="font-size: 14px; color: var(--text-mid); margin-bottom: 12px;">
-                                      Type of Residency
-                                    </div>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                                      @foreach (['owned' => 'Owned', 'rented' => 'Rented', 'mortgage' => 'Mortgage', 'living_with_relatives' => 'Living with parents/relatives'] as $val => $label)
-                                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-mid); cursor: pointer;">
-                                          <input type="radio" name="residency_type" value="{{ $val }}" style="color: var(--green-deep);" /> <span>{{ $label }}</span>
-                                        </label>
-                                      @endforeach
-                                    </div>
-                                    @error('residency_type')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px;">
-                                      <div>
-                                        <label for="contact_number" class="field label">Contact No. </label>
-                                        <input type="text" id="contact_number" name="contact_number"
-                                               value="{{ old('contact_number') }}"
-                                               class="member-app-input"
-                                               required />
-                                        @error('contact_number')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-
-                                      <div>
-                                        <label for="email" class="field label">Email Address </label>
-                                        <input type="email" id="email" name="email"
-                                               value="{{ old('email') }}"
-                                               class="member-app-input"
-                                               required autocomplete="email" />
-                                        @error('email')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-                                    </div>
-                                </fieldset>
+                              <div class="field">
+                                <label for="contact_number" class="field label">Mobile Number *</label>
+                                <input type="tel" id="contact_number" name="contact_number"
+                                       value="{{ old('contact_number', $contactNo) }}"
+                                       class="member-app-input"
+                                       required autocomplete="tel"
+                                       maxlength="11"
+                                       pattern="[0-9]{11}"
+                                       placeholder="09XXXXXXXXX"
+                                       inputmode="numeric"
+                                       oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 11);" />
+                                @isset($errors)@error('contact_number')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
                             </div>
 
-                            <!-- ── Birth & Identity ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Birth & Identity</legend>
+                            <!-- Row 4: Sex * | Civil Status * -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="sex" class="field label">Sex *</label>
+                                <select id="sex" name="sex" class="member-app-input" required>
+                                  <option value="">-- SELECT --</option>
+                                    <option value="male" {{ old('sex') == 'male' ? 'selected' : '' }}>Male</option>
+                                    <option value="female" {{ old('sex') == 'female' ? 'selected' : '' }}>Female</option>
+                                    <option value="lgbtqia+" {{ old('sex') == 'lgbtqia+' ? 'selected' : '' }}>LGBTQIA+</option>
+                                </select>
+                                @isset($errors)@error('sex')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
 
-                                    <div class="grid-2">
-                                      <div class="field">
-                                        <label for="birthdate">Birthdate *</label>
-                                        <input type="date" id="birthdate" name="birthdate"
-                                               value="{{ old('birthdate') }}"
-                                               class="member-app-input"
-                                               required autocomplete="bday" />
-                                        @error('birthdate')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-
-                                      <div class="field">
-                                        <label for="nationality">Nationality *</label>
-                                        <select id="nationality" name="nationality" class="member-app-input" required>
-                                          <option value="">Select nationality…</option>
-                                          <option value="Filipino" @selected(old('nationality') === 'Filipino')>Filipino</option>
-                                          <option value="Filipino (dual)" @selected(old('nationality') === 'Filipino (dual)')>Filipino (dual citizen)</option>
-                                          <option value="Other" @selected(old('nationality') === 'Other')>Other</option>
-                                        </select>
-                                        @error('nationality')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-                                    </div>
-
-                                    <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 24px;">
-                                      <label for="place_of_birth" class="field label">Lugar ng Kapanganakan (Place of Birth) *</label>
-                                      <input type="text" id="place_of_birth" name="place_of_birth"
-                                             value="{{ old('place_of_birth') }}"
-                                             class="member-app-input"
-                                             required />
-                                      @error('place_of_birth')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                    </div>
-                                </fieldset>
+                              <div class="field">
+                                <label for="civil_status" class="field label">Civil Status *</label>
+                                <select id="civil_status" name="civil_status" class="member-app-input" required>
+                                  <option value="">-- SELECT --</option>
+                                    <option value="single" {{ old('civil_status') == 'single' ? 'selected' : '' }}>Single</option>
+                                    <option value="married" {{ old('civil_status') == 'married' ? 'selected' : '' }}>Married</option>
+                                    <option value="legally_separated" {{ old('civil_status') == 'legally_separated' ? 'selected' : '' }}>Legally Separated</option>
+                                    <option value="annulled" {{ old('civil_status') == 'annulled' ? 'selected' : '' }}>Annulled</option>
+                                    <option value="widowed" {{ old('civil_status') == 'widowed' ? 'selected' : '' }}>Widowed</option>
+                                </select>
+                                @isset($errors)@error('civil_status')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
                             </div>
 
-                            <!-- ── Gender, Occupation, Civil Status ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Demographics</legend>
+                            <!-- Row 6: Date of Birth * -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="birthdate" class="field label">Date of Birth *</label>
+                                <input type="date" id="birthdate" name="birthdate"
+                                       value="{{ old('birthdate', $dob) }}"
+                                       class="member-app-input"
+                                       required autocomplete="bday" />
+                                @isset($errors)@error('birthdate')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
 
-                                    <div style="font-size: 14px; color: var(--text-mid); margin-bottom: 12px;">
-                                      Kasarian (Gender)
-                                    </div>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                                      @foreach (['male' => 'Male', 'female' => 'Female', 'lgbtqia+' => 'LGBTQIA+'] as $val => $label)
-                                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-mid); cursor: pointer;">
-                                          <input type="radio" name="gender" value="{{ $val }}" style="color: var(--green-deep);" /> <span>{{ $label }}</span>
-                                        </label>
-                                      @endforeach
-                                    </div>
-                                    @error('gender')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-
-                                    <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 24px;">
-                                      <label for="occupation" class="field label">Hanap-Buhay (Occupation) *</label>
-                                      <input type="text" id="occupation" name="occupation"
-                                             value="{{ old('occupation') }}"
-                                             class="member-app-input"
-                                             required />
-                                      @error('occupation')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                    </div>
-
-                                    <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 24px;">
-                                      <span style="font-size: 14px; font-weight: 600; color: var(--text-mid);">Civil Status</span>
-                                      <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                                        @foreach (['single' => 'Single', 'married' => 'Married', 'legally_separated' => 'Legally Separated', 'annulled' => 'Annulled', 'widowed' => 'Widowed'] as $val => $label)
-                                          <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-mid); cursor: pointer;">
-                                            <input type="radio" name="civil_status" value="{{ $val }}" style="color: var(--green-deep);" /> <span>{{ $label }}</span>
-                                          </label>
-                                        @endforeach
-                                      </div>
-                                      @error('civil_status')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                    </div>
-                                </fieldset>
+                              <div class="field">
+                                <div style="height: 46px;"></div>
+                              </div>
                             </div>
-
-                            <!-- ── Supporting Documents & TIN ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Supporting Documents</legend>
-
-                                    <div style="font-size: 13px; color: var(--text-mid); line-height: 1.6; margin-bottom: 20px;">
-                                        Please attach a 1&times;1 ID picture and a proof of billing. All uploads accept JPG, PNG or PDF (max 5&nbsp;MB).
-                                    </div>
-
-                                    <div class="grid-2">
-                                      <div class="field">
-                                        <label for="tin">Tax Identification Number (TIN)</label>
-                                        <input type="text" id="tin" name="tin"
-                                               value="{{ old('tin') }}"
-                                               class="member-app-input"
-                                               placeholder="e.g. 123-456-789-0000000" />
-                                        @error('tin')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-
-                                      <div class="field member-file-field">
-                                        <label for="id_picture">1&times;1 ID Picture</label>
-                                        <label for="id_picture" class="member-file-drop">
-                                          <input type="file" id="id_picture" name="id_picture"
-                                                 accept=".jpg,.jpeg,.png,.pdf"
-                                                 class="sr-file-input" />
-                                          <span class="mf-icon"><i class="fa-solid fa-id-card"></i></span>
-                                          <span class="mf-text">Tap to upload your ID picture</span>
-                                          <span class="mf-hint">JPG, PNG or PDF &middot; up to 5&nbsp;MB</span>
-                                        </label>
-                                        @error('id_picture')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-
-                                      <div class="field member-file-field full">
-                                        <label for="proof_of_billing">Proof of Billing</label>
-                                        <label for="proof_of_billing" class="member-file-drop">
-                                          <input type="file" id="proof_of_billing" name="proof_of_billing"
-                                                 accept=".jpg,.jpeg,.png,.pdf"
-                                                 class="sr-file-input" />
-                                          <span class="mf-icon"><i class="fa-solid fa-receipt"></i></span>
-                                          <span class="mf-text">Tap to upload your proof of billing</span>
-                                          <span class="mf-hint">JPG, PNG or PDF &middot; up to 5&nbsp;MB</span>
-                                        </label>
-                                        @error('proof_of_billing')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                      </div>
-                                    </div>
-                                </fieldset>
-                            </div>
-
-                            <!-- ── Character References ── -->
-                            <div class="form-card">
-                                <fieldset style="border: none; padding: 0; margin: 0;">
-                                    <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin-bottom: 10px; border: none; padding: 0;">Character References</legend>
-
-                                    <div style="font-size: 13px; color: var(--text-mid); line-height: 1.6; margin-bottom: 20px;">
-                                        Please provide up to three (3) character references. All details are optional but will help us verify your application.
-                                    </div>
-
-                                    <div class="ref-table" role="table" aria-label="Character references">
-                                      <div class="ref-head" role="row">
-                                        <span class="ref-no" role="columnheader">No.</span>
-                                        <span class="ref-col" role="columnheader">Full Name</span>
-                                        <span class="ref-col" role="columnheader">Address</span>
-                                        <span class="ref-col" role="columnheader">Contact No.</span>
-                                      </div>
-
-                                      @for ($i = 0; $i < 3; $i++)
-                                        <div class="ref-row" role="row">
-                                          <span class="ref-no">{{ $i + 1 }}.</span>
-
-                                          <span class="ref-col" role="cell">
-                                            <label for="ref_full_name_{{ $i }}" class="sr-only">Full name of reference {{ $i + 1 }}</label>
-                                            <input type="text" id="ref_full_name_{{ $i }}" name="character_references[{{ $i }}][full_name]"
-                                                   value="{{ old('character_references.' . $i . '.full_name') }}"
-                                                   class="member-app-input" placeholder="Full name" autocomplete="off" />
-                                          </span>
-
-                                          <span class="ref-col" role="cell">
-                                            <label for="ref_address_{{ $i }}" class="sr-only">Address of reference {{ $i + 1 }}</label>
-                                            <input type="text" id="ref_address_{{ $i }}" name="character_references[{{ $i }}][address]"
-                                                   value="{{ old('character_references.' . $i . '.address') }}"
-                                                   class="member-app-input" placeholder="Address" autocomplete="street-address" />
-                                          </span>
-
-                                          <span class="ref-col" role="cell">
-                                            <label for="ref_contact_{{ $i }}" class="sr-only">Contact number of reference {{ $i + 1 }}</label>
-                                            <input type="tel" id="ref_contact_{{ $i }}" name="character_references[{{ $i }}][contact_number]"
-                                                   value="{{ old('character_references.' . $i . '.contact_number') }}"
-                                                   class="member-app-input" placeholder="09XX XXX XXXX" inputmode="tel" autocomplete="off" />
-                                          </span>
-                                        </div>
-                                      @endfor
-                                    </div>
-
-                                    @error('character_references')<span class="error-text" style="font-size: 12px; color: #a32b2b; display: block; margin-top: 6px;">{{ $message }}</span>@enderror
-                                </fieldset>
-                            </div>
-
-                            <!-- ── Submit ── -->
-                            <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 24px; gap: 16px;">
-                                <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
-                                <button type="submit" style="font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background-color: var(--green-deep); color: var(--white); padding: 12px 28px; border-radius: 10px; border: none; cursor: pointer; transition: background 0.2s;">
-                                    {{ __('Submit Application') }}
-                                </button>
-                            </div>
-                        </form>
+                        </fieldset>
                     </div>
-                </div>
 
+                    <!-- ── Current Address ── -->
+                    <div class="form-card">
+                        <fieldset style="border: none; padding: 0; margin: 0;">
+                            <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin: 0 0 18px 0; border: none; padding: 0;">
+                                Current Address
+                            </legend>
+
+                            <!-- Row 1: Country | Province -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="country" class="field label">Country</label>
+                                <select id="country" name="country" class="member-app-input">
+                                    <option value="Philippines" selected>Philippines</option>
+                                </select>
+                                @isset($errors)@error('country')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field">
+                                <label for="province" class="field label">Province</label>
+                                <select id="province" name="province" class="member-app-input">
+                                    <option value="National Capital Region (NCR)" selected>National Capital Region (NCR)</option>
+                                </select>
+                                @isset($errors)@error('province')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+                            </div>
+
+                            <!-- Row 2: City / Municipality | Barangay -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="municipality" class="field label">City / Municipality</label>
+                                <select id="municipality" name="municipality" class="member-app-input">
+                                    <option value="">Select City / Municipality</option>
+                                    <option value="Las Piñas City">Las Piñas City</option>
+                                    <option value="Parañaque City">Parañaque City</option>
+                                </select>
+                                @isset($errors)@error('municipality')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field">
+                                <label for="barangay" class="field label">Barangay</label>
+                                <select id="barangay" name="barangay" class="member-app-input">
+                                    <option value="">Select Barangay</option>
+                                </select>
+                                @isset($errors)@error('barangay')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+                            </div>
+
+                            <!-- Address Line and Zip Code Row -->
+<div style="display: flex !important; flex-direction: row !important; gap: 16px !important; width: 100% !important; margin-bottom: 16px !important;" class="address-zip-row">
+    <!-- Address Line (70% width) -->
+    <div style="flex: 7 !important; width: 70% !important; display: flex !important; flex-direction: column !important;">
+        <label class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+            Address Line <span class="text-red-500">*</span>
+        </label>
+        <input type="text"
+               name="address_line"
+               value="{{ old('address_line') }}"
+               placeholder="e.g. 70 Sampaguita St"
+               class="member-app-input w-full rounded-lg border border-gray-200 bg-white p-3 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm">
+        <span class="text-xs text-gray-500 opacity-75 mt-1 block">Unit No./Floor, Building Name, Building/House No., Street, Subdivision/Village</span>
+    </div>
+
+    <!-- Zip Code (30% width) -->
+    <div style="flex: 3 !important; width: 30% !important; display: flex !important; flex-direction: column !important;">
+        <label class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+            Zip Code <span class="text-red-500">*</span>
+        </label>
+        <input type="text"
+               name="zip_code"
+               maxlength="4"
+               value="{{ old('zip_code') }}"
+               placeholder="e.g. 1740"
+               oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);"
+               class="member-app-input w-full rounded-lg border border-gray-200 bg-white p-3 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm">
+    </div>
+</div>
+
+                        </fieldset>
+                    </div>
+
+                    <!-- ── Supporting Documents & TIN ── -->
+                    <div class="form-card">
+                        <fieldset style="border: none; padding: 0; margin: 0;">
+                            <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin: 0 0 18px 0; border: none; padding: 0;">
+                                Supporting Documents
+                            </legend>
+
+                            <div style="font-size: 13px; color: var(--text-mid); line-height: 1.6; margin-bottom: 20px;">
+                                Please attach a 1&times;1 ID picture and a proof of billing. All uploads accept JPG, PNG or PDF (max 5 MB).
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+
+                              <div class="field member-file-field">
+                                <label for="tin" class="field label">Tax Identification Number (TIN)</label>
+                                <input type="text" id="tin" name="tin"
+                                       value="{{ old('tin', $tin) }}"
+                                       class="member-app-input"
+                                       placeholder=""
+                                       maxlength="12"
+                                       pattern="[0-9]{12}"
+                                       inputmode="numeric"
+                                       oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 12);" />
+                                @isset($errors)@error('tin')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field member-file-field full">
+                                <label for="id_picture">1&times;1 ID Picture</label>
+                                <label for="id_picture" class="member-file-drop">
+                                  <input type="file" id="id_picture" name="id_picture"
+                                         accept=".jpg,.jpeg,.png,.pdf"
+                                         class="sr-file-input" />
+                                  <div class="drop-content">
+                                    <span class="mf-icon"><i class="fa-solid fa-id-card"></i></span>
+                                    <span class="mf-text">Tap to upload your ID picture</span>
+                                    <span class="mh-hint">JPG, PNG or PDF &middot; up to 5 MB</span>
+                                  </div>
+                                </label>
+                                @isset($errors)@error('id_picture')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field member-file-field full">
+                                <label for="proof_of_billing">Proof of Billing</label>
+                                <label for="proof_of_billing" class="member-file-drop">
+                                  <input type="file" id="proof_of_billing" name="proof_of_billing"
+                                         accept=".jpg,.jpeg,.png,.pdf"
+                                         class="sr-file-input" />
+                                  <span class="mf-icon"><i class="fa-solid fa-receipt"></i></span>
+                                  <span class="mf-text">Tap to upload your proof of billing</span>
+                                  <span class="mh-hint">JPG, PNG or PDF &middot; up to 5 MB</span>
+                                  </div>
+                                </label>
+                                @isset($errors)@error('proof_of_billing')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+                            </div>
+                        </fieldset>
+                    </div>
+
+                    <!-- ── Character References ── -->
+                    <div class="form-card">
+                        <fieldset style="border: none; padding: 0; margin: 0;">
+                            <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin: 0 0 18px 0; border: none; padding: 0;">
+                                Character References
+                            </legend>
+
+                            <div style="font-size: 13px; color: var(--text-mid); line-height: 1.6; margin-bottom: 20px;">
+                                Please provide up to three (3) character references. All details are optional but will help us verify your application.
+                            </div>
+
+                            <div class="ref-table" role="table" aria-label="Character references">
+                              <div class="ref-head" role="row">
+                                <span class="ref-no" role="columnheader">No.</span>
+                                <span class="ref-col" role="columnheader">Full Name</span>
+                                <span class="ref-col" role="columnheader">Address</span>
+                                <span class="ref-col" role="columnheader">Contact No.</span>
+                              </div>
+
+                              @for ($i = 0; $i < 3; $i++)
+                                <div class="ref-row" role="row">
+                                  <span class="ref-no">{{ $i + 1 }}.</span>
+
+                                  <span class="ref-col" role="cell">
+                                    <label for="ref_full_name_{{ $i }}" class="sr-only">Full name of reference {{ $i + 1 }}</label>
+                                    <input type="text" id="ref_full_name_{{ $i }}" name="character_references[{{ $i }}][full_name]"
+                                           value="{{ old('character_references.' . $i . '.full_name') }}"
+                                           class="member-app-input" placeholder="Full name" autocomplete="off" />
+                                  </span>
+
+                                  <span class="ref-col" role="cell">
+                                    <label for="ref_address_{{ $i }}" class="sr-only">Address of reference {{ $i + 1 }}</label>
+                                    <input type="text" id="ref_address_{{ $i }}" name="character_references[{{ $i }}][address]"
+                                           value="{{ old('character_references.' . $i . '.address') }}"
+                                           class="member-app-input" placeholder="Address" autocomplete="street-address" />
+                                  </span>
+
+                                  <span class="ref-col" role="cell">
+                                    <label for="ref_contact_{{ $i }}" class="sr-only">Contact number of reference {{ $i + 1 }}</label>
+                                    <input type="tel" id="ref_contact_{{ $i }}" name="character_references[{{ $i }}][contact_number]"
+                                           value="{{ old('character_references.' . $i . '.contact_number') }}"
+                                           class="member-app-input"
+                                           placeholder="09XXXXXXXXX"
+                                           maxlength="11"
+                                           pattern="[0-9]{11}"
+                                           inputmode="numeric"
+                                           autocomplete="off"
+                                           oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 11);" />
+                                  </span>
+                                </div>
+                              @endfor
+                            </div>
+
+                            @isset($errors)@error('character_references')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                        </fieldset>
+                    </div>
+
+                    <!-- ── Bottom Action Bar ── -->
+                    <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; gap: 16px; padding-top: 16px; border-top: 1px solid #e2f0e4;">
+                        <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
+                        <button type="submit" class="btn-submit">
+                            {{ __('Submit Application') }}
+                        </button>
+                    </div>
+                </form>
             </div>
 
         </div>
     </div>
+</div>
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap');
+<script>
+  // Enhanced file upload preview with constrained thumbnails and file details
+  ['id_picture', 'proof_of_billing'].forEach(function (inputName) {
+    var input = document.getElementById(inputName);
+    if (!input) return;
 
-        :root {
-          --off-white: #f4faf5;
-          --text-dark: #1a2a1a;
-          --text-mid: #4b5563;
-          --text-muted: #6b7280;
-          --green-deep: #1a5c2a;
-          --green-mid: #2e8b3e;
-          --green-pale: #b8efc2;
-          --green-wash: #e8f9eb;
-          --dull: #e2e8f0;
-          --gold: #d4af37;
-          --white: #ffffff;
-        }
+    var drop = input.closest('label') || input.parentElement;
+    if (!drop) return;
 
-        .error-text { display: block; margin-top: 6px; font-size: 13px; color: #a32b2b; }
+    // Create containers
+    var dropContent = drop.querySelector('.drop-content');
+    var previewContainer = document.createElement('div');
+    previewContainer.className = 'file-preview-container';
+    previewContainer.style.display = 'none';
+    drop.appendChild(previewContainer);
 
-        /* Form field base styles */
-        .field input, .field select, .field textarea, .member-app-input {
-          width: 100%;
-          padding: 13px 16px;
-          border: 1px solid #d8e8db;
-          border-radius: 12px;
-          background: var(--off-white);
-          font-family: 'DM Sans', sans-serif;
-          font-size: 15px;
-          color: var(--text-dark);
-          transition: border-color 0.2s, background 0.2s;
-          box-sizing: border-box;
-        }
-        .field input:focus, .field select:focus, .field textarea:focus, .member-app-input:focus {
-          outline: 2px solid var(--green-mid);
-          outline-offset: 1px;
-          border-color: var(--green-mid);
-          background: var(--white);
-        }
+    input.addEventListener('change', function (e) {
+      var file = e.target.files && e.target.files[0];
 
-        /* Grid-2 layout */
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .field.full { grid-column: 1 / -1; }
+      // Hide drop content, show preview container
+      if (dropContent) dropContent.style.display = 'none';
+      previewContainer.style.display = 'flex';
+      previewContainer.innerHTML = '';
 
-        /* Form header */
-        .form-header { margin-bottom: 24px; max-width: 60ch; }
-        .form-header h1 {
-          font-family: 'Bebas Neue', sans-serif;
-          font-size: clamp(38px, 5vw, 54px);
-          letter-spacing: 0.5px;
-          line-height: 1;
-          color: var(--text-dark);
-          margin-bottom: 14px;
-        }
-        .form-header p { color: #5a7a5e; line-height: 1.7; font-size: 16px; }
+      if (!file) {
+        // Reset to drop state if no file selected
+        if (dropContent) dropContent.style.display = 'flex';
+        previewContainer.style.display = 'none';
+        return;
+      }
 
-        /* Form card */
-        .form-card {
-          background: var(--white);
-          border: 1px solid #e2f0e4;
-          border-radius: 22px;
-          padding: 40px;
-          margin-bottom: 20px;
-        }
+      // Create file info container
+      var fileInfo = document.createElement('div');
+      fileInfo.className = 'file-info';
+      fileInfo.style.display = 'flex';
+      fileInfo.style.alignItems = 'center';
+      fileInfo.style.gap = '12px';
 
-        /* Cancel button */
-        .btn-cancel {
-          text-decoration: none;
-          font-family: 'DM Sans', sans-serif;
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text-mid);
-          padding: 12px 24px;
-          border: 1px solid #d8e8db;
-          border-radius: 10px;
-          transition: all 0.2s;
-          white-space: nowrap;
-        }
-        .btn-cancel:hover { background: var(--green-wash); color: var(--green-deep); border-color: var(--green-mid); }
+      // Add file icon (image or document)
+      var iconContainer = document.createElement('div');
+      iconContainer.className = 'file-icon';
+      iconContainer.style.width = '24px';
+      iconContainer.style.height = '24px';
+      iconContainer.style.borderRadius = '8px';
+      iconContainer.style.border = '1px solid var(--green-mid)';
+      iconContainer.style.display = 'flex';
+      iconContainer.style.alignItems = 'center';
+      iconContainer.style.justifyContent = 'center';
+      iconContainer.style.backgroundColor = 'var(--green-wash)';
+      iconContainer.style.flexShrink = '0';
 
-        /* File upload drop-zone */
-        .member-file-field label { display: block; }
-        .sr-file-input {
-          position: absolute;
-          width: 1px; height: 1px;
-          padding: 0; margin: -1px;
-          overflow: hidden;
-          clip: rect(0, 0, 0, 0);
-          white-space: nowrap;
-          border: 0;
-        }
-        .member-file-drop {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 26px 20px;
-          border: 2px dashed #c3d8c6;
-          border-radius: 14px;
-          background: var(--green-wash);
-          cursor: pointer;
-          transition: border-color 0.2s, background 0.2s;
-          text-align: center;
-        }
-        .member-file-drop:hover {
-          border-color: var(--green-mid);
-          background: var(--green-wash);
-        }
-        .member-file-drop .mf-icon {
-          font-size: 26px;
-          color: var(--green-mid);
-        }
-        .member-file-drop .mf-text {
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text-dark);
-        }
-        .member-file-drop .mf-hint {
-          font-size: 12px;
-          color: var(--text-muted);
-        }
+      var isImage = file.type && file.type.indexOf('image') === 0;
+      if (isImage) {
+        // For images, show constrained thumbnail
+        var img = document.createElement('img');
+        img.className = 'rounded-lg border border-emerald-300 shadow-sm';
+        img.style.cssText = 'width: 96px !important; height: 96px !important; max-width: 96px !important; max-height: 96px !important; object-fit: cover !important;';
+        img.src = URL.createObjectURL(file);
+        img.alt = 'Preview';
+        img.onload = function () { URL.revokeObjectURL(img.src); };
+        iconContainer.appendChild(img);
+      } else if (file.type === 'application/pdf') {
+        // For PDFs, show document icon
+        iconContainer.innerHTML = '<i class="fa-solid fa-file-pdf text-red-500"></i>';
+      } else {
+        // For other files, show generic document icon
+        iconContainer.innerHTML = '<i class="fa-solid fa-file text-gray-400"></i>';
+      }
 
-        /* Visually hidden labels */
-        .sr-only {
-          position: absolute;
-          width: 1px; height: 1px;
-          padding: 0; margin: -1px;
-          overflow: hidden;
-          clip: rect(0, 0, 0, 0);
-          white-space: nowrap;
-          border: 0;
-        }
+      fileInfo.appendChild(iconContainer);
 
-        /* Character references table */
-        .ref-table {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .ref-row {
-          display: grid;
-          grid-template-columns: 36px 1fr 1.4fr 1.2fr;
-          gap: 1px;
-          background: #e2f0e4;
-          border: 1px solid #e2f0e4;
-          border-radius: 14px;
-          overflow: hidden;
-        }
-        .ref-head {
-          background: var(--green-wash);
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.4px;
-          text-transform: uppercase;
-          color: var(--green-deep);
-          display: grid;
-          grid-template-columns: 36px 1fr 1.4fr 1.2fr;
-          align-items: center;
-          padding: 10px 12px;
-        }
-        .ref-no, .ref-col {
-          background: var(--white);
-          display: flex;
-          align-items: center;
-        }
-        .ref-no {
-          justify-content: center;
-          font-weight: 700;
-          font-size: 13px;
-          color: var(--text-mid);
-          padding: 10px 4px;
-        }
-        .ref-col {
-          padding: 6px 10px;
-        }
+      // File details
+      var details = document.createElement('div');
+      details.style.flex = '1';
+      details.style.minWidth = '0';
 
-        /* Media queries for responsiveness */
-        @media (max-width: 991px) {
-          .member-app-frame { border-radius: 28px; display: block !important; }
-          .member-app-banner { min-height: 200px !important; border-radius: 24px 24px 0 0; }
-          .member-app-form-side { border-radius: 0 0 24px 24px; }
-        }
+      // Filename
+      var nameEl = document.createElement('div');
+      nameEl.className = 'file-name text-sm font-medium text-gray-900 truncate';
+      nameEl.title = file.name;
+      nameEl.textContent = file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name;
+      details.appendChild(nameEl);
 
-        @media (max-width: 768px) {
-          .member-app-page { padding: 0.75rem; }
-          .member-app-frame { border-radius: 20px; }
-          .member-app-banner { min-height: 160px !important; padding: 20px; }
-          .member-app-banner [style*="width: 110px"] { width: 90px !important; height: 90px !important; }
-          .member-app-banner h1 { font-size: 18px !important; }
-          .member-app-form-side { padding: 28px 20px; }
-          .grid-2 { grid-template-columns: 1fr; }
-          .ref-row { grid-template-columns: 1fr; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
-          .ref-head { display: none; }
-        }
+      // File size
+      var sizeEl = document.createElement('div');
+      sizeEl.className = 'file-size text-xs text-gray-500';
+      var size = file.size;
+      var units = ['B', 'KB', 'MB', 'GB'];
+      var unitIndex = 0;
+      while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+      }
+      sizeEl.textContent = size.toFixed(1) + ' ' + units[unitIndex];
+      details.appendChild(sizeEl);
 
-        @media (max-width: 480px) {
-          .member-app-page { padding: 0.5rem; }
-          .member-app-banner { min-height: 130px !important; padding: 14px; }
-          .member-app-form-side { padding: 24px 16px; }
-        }
-    </style>
-</x-guest-layout>
+      fileInfo.appendChild(details);
+
+      // Remove/Change button
+      var btnContainer = document.createElement('div');
+      btnContainer.style.display = 'flex';
+      btnContainer.style.alignItems = 'center';
+
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'text-xs text-red-600 hover:underline cursor-pointer p-1';
+      removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Remove';
+      removeBtn.onclick = function () {
+        input.value = ''; // Clear file input
+        previewContainer.style.display = 'none';
+        if (dropContent) dropContent.style.display = 'flex';
+      };
+
+      btnContainer.appendChild(removeBtn);
+      fileInfo.appendChild(btnContainer);
+
+      previewContainer.appendChild(fileInfo);
+    });
+  });
+
+  // Province is static: only "National Capital Region (NCR)" is available.
+  // No JavaScript population is needed for the province select.
+
+  // City -> Barangay mapping (Las Piñas City and Parañaque City only)
+  const barangaysByCity = {
+    "Las Piñas City": [
+      "B. F. International Village", "CAA / B.F. International", "Almanza Uno",
+      "Almanza Dos", "Talon Uno", "Talon Dos", "Talon Tres", "Talon Kuatro",
+      "Talon Singko", "Pamplona Uno", "Pamplona Dos", "Pamplona Tres",
+      "Pulang Lupa Uno", "Pulang Lupa Dos", "Zapote", "Manuyo Uno",
+      "Manuyo Dos", "Elias Aldana", "Ilaya", "Daniel Fajardo"
+    ],
+    "Parañaque City": [
+      "Baclaran", "Don Galo", "La Huerta", "San Dionisio", "San Isidro",
+      "Sto. Niño", "Tambo", "Vitalez", "B.F. Homes", "Don Bosco",
+      "Marcelo Green", "Merville", "Moonwalk", "San Antonio",
+      "San Martin de Porres", "Sun Valley"
+    ]
+  };
+
+  const citySelect = document.getElementById('municipality');
+  const barangaySelect = document.getElementById('barangay');
+
+  // Populate barangays based on the selected city (normalized string matching)
+  function populateBarangays() {
+    const city = citySelect.value.trim();
+    barangaySelect.innerHTML = '<option value="">Select Barangay</option>';
+
+    const barangays = barangaysByCity[city] || [];
+    barangays.forEach(barangay => {
+      const opt = document.createElement('option');
+      opt.value = barangay;
+      opt.textContent = barangay;
+      barangaySelect.appendChild(opt);
+    });
+  }
+
+  // Populate barangays on DOMContentLoaded (in case a city is pre-selected)
+  document.addEventListener('DOMContentLoaded', populateBarangays);
+
+  // Populate barangays whenever the city selection changes
+  citySelect.addEventListener('change', populateBarangays);
+</script>
+
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap');
+
+    :root {
+      --off-white: #f4faf5;
+      --text-dark: #1a2a1a;
+      --text-mid: #4b5563;
+      --text-muted: #6b7280;
+      --green-deep: #1a5c2a;
+      --green-mid: #2e8b3e;
+      --green-pale: #b8efc2;
+      --green-wash: #e8f9eb;
+      --dull: #e2e8f0;
+      --gold: #d4af37;
+      --white: #ffffff;
+    }
+
+    .error-text { display: block; margin-top: 6px; font-size: 13px; color: #a32b2b; }
+
+    /* Unified form control styling */
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: #374151;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .field input, .field select, .field textarea, .member-app-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: var(--white);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      color: var(--text-dark);
+      transition: border-color 0.15s, box-shadow 0.15s;
+      box-sizing: border-box;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus, .member-app-input:focus {
+      outline: none;
+      border-color: var(--green-mid);
+      background: var(--white);
+      box-shadow: 0 0 0 4px rgba(46, 139, 62, 0.18);
+    }
+
+    /* Desktop card: white bg, emerald border, subtle shadow */
+    .form-card {
+      background: var(--white);
+      border: 1px solid var(--green-pale);
+      border-radius: 16px;
+      padding: 30px 28px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Form header */
+    .form-header { margin-bottom: 16px; }
+    .form-header h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(24px, 4vw, 32px);
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+      color: var(--text-dark);
+      margin: 0 0 6px 0;
+    }
+    .form-header p { color: #5a7a5e; line-height: 1.7; font-size: 14px; margin: 0; }
+
+    /* Cancel button */
+    .btn-cancel {
+      text-decoration: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-mid);
+      padding: 12px 24px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-cancel:hover { background: var(--green-wash); color: var(--green-deep); border-color: var(--green-mid); }
+
+    /* Submit button - primary */
+    .btn-submit {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background-color: var(--green-deep);
+      color: var(--white);
+      padding: 12px 28px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 6px rgba(26, 92, 42, 0.25);
+    }
+    .btn-submit:hover { background-color: var(--green-mid); box-shadow: 0 4px 12px rgba(26, 92, 42, 0.35); }
+
+    /* File upload drop-zone */
+    .member-file-field label { display: block; }
+    .sr-file-input {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .member-file-drop {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 26px 20px;
+      border: 2px dashed #c3d8c6;
+      border-radius: 14px;
+      background: var(--green-wash);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      text-align: center;
+    }
+    .member-file-drop:hover {
+      border-color: var(--green-mid);
+      background: var(--green-wash);
+    }
+    .member-file-drop .mf-icon {
+      font-size: 26px;
+      color: var(--green-mid);
+    }
+    .member-file-drop .mf-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    .member-file-drop .mh-hint, .member-file-drop .mf-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Visually hidden labels */
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Character references table */
+    .ref-table {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ref-row {
+      display: grid;
+      grid-template-columns: 36px 1fr 1.4fr 1.2fr;
+      gap: 1px;
+      background: #e2f0e4;
+      border: 1px solid #e2f0e4;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .ref-head {
+      background: var(--green-wash);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: var(--green-deep);
+      display: grid;
+      grid-template-columns: 36px 1fr 1.4fr 1.2fr;
+      align-items: center;
+      padding: 10px 12px;
+    }
+    .ref-no, .ref-col {
+      background: var(--white);
+      display: flex;
+      align-items: center;
+    }
+    .ref-no {
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text-mid);
+      padding: 10px 4px;
+    }
+    .ref-col {
+      padding: 6px 10px;
+    }
+
+    /* Mobile / tablet: stacked layout */
+    @media (max-width: 1023px) {
+      .member-app-frame { flex-direction: column; }
+      .member-app-banner { width: 100%; margin-bottom: 16px; }
+      .member-app-form-side { width: 100%; border-radius: 16px; }
+      .member-app-form-side .form-header { max-width: 100%; }
+    }
+
+    @media (max-width: 768px) {
+      .member-app-banner { padding: 24px 18px; }
+      .member-app-banner [style*="width: 120px"] { width: 88px !important; height: 88px !important; }
+      .member-app-banner h1 { font-size: 20px !important; }
+      .member-app-form-side { padding: 22px 18px; }
+      .form-card { padding: 22px 18px; }
+    }
+
+    @media (max-width: 480px) {
+      .member-app-banner { padding: 18px 14px; }
+      .member-app-banner [style*="width: 120px"] { width: 80px !important; height: 80px !important; }
+      .member-app-form-side { padding: 18px 14px; }
+      .form-card { padding: 20px 16px; }
+      .grid-2, .ref-row { grid-template-columns: 1fr !important; display: flex !important; flex-direction: column !important; gap: 10px; }
+      .ref-head { display: none; }
+      .field { margin-bottom: 16px; }
+    }
+
+    /* Enhanced file upload preview styles */
+    .file-preview-container {
+      max-width: 100%;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .file-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .file-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      border: 1px solid var(--green-mid);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--green-wash);
+      flex-shrink: 0;
+    }
+    .file-name {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-dark);
+    }
+    .file-size {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .file-preview-img {
+      width: 96px !important;
+      height: 96px !important;
+      max-width: 96px !important;
+      max-height: 96px !important;
+      object-fit: cover !important;
+    }
+</style>

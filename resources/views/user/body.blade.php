@@ -40,6 +40,71 @@
   </div>
 </section>
 
+@if (count($applications) > 0)
+  {{-- Clear Balance/Due Card --}}
+  <div class="balance-due-card panel" style="margin: 32px 0;">
+    <div class="panel-head">
+      <h2 class="panel-title">Account Summary</h2>
+    </div>
+    <div class="panel-body">
+      <div class="balance-due-grid">
+        <div class="balance-due-item">
+          <h3 class="balance-due-label">Remaining Balance</h3>
+          <p class="balance-due-value">₱{{ number_format($applications->where('status', 'approved')->sum('remaining_balance'), 2) }}</p>
+        </div>
+        <div class="balance-due-item">
+          <h3 class="balance-due-label">Next Payment Due</h3>
+          <p class="balance-due-value">
+            @foreach($applications->where('status', 'approved')->whereNotNull('next_due_date')->sortBy('next_due_date') as $loan)
+              @if ($loop->first)
+                {{ $loan->next_due_date->format('M d, Y') }}
+                @break
+              @endif
+            @endforeach
+            @if ($applications->where('status', 'approved')->whereNotNull('next_due_date')->isEmpty())
+              No scheduled payments
+            @endif
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{-- Active Reminder Alerts --}}
+  <div class="reminder-alerts panel" style="margin: 32px 0;">
+    <div class="panel-head">
+      <h2 class="panel-title">Active Payment Reminders</h2>
+    </div>
+    <div class="panel-body">
+      @if (($unreadNotifications ?? collect())->isNotEmpty())
+        <div class="reminder-list">
+          @foreach($unreadNotifications as $notif)
+            <div class="reminder-item">
+              <div class="reminder-header">
+                <strong>{{ $notif->title }}</strong>
+                <span class="status-pill @if($notif->type === 'due_today') due-today @elseif($notif->type === 'due_soon') due-soon @elseif($notif->type === 'overdue') overdue @endif">
+                  @if($notif->type === 'due_today') Due Today
+                  @elseif($notif->type === 'due_soon') Due Soon
+                  @elseif($notif->type === 'overdue') Overdue
+                  @elseif($notif->type === 'payment_received') Payment Received
+                  @endif
+                </span>
+              </div>
+              <p class="reminder-message">{{ Str::limit($notif->message, 120) }}</p>
+              <div class="reminder-footer">
+                <small class="reminder-time">{{ $notif->created_at->format('M d, Y g:i A') }}</small>
+                <button class="btn-link btn-mark-read" data-id="{{ $notif->id }}">Mark as Read</button>
+              </div>
+            </div>
+          @endforeach
+        </div>
+      @else
+        <p class="text-center text-muted py-4">No active reminders.</p>
+      @endif
+    </div>
+  </div>
+@endif
+
 <div class="panel-head">
   <h2 class="panel-title">Your applications</h2>
   @if ($applications->isNotEmpty())

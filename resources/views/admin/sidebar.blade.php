@@ -42,18 +42,18 @@
     <i class="fa-solid fa-users nav-icon"></i>
     <span class="nav-label">Active Members</span>
   </a>
-  <a href="{{ url('/credit') }}" class="nav-item {{ request()->is('credit*') ? 'active' : '' }}">
+  <a href="{{ route('credit-assessment.index') }}" class="nav-item {{ request()->routeIs('credit-assessment.index') ? 'active' : '' }}">
     <i class="fa-solid fa-magnifying-glass-chart nav-icon"></i>
     <span class="nav-label">Credit Assessment</span>
   </a>
-  <a href="{{ url('/risk') }}" class="nav-item {{ request()->is('risk*') ? 'active' : '' }}">
+  <a href="{{ route('risk-flags.index') }}" class="nav-item {{ request()->routeIs('risk-flags.index') ? 'active' : '' }}">
     <i class="fa-solid fa-triangle-exclamation nav-icon"></i>
     <span class="nav-label">Risk Flags</span>
     <span class="nav-badge red"></span>
   </a>
 
   <div class="sidebar-section">Administration</div>
-  <a href="{{ url('/settings') }}" class="nav-item {{ request()->is('settings*') ? 'active' : '' }}">
+  <a href="{{ route('settings.index') }}" class="nav-item {{ request()->routeIs('settings.index') ? 'active' : '' }}">
     <i class="fa-solid fa-gear nav-icon"></i>
     <span class="nav-label">Settings</span>
   </a>

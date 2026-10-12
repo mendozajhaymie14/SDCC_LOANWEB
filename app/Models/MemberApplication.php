@@ -18,8 +18,14 @@ class MemberApplication extends Model
      */
     protected $fillable = [
         'surname',
+        'last_name',
         'first_name',
         'middle_name',
+        'suffix',
+        'sex',
+        'civil_status',
+        'country_of_birth',
+        'city_of_birth',
         'house_no',
         'street',
         'barangay',
@@ -42,7 +48,6 @@ class MemberApplication extends Model
         'place_of_birth',
         'gender',
         'occupation',
-        'civil_status',
         'tin',
         'id_picture',
         'proof_of_billing',

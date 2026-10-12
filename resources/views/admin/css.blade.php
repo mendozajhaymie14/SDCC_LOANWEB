@@ -574,7 +574,7 @@ body {
 /* DASHBOARD KPI & CARDS */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 1.2rem;
   margin-bottom: 1.8rem;
 }
@@ -667,6 +667,175 @@ body {
   background: var(--card2);
   border-color: var(--border);
 }
+
+/* BADGE SYSTEM */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 50px;
+  white-space: nowrap;
+}
+
+.badge-success { background: rgba(52, 211, 153, 0.15); color: var(--accent3); }
+.badge-warning { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
+.badge-danger { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.badge-info   { background: rgba(56, 189, 248, 0.15); color: var(--accent); }
+.badge-muted  { background: var(--card2); color: var(--muted); }
+.badge-red    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+
+/* RISK ALERT PANEL */
+.risk-alert-panel {
+  border-color: rgba(248, 113, 113, 0.3);
+  background: linear-gradient(180deg, rgba(248, 113, 113, 0.03), var(--surface));
+}
+
+.risk-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--card2);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.risk-item:hover {
+  border-color: var(--red);
+  background: rgba(248, 113, 113, 0.05);
+}
+
+.risk-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.risk-low { background: rgba(248, 113, 113, 0.15); }
+.risk-overdue { background: rgba(234, 88, 12, 0.15); }
+
+.risk-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.risk-title {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--text);
+  margin-bottom: 0.15rem;
+}
+
+.risk-desc {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ACTION BUTTON GROUP */
+.action-btn-group {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.btn-action {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.btn-action:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.btn-action.btn-approve {
+  border-color: var(--accent3);
+  color: var(--accent3);
+}
+.btn-action.btn-approve:hover {
+  background: var(--accent3);
+  color: #fff;
+}
+
+.btn-action.btn-reject {
+  border-color: var(--red);
+  color: var(--red);
+}
+.btn-action.btn-reject:hover {
+  background: var(--red);
+  color: #fff;
+}
+
+.btn-action.btn-view {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-action.btn-view:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* MODERN QUICK ACTIONS */
+.qa-grid-modern {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.8rem;
+}
+
+.qa-btn-modern {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted2);
+  transition: all 0.2s ease;
+}
+
+.qa-btn-modern:hover {
+  border-color: var(--accent);
+  background: rgba(2, 132, 199, 0.08);
+  color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.1);
+}
+
+.qa-icon {
+  font-size: 1.3rem;
+}
+
+.qa-label {
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+/* KPI CARD COLOR VARIANTS */
+.kpi-card.red .kpi-icon { background: linear-gradient(135deg, var(--red), #ef4444); }
+.kpi-card.red:hover { box-shadow: 0 8px 25px rgba(248, 113, 113, 0.15); }
 
 .qa-icon {
   font-size: 1.4rem;
@@ -1092,11 +1261,12 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 
   .main { padding-left: 68px; }
 
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+  .kpi-grid { grid-template-columns: repeat(3, 1fr); gap: 1rem; }
   .kpi-val { font-size: 1.6rem; }
 
   .body-grid { grid-template-columns: 1fr !important; }
   .body-grid .panel { min-width: 0; }
+  .qa-grid-modern { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 768px) {

@@ -41,5 +41,68 @@
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && sidebar.classList.contains('open')) closeSidebar();
     });
+
+    // ─── Notification dropdown ───
+    const notifBtn = document.getElementById('notifToggleBtn');
+    const notifDropdown = document.getElementById('notifDropdown');
+
+    if (notifBtn && notifDropdown) {
+      notifBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        notifDropdown.classList.toggle('open');
+        notifBtn.setAttribute('aria-expanded', notifDropdown.classList.contains('open'));
+      });
+
+      // Close dropdown when clicking outside
+      document.addEventListener('click', function (e) {
+        if (!notifDropdown.contains(e.target) && !notifBtn.contains(e.target)) {
+          notifDropdown.classList.remove('open');
+          notifBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+
+      // Handle mark-as-read on notification click
+      notifDropdown.querySelectorAll('.notif-item').forEach(item => {
+        item.addEventListener('click', function () {
+          const notifId = this.dataset.notificationId;
+          const notifType = this.dataset.type;
+          markAsRead(notifId);
+        });
+      });
+    }
+
+    function markAsRead(notifId) {
+      fetch('/user/notifications/' + notifId + '/read', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        }
+      }).then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Remove the notification from the dropdown
+            const item = document.querySelector('[data-notification-id="' + notifId + '"]');
+            if (item) item.remove();
+            // Update badge count
+            const badge = notifBtn.querySelector('.notif-badge');
+            if (badge) {
+              const count = parseInt(badge.textContent) - 1;
+              if (count > 0) {
+                badge.textContent = count;
+              } else {
+                badge.remove();
+              }
+            }
+            // If no more notifications, show empty state
+            if (!document.querySelector('.notif-item')) {
+              const itemsContainer = document.querySelector('.notif-items');
+              if (itemsContainer) {
+                itemsContainer.innerHTML = '<div style="padding: 1.2rem; text-align: center; color: var(--muted);">No active reminders.</div>';
+              }
+            }
+          }
+        });
+    }
   });
 </script>

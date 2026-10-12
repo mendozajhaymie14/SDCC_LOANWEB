@@ -15,6 +15,14 @@
     <div class="user-menu-wrapper">
       <span class="welcome-user" title="Welcome, {{ Auth::user()->name }}">Welcome, <strong>{{ Auth::user()->name }}</strong></span>
 
+      <button type="button" class="notif-btn" id="notifToggleBtn" aria-label="Notifications" aria-expanded="false">
+        <i class="fa-regular fa-bell"></i>
+        @if(($unreadNotifications ?? collect())->isNotEmpty())
+          <span class="notif-badge">{{ $unreadNotifications->count() }}</span>
+        @endif
+      </button>
+    </div>
+
       <form method="POST" action="{{ route('logout') }}" class="nav-logout">
         @csrf
         <button type="submit" class="nav-logout-btn">

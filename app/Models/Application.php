@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Application extends Model
@@ -23,4 +24,9 @@ class Application extends Model
         'status',
         'ai_score',
     ];
+
+    public function loanApplication(): BelongsTo
+    {
+        return $this->belongsTo(LoanApplication::class, 'loan_application_id');
+    }
 }

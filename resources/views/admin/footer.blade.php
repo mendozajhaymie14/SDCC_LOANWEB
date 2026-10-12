@@ -454,14 +454,21 @@
 <script>
   // ─── DATA ───
   const apps = {
-    @foreach (\App\Models\Application::latest()->get() as $a)
+    @foreach (\App\Models\Application::with('loanApplication')->latest()->get() as $a)
+      @php
+        $aiScore = $a->ai_score ?? ($a->loanApplication ? $a->loanApplication->ai_score : null);
+        $docs = $a->loanApplication ? ($a->loanApplication->documents ?? []) : [];
+        $aiNotes = $a->loanApplication ? ($a->loanApplication->ai_analysis_notes ?? null) : null;
+      @endphp
       "{{ $a->app_id }}": {
         name: @json($a->applicant),
         type: @json($a->loan_type),
         amount: @json('₱' . number_format($a->amount, 2)),
-        score: {{ $a->ai_score ?? 'null' }},
+        score: {{ $aiScore ?? 'null' }},
         status: @json(strtolower($a->status)),
-        date: @json(optional($a->created_at)->format('M d, Y'))
+        date: @json(optional($a->created_at)->format('M d, Y')),
+        documents: @json($docs),
+        ai_notes: @json($aiNotes ?? null)
       },
     @endforeach
   };
@@ -472,7 +479,7 @@
         $latestBorrower = \App\Models\Borrowers::where('full_name', $m->full_name)->latest()->first();
         $income = $latestBorrower ? number_format($latestBorrower->monthly_income, 2) : '';
         $aiScore = $latestBorrower ? $latestBorrower->ai_credit_score : null;
-        $rawScore = $aiScore !== null ? (int) round(($aiScore - 300) / 550 * 100) : null;
+        $rawScore = $aiScore !== null ? round((($aiScore - 300) * 100) / 550) : null;
       @endphp
       "{{ $m->id }}": {
         id: @json($m->id),
@@ -492,11 +499,16 @@
 
   const notifications = [
     @foreach (\App\Models\AppNotification::latest()->take(8)->get() as $n)
+      @php
+        $userName  = $n->data['applicant_name'] ?? $n->data['user_name'] ?? ($n->applicant ?? '');
+        $appNumber = $n->data['application_number'] ?? $n->data['loan_id'] ?? ($n->app_id ?? '');
+        $prefix    = is_numeric($appNumber) ? 'APP-' : '';
+      @endphp
       {
         type: @json($n->type),
         message: @json($n->message),
-        appId: @json($n->app_id),
-        applicant: @json($n->applicant),
+        appId: @json($prefix . $appNumber),
+        applicant: @json($userName),
         time: @json($n->created_at->diffForHumans()),
         unread: {{ $n->read_at ? 'false' : 'true' }}
       },
@@ -505,7 +517,28 @@
   const unreadNotifCount = {{ \App\Models\AppNotification::whereNull('read_at')->count() }};
 
   const statusColor = {approved:'var(--accent3)',pending:'var(--gold)',review:'var(--accent)',rejected:'var(--red)'};
-  const scoreColor = s => s>=90?'var(--accent3)':s>=80?'var(--accent)':s>=70?'var(--gold)':'var(--red)';
+  const scoreColor = s => s>=51?'var(--accent3)':s>=0?'var(--red)':'var(--muted)';
+
+  function documentsSection(documents) {
+    if (!documents || documents.length === 0) {
+      return `<div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
+        <span style="color:var(--muted);">Uploaded Documents</span>
+        <span style="color:var(--muted);font-style:italic;">No attached documents found.</span>
+      </div>`;
+    }
+
+    const badges = documents.map(doc => {
+      const fileName = doc.split('/').pop();
+      return `<span style="display:inline-flex;align-items:center;gap:0.2rem;background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;padding:0.35rem 0.65rem;font-size:0.75rem;margin:0.2rem;">
+        📄 <a href="/storage/${doc}" target="_blank" style="color:inherit;text-decoration:none;">${fileName}</a>
+      </span>`;
+    }).join('');
+
+    return `<div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
+      <span style="color:var(--muted);">Uploaded Documents</span>
+      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;">${badges}</div>
+    </div>`;
+  }
 
   // ─── PAGE SWITCHING ───
   function switchPage(id, el) {
@@ -531,19 +564,32 @@
   }
 
   // ─── APPLICATION DETAIL MODAL ───
-  function openAppDetail(id) {
+  function openAppDetail(event) {
     closeAllDropdowns();
-    const app = apps[id];
+    const btn = event.currentTarget;
+    const appId = btn.dataset.appId;
+    const app = apps[appId];
     if (!app) {
-      showToast('error', 'Application #' + id + ' not found', '❌');
+      showToast('error', 'Application #' + appId + ' not found', '❌');
       return;
     }
+
+    // Parse documents and AI analysis note from the button's data attribute (fresh from the row)
+    let docs = [];
+    try {
+      docs = JSON.parse(btn.dataset.documents || '[]');
+    } catch (e) {
+      docs = app.documents || [];
+    }
+
+    // Pull the AI scan analysis note from the button (stored per row by Blade)
+    const aiNotes = btn.dataset.aiNotes;
 
     const statusLabel = app.status.charAt(0).toUpperCase() + app.status.slice(1);
     const scoreC = app.score != null ? scoreColor(app.score) : 'var(--muted)';
 
     const titleEl = document.getElementById('appDetailTitle');
-    if (titleEl) titleEl.textContent = '#' + id + ' — ' + app.name;
+    if (titleEl) titleEl.textContent = '#' + appId + ' — ' + app.name;
 
     const bodyEl = document.getElementById('appDetailBody');
     if (bodyEl) {
@@ -557,19 +603,38 @@
         ${row('Applicant', app.name)}
         ${row('Loan Type', app.type)}
         ${row('Amount', `<span style="font-family:'DM Sans',sans-serif;">${app.amount}</span>`)}
-        ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${app.score ?? 'N/A'}</span>`)}
+        ${row('AI Score', `<span id="modalAiScore" style="font-family:'DM Sans',sans-serif;color:${scoreC};">${app.score ?? 'N/A'}</span>`)}
         ${row('Date', app.date)}
         ${row('Status', `<span class="status-pill ${app.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
-        
-        <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
-          ${(app.status === 'pending' || app.status === 'review') ? `
-            <div style="display:flex;gap:.7rem;">
-              <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);" onclick="rejectApp('${id}')">✗ Reject</button>
-              <button class="btn-submit" type="button" style="width:auto;flex:1;" onclick="approveApp('${id}')">✓ Approve</button>
-            </div>` : ''
-          }
-          <button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteApp('${id}')">🗑️ Delete Application</button>
+        ${documentsSection(docs)}
+
+        <!-- AI Scan Analysis Note Section -->
+        <div id="aiScanNoteSection" style="margin-top: 1rem; padding: 0.8rem; background-color: #ffffff; border: 1px solid #e2e8f0; color: #1e293b; border-radius: 8px;">
+          <div style="font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; margin-bottom: 0.4rem;">AI Scan Analysis Note</div>
+          <div id="modalAiNotes" style="font-size: 0.85rem; color: #1e293b; line-height: 1.5;">
+            ${aiNotes && aiNotes !== 'null' && aiNotes.trim() !== '' ? aiNotes : 'Pending AI Scan. Click "⚡ AI Scan" below to evaluate attached documents.'}
+          </div>
         </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%; margin-top: 1.2rem;">
+          ${(app.status === 'pending' || app.status === 'review') ? `
+            <!-- Row 1: Primary Decision -->
+            <div style="display: flex; gap: 0.5rem; width: 100%;">
+              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--red); border: 1px solid var(--red); background: transparent; white-space: nowrap;" onclick="rejectApp('${appId}')">✗ Reject</button>
+              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #ffffff; border: none; white-space: nowrap;" onclick="approveApp('${appId}')">✓ Approve</button>
+            </div>
+            <!-- Row 2: Tools & Cleanup -->
+            <div style="display: flex; gap: 0.5rem; width: 100%;">
+              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: #4f46e5; border: 2px solid #4f46e5; background: rgba(79, 70, 229, 0.08); white-space: nowrap;" onclick="triggerAiScan('${appId}')">⚡ AI Scan</button>
+              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.05); white-space: nowrap;" onclick="deleteApp('${appId}')">🗑 Delete Application</button>
+            </div>` : `
+            <!-- Row 2 only (when not pending/review): Tools & Cleanup -->
+            <div style="display: flex; gap: 0.5rem; width: 100%;">
+              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: #4f46e5; border: 2px solid #4f46e5; background: rgba(79, 70, 229, 0.08); white-space: nowrap;" onclick="triggerAiScan('${appId}')">⚡ AI Scan</button>
+              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.05); white-space: nowrap;" onclick="deleteApp('${appId}')">🗑 Delete Application</button>
+            </div>`
+          }
+</div>
       `;
     }
 
@@ -936,6 +1001,98 @@
     closeAllModals();
   }
 
+  // ─── DISBURSEMENTS: open the payout modal for a specific loan ───
+  function openPayoutModal(loanId) {
+    const form = document.getElementById('processPayoutForm');
+    if (form) {
+      form.querySelector('[name="loan_application_id"]').value = loanId || '';
+      form.querySelector('[name="app_id"]').value = loanId || '';
+    }
+    openModal('processPayout');
+  }
+
+  // ─── REPAYMENTS: auto-fill borrower when an active loan is selected ───
+  function loadLoanInfo() {
+    const select = document.getElementById('activeLoanSelect');
+    if (!select) return;
+    const opt = select.options[select.selectedIndex];
+    if (!opt) return;
+
+    const borrower = document.getElementById('borrowerName');
+    if (borrower && opt.dataset.borrower) {
+      borrower.value = opt.dataset.borrower;
+    }
+  }
+
+  // ─── CREDIT ASSESSMENT: filter applicant scoring table ───
+  function filterCredit(status, btnEl) {
+    document.querySelectorAll('#page-credit .filter-row .filter-btn')
+      .forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    document.querySelectorAll('#page-credit tbody tr[data-status]')
+      .forEach(row => {
+        const rowStatus = row.getAttribute('data-status');
+        row.style.display = (status === 'all' || rowStatus === status) ? '' : 'none';
+      });
+  }
+
+  function handleCreditSearch(q) {
+    const box = document.getElementById('creditSearchInput');
+    if (!box) return;
+    const term = q.toLowerCase();
+    document.querySelectorAll('#page-credit tbody tr[data-status]').forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(term) ? '' : 'none';
+    });
+  }
+
+  // ─── CREDIT ASSESSMENT: open the evaluate/detail modal ───
+  function openCreditDetail(id) {
+    const form = document.getElementById('processPayoutForm');
+    if (form) {
+      form.querySelector('[name="loan_application_id"]').value = id || '';
+      form.querySelector('[name="app_id"]').value = id || '';
+    }
+    showToast('info', 'Opening credit assessment for loan #' + id, '🔍');
+    closeAllModals();
+  }
+
+  // ─── RISK FLAGS: filter flagged accounts table ───
+  function filterRisk(status, btnEl) {
+    document.querySelectorAll('#page-risk .filter-row .filter-btn')
+      .forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    document.querySelectorAll('#page-risk tbody tr[data-status]')
+      .forEach(row => {
+        const rowStatus = row.getAttribute('data-status');
+        row.style.display = (status === 'all' || rowStatus === status) ? '' : 'none';
+      });
+  }
+
+  function handleRiskSearch(q) {
+    const term = q.toLowerCase();
+    document.querySelectorAll('#page-risk tbody tr[data-status]').forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(term) ? '' : 'none';
+    });
+  }
+
+  // ─── RISK FLAGS: notify / send reminder ───
+  function sendReminder(id) {
+    showToast('success', 'Reminder sent to flagged account #' + id, '🔔');
+  }
+
+  // ─── SETTINGS: search settings fields ───
+  function handleSettingsSearch(q) {
+    const term = q.toLowerCase();
+    document.querySelectorAll('#page-settings .panel').forEach(panel => {
+      const text = panel.textContent.toLowerCase();
+      panel.style.display = text.includes(term) ? '' : 'none';
+    });
+  }
+
   function submitReport() {
     showToast('info', 'Report is being generated, download will start shortly…', '📊');
     closeAllModals();
@@ -984,5 +1141,95 @@
     document.querySelectorAll('.modal').forEach(modal => {
       modal.classList.remove('open');
     });
+  }
+
+  // ─── AI SCAN / RE-EVALUATE ACTION ───
+  function triggerAiScan(id) {
+    if (!confirm('Re-run AI credit score scan for application #' + id + '?\nThis may take a moment to re-evaluate the documents and recalculate the risk score.')) {
+      return;
+    }
+
+    // Disable the AI Scan button and show a loading spinner so the user
+    // knows the scan is in flight and can't double-submit.
+    const scanBtn = Array.from(document.querySelectorAll('#appDetailBody button'))
+      .find(b => b.textContent.trim().includes('AI Scan'));
+    if (scanBtn) {
+      scanBtn.disabled = true;
+      scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display:inline-block;width:0.85rem;height:0.85rem;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;"></span> Scanning...';
+    }
+
+    // Set the AI Score row to a "scanning" state while the request is in flight.
+    const aiScoreEl = document.getElementById('modalAiScore');
+    if (aiScoreEl) {
+      aiScoreEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing documents...';
+      aiScoreEl.style.color = 'var(--muted)';
+    }
+
+    fetch(`/admin/applications/${id}/scan`, {
+      method: 'POST',
+      headers: {
+        'X-CSRF-TOKEN': csrfToken,
+        'Accept': 'application/json',
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Scan failed');
+        return res.json();
+      })
+      .then(data => {
+        if (!data.success) {
+          showToast('error', data.message || 'AI Scan failed.', '❌');
+          restoreScanButton(scanBtn);
+          return;
+        }
+        showToast('success', data.message || 'AI Scan completed.', '⚡');
+        const newScore = data.ai_score;
+
+        // Update the modal's AI Score cell directly
+        if (aiScoreEl) {
+          aiScoreEl.textContent = newScore != null ? newScore : 'N/A';
+          aiScoreEl.style.color = newScore != null ? scoreColor(newScore) : 'var(--muted)';
+        }
+
+        // Update the AI Scan Analysis Note in the modal
+        const aiNotesEl = document.getElementById('modalAiNotes');
+        if (aiNotesEl) {
+          const returnedNotes = data.ai_analysis_notes;
+          if (returnedNotes && returnedNotes !== 'null' && returnedNotes.trim() !== '') {
+            aiNotesEl.textContent = returnedNotes;
+          } else {
+            aiNotesEl.textContent = 'Pending AI Scan. Click "⚡ AI Scan" below to evaluate attached documents.';
+          }
+        }
+
+        // Update the main table row AI Score cell
+        const tableRow = document.querySelector(`tr[data-app-id="${id}"]`);
+        if (tableRow) {
+          const scoreCell = tableRow.querySelector('td.td-mono span[style*="font-weight:700"]');
+          if (scoreCell) {
+            scoreCell.textContent = newScore != null ? newScore : 'N/A';
+            scoreCell.style.color = newScore != null ? scoreColor(newScore) : 'var(--muted)';
+          }
+        }
+
+        // Update the in-memory apps object
+        if (apps[id]) {
+          apps[id].score = newScore;
+        }
+
+        restoreScanButton(scanBtn);
+      })
+      .catch(err => {
+        console.error('AI Scan error:', err);
+        showToast('error', 'AI Scan failed: ' + (err.message || 'unknown error'), '❌');
+        restoreScanButton(scanBtn);
+      });
+  }
+
+  function restoreScanButton(scanBtn) {
+    if (scanBtn) {
+      scanBtn.disabled = false;
+      scanBtn.innerHTML = '⚡ AI Scan';
+    }
   }
 </script>

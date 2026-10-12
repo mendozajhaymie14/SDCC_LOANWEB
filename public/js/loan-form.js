@@ -148,11 +148,14 @@
   }
 
   // ─── Estimate: calculate monthly repayment from amount + term + product ───
+  // Uses the same flat add-on rate formula as the backend LoanApplication model:
+  //   monthly = (amount + amount × rate × years) / term_months
+  //   where rate comes from the product config (e.g. 0.12 = 12% p.a.)
   function updateEstimate() {
     var amount = parseInt(amountInput ? amountInput.value.replace(/\D/g, '') : '0', 10);
     var term = termSelect ? parseInt(termSelect.value, 10) : 0;
     var config = productConfig();
-    var rate = config.interest_rate || 0.01;
+    var rate = config.rate || 0.12;    // 12% flat p.a. — matches backend RATE
 
     var estMonthlyEl = document.getElementById('estMonthly');
     var estPrincipalEl = document.getElementById('estPrincipal');
@@ -172,11 +175,11 @@
       return;
     }
 
-    var monthlyRate = rate / 12;
-    var power = Math.pow(1 + monthlyRate, term);
-    var monthlyPayment = amount * monthlyRate * power / (power - 1);
+    var years = term / 12;
+    var interest = amount * rate * years;           // flat add-on interest
+    var monthlyPayment = (amount + interest) / term; // (principal + interest) / term
     var totalPayable = monthlyPayment * term;
-    var totalInterest = totalPayable - amount;
+    var totalInterest = interest;
 
     if (estMonthlyEl) estMonthlyEl.textContent = money(monthlyPayment);
     if (estPrincipalEl) estPrincipalEl.textContent = money(amount);

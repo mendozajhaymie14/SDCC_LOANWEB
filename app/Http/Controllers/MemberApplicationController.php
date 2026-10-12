@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\MemberApplication;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class MemberApplicationController extends Controller
 {
@@ -13,7 +15,10 @@ class MemberApplicationController extends Controller
      */
     public function create()
     {
-        return view('auth.member-application');
+        $isAuth = Auth::check();
+        $authEmail = $isAuth ? Auth::user()->email : '';
+
+        return view('auth.member-application', compact('isAuth', 'authEmail'));
     }
 
     /**
@@ -25,20 +30,22 @@ class MemberApplicationController extends Controller
 
         Validator::make($data, [
             // Identity
-            'surname'       => ['required', 'string', 'max:255'],
-            'first_name'    => ['required', 'string', 'max:255'],
-            'middle_name'   => ['nullable', 'string', 'max:255'],
+            'last_name'      => ['required', 'string', 'max:255'],
+            'first_name'     => ['required', 'string', 'max:255'],
+            'middle_name'    => ['nullable', 'string', 'max:255'],
+            'suffix'         => ['nullable', 'string', 'max:10'],
+            'sex'            => ['required', 'in:male,female,lgbtqia+'],
+            'civil_status'   => ['required', 'in:single,married,legally_separated,annulled,widowed'],
 
-            // Present address
-            'house_no'      => ['nullable', 'string', 'max:50'],
-            'street'        => ['nullable', 'string', 'max:255'],
-            'barangay'      => ['nullable', 'string', 'max:255'],
-            'municipality'  => ['nullable', 'string', 'max:255'],
-            'zip_code'      => ['nullable', 'string', 'max:12'],
-            'stay_years'    => ['nullable', 'integer', 'min:0', 'max:99'],
-            'stay_months'   => ['nullable', 'integer', 'min:0', 'max:11'],
+            // Current Address
+            'country'      => ['nullable', 'string', 'max:255'],
+            'province'     => ['nullable', 'string', 'max:255'],
+            'municipality' => ['nullable', 'string', 'max:255'],
+            'barangay'     => ['nullable', 'string', 'max:255'],
+            'street'       => ['nullable', 'string', 'max:255'],
+            'zip_code'     => ['nullable', 'string', 'max:12'],
 
-            // Permanent address
+            // Permanent address (existing fields kept for compatibility)
             'perm_house_no'      => ['nullable', 'string', 'max:50'],
             'perm_street'        => ['nullable', 'string', 'max:255'],
             'perm_barangay'      => ['nullable', 'string', 'max:255'],
@@ -48,24 +55,27 @@ class MemberApplicationController extends Controller
             'perm_stay_months'   => ['nullable', 'integer', 'min:0', 'max:11'],
 
             // Demographics
-            'residency_type' => ['required', 'in:owned,rented,mortgage,living_with_relatives'],
-            'contact_number' => ['required', 'string', 'max:20'],
-            'email'          => ['required', 'string', 'email', 'max:255', 'unique:member_applications', function ($attribute, $value, $fail) {
+            'residency_type' => ['nullable', 'string', 'max:100'],
+            'contact_number' => ['required', 'digits:11'],
+            'email'          => ['required', 'string', 'email', 'max:255', function ($attribute, $value, $fail) {
                 $email = strtolower(trim($value));
 
+                // Uniqueness of member_applications.email is handled at the
+                // store level by the firstWhere() lookup + update/create path,
+                // which prevents the MySQL 1062 duplicate-key crash. This check
+                // remains to stop a registered CoopMember from re-applying.
                 if (\App\Models\CoopMember::where('email', $email)->exists()) {
                     $fail('This email address is already registered as a cooperative member.');
                 }
             }],
             'birthdate'      => ['required', 'date', 'before_or_equal:today'],
-            'nationality'    => ['required', 'string', 'max:255'],
-            'place_of_birth' => ['required', 'string', 'max:255'],
-            'gender'         => ['required', 'in:male,female,lgbtqia+'],
-            'occupation'     => ['required', 'string', 'max:255'],
-            'civil_status'   => ['required', 'in:single,married,legally_separated,annulled,widowed,widower'],
+            'nationality'    => ['nullable', 'string', 'max:100'],
+            'place_of_birth' => ['nullable', 'string', 'max:255'],
+            'gender'         => ['nullable', 'string', 'max:50'],
+            'occupation'     => ['nullable', 'string', 'max:255'],
 
             // Membership requirements
-            'tin'             => ['nullable', 'string', 'max:30'],
+            'tin'             => ['nullable', 'digits:12'],
             'id_picture'      => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
             'proof_of_billing' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
 
@@ -73,20 +83,22 @@ class MemberApplicationController extends Controller
             'character_references'            => ['nullable', 'array', 'max:3'],
             'character_references.*.full_name' => ['nullable', 'string', 'max:255'],
             'character_references.*.address'   => ['nullable', 'string', 'max:255'],
-            'character_references.*.contact_number' => ['nullable', 'string', 'max:20'],
+            'character_references.*.contact_number' => ['nullable', 'string', 'digits:11'],
         ])->validate();
 
         // Normalize strings so the DB never stores stray whitespace
-        $data['surname']        = $this->normalize($data['surname']);
+        $data['last_name']      = $this->normalize($data['last_name']);
         $data['first_name']     = $this->normalize($data['first_name']);
         $data['middle_name']    = isset($data['middle_name']) ? $this->normalize($data['middle_name']) : null;
-        $data['nationality']    = $this->normalize($data['nationality']);
-        $data['place_of_birth'] = $this->normalize($data['place_of_birth']);
-        $data['occupation']     = $this->normalize($data['occupation']);
+        $data['suffix']         = !empty($data['suffix'] ?? null) ? trim($data['suffix']) : null;
+        $data['sex']            = !empty($data['sex'] ?? null) ? $this->normalize($data['sex']) : null;
+        $data['civil_status']   = !empty($data['civil_status'] ?? null) ? $this->normalize($data['civil_status']) : null;
+        $data['country_of_birth'] = !empty($data['country_of_birth'] ?? null) ? $this->normalize($data['country_of_birth']) : null;
+        $data['city_of_birth']  = !empty($data['city_of_birth'] ?? null) ? $this->normalize($data['city_of_birth']) : null;
         $data['email']          = strtolower(trim($data['email']));
 
         // Normalize address fields only when present
-        foreach (['house_no', 'street', 'barangay', 'municipality', 'zip_code'] as $f) {
+        foreach (['street', 'barangay', 'municipality', 'zip_code'] as $f) {
             if (!empty($data[$f])) {
                 $data[$f] = $this->normalize($data[$f]);
             }
@@ -138,7 +150,38 @@ class MemberApplicationController extends Controller
             }
         }
 
-        $application = MemberApplication::create($data);
+        // Map form fields to model attributes with fallbacks
+        $data['surname'] = $request->input('last_name');
+        $data['residency_type'] = $request->input('residency_type') ?? $request->input('residency') ?? 'owned';
+        $data['nationality'] = $request->input('nationality', 'Filipino');
+        $data['place_of_birth'] = $request->input('place_of_birth') ?? $request->input('city_of_birth') ?? 'City of Las Piñas';
+        $data['gender'] = $request->input('gender') ?? $request->input('sex');
+        $data['occupation'] = $request->input('occupation') ?? $request->input('hanap_buhay');
+
+// Get email reliably from validated data, request input, or logged-in user
+        $email = $data['email'] ?? $request->input('email') ?? (Auth::check() ? Auth::user()->email : null);
+
+        if (!$email) {
+            return back()->withErrors(['email' => 'Email address is required.'])->withInput();
+        }
+
+        // Look up an existing application by email before writing, so the
+        // MySQL unique constraint on the email column is never hit by an
+        // INSERT (which can raise a 1062 duplicate-key crash on concurrent
+        // submissions or stale sessions).
+        $application = MemberApplication::withTrashed()->where('email', $email)->first();
+
+        if ($application) {
+            // If it was soft-deleted, restore it first
+            if ($application->trashed()) {
+                $application->restore();
+            }
+            // Update the existing record
+            $application->update($data);
+        } else {
+            // Create new record only if no record exists at all
+            $application = MemberApplication::create($data);
+        }
 
         // Link the application to the submitting user account so the
         // membership flow can later connect the approved CoopMember back
@@ -148,8 +191,13 @@ class MemberApplicationController extends Controller
             $application->save();
         }
 
+        // Determine appropriate message based on whether it was new or updated
+        $message = $application->wasRecentlyCreated
+            ? 'Your membership application has been submitted. We will review it and get back to you.'
+            : 'Your membership application has been updated. Thank you for keeping your information current.';
+
         return redirect()->route('member.applications.show', $application->id)
-            ->with('success', 'Your membership application has been submitted. We will review it and get back to you.');
+            ->with('success', $message);
     }
 
     /**

@@ -23,6 +23,9 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('user')->name('user.')->group(function () {
         Route::get('/dashboard', [UserController::class, 'dashboard'])->name('dashboard');
 
+        Route::get('/notifications', [UserController::class, 'notifications'])->name('notifications');
+        Route::post('/notifications/{notification}/read', [UserController::class, 'markNotificationRead'])->name('notifications.read');
+
         Route::get('/loans/apply', [UserController::class, 'createApplication'])->name('loans.create');
         Route::post('/loans', [UserController::class, 'storeApplication'])->name('loans.store');
         Route::delete('/loans/{application}', [UserController::class, 'cancelApplication'])->name('loans.cancel');
@@ -42,6 +45,13 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/applications/{appId}/reject', [AdminController::class, 'reject'])
         ->name('applications.reject');
+
+    // Re-run the AI credit scan for a specific application (triggered from the detail modal)
+    Route::get('/admin/applications/{id}', [AdminController::class, 'showApplication'])
+        ->name('admin.applications.show');
+
+    Route::post('/admin/applications/{id}/scan', [AdminController::class, 'triggerAiScan'])
+        ->name('admin.applications.scan');
 
     Route::delete('/applications/{appId}', [AdminController::class, 'destroy'])
         ->name('applications.destroy');
@@ -89,16 +99,26 @@ Route::middleware(['auth'])->group(function () {
     // Dashboard navigation routes
     Route::get('/disbursements', [AdminController::class, 'disbursements'])
         ->name('disbursements.index');
+    Route::post('/admin/disbursements/process', [AdminController::class, 'processDisbursement'])
+        ->name('disbursements.process');
     Route::get('/repayments', [AdminController::class, 'repayments'])
         ->name('repayments.index');
-    Route::get('/credit', [AdminController::class, 'creditAssessment'])
-        ->name('credit.index');
-    Route::get('/risk', [AdminController::class, 'riskFlags'])
-        ->name('risk.index');
-    Route::get('/settings', [AdminController::class, 'settings'])
+    Route::post('/admin/repayments', [AdminController::class, 'storeRepayment'])
+        ->name('repayments.store');
+    Route::get('/admin/credit-assessment', [AdminController::class, 'creditAssessment'])
+        ->name('credit-assessment.index');
+    Route::get('/admin/risk-flags', [AdminController::class, 'riskFlags'])
+        ->name('risk-flags.index');
+    Route::get('/admin/settings', [AdminController::class, 'settings'])
         ->name('settings.index');
+    Route::post('/admin/settings', [AdminController::class, 'updateSettings'])
+        ->name('settings.update');
     Route::get('/reports', [AdminController::class, 'reports'])
         ->name('reports.index');
+    Route::get('/reports/export-pdf', [AdminController::class, 'exportPdf'])
+        ->name('reports.exportPdf');
+    Route::get('/reports/export-excel', [AdminController::class, 'exportExcel'])
+        ->name('reports.exportExcel');
 });
 
 Route::get('/api/member/{memberId}', [\App\Http\Controllers\MemberLookupController::class, 'show'])->name('member.lookup');
@@ -110,7 +130,9 @@ Route::get('/member-application', [\App\Http\Controllers\MemberApplicationContro
 Route::post('/member-application', [\App\Http\Controllers\MemberApplicationController::class, 'store'])->name('member.applications.store');
 Route::get('/member-application/{id}', [\App\Http\Controllers\MemberApplicationController::class, 'show'])->name('member.applications.show');
 
-Route::get('/', [AdminController::class, 'index']);
+Route::get('/', function () {
+    return view('home.index');
+});
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 

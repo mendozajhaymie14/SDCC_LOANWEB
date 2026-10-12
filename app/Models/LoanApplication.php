@@ -20,15 +20,20 @@ class LoanApplication extends Model
         'birth_date', 'employment_status', 'employer_name',
         'source_of_income', 'monthly_income', 'loan_type', 'amount', 'share_capital',
         'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
+        'remaining_balance', 'next_due_date',
+        // AI scoring fields (added for synchronous fallback)
+        'ai_score', 'ai_analysis_notes', 'extracted_document_data', 'document_processing_status',
     ];
 
     protected $casts = [
-        'birth_date'     => 'date',
-        'reviewed_at'    => 'datetime',
-        'documents'      => 'array',
-        'amount'         => 'decimal:2',
-        'share_capital'  => 'decimal:2',
-        'monthly_income' => 'decimal:2',
+        'birth_date'        => 'date',
+        'reviewed_at'       => 'datetime',
+        'documents'         => 'array',
+        'amount'            => 'decimal:2',
+        'share_capital'     => 'decimal:2',
+        'monthly_income'    => 'decimal:2',
+        'remaining_balance' => 'decimal:2',
+        'next_due_date'     => 'date',
     ];
 
     public function user(): BelongsTo
@@ -54,9 +59,10 @@ class LoanApplication extends Model
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {
-            'approved' => 'Approved',
-            'rejected' => 'Rejected',
-            default    => 'Under review',
+            'approved'   => 'Approved',
+            'disbursed'  => 'Disbursed & Released',
+            'rejected'   => 'Rejected',
+            default      => 'Under review',
         };
     }
 

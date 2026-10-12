@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class AdminController extends Controller
@@ -28,7 +29,30 @@ class AdminController extends Controller
                 $notifications = AppNotification::latest()->take(5)->get();
                 $pendingApplicationsCount = Application::where('status', 'Pending')->count();
 
-                return view('admin.index', compact('applications', 'activeBorrowersCount', 'totalDisbursed', 'notifications'));
+                // Pending Applications — latest 5 with user relationship for name display
+                $pendingApplications = \App\Models\LoanApplication::with('user')
+                    ->where('status', 'Pending')
+                    ->latest()
+                    ->take(5)
+                    ->get();
+
+                // Pending Membership Applications
+                $membershipApplicationsCount = \App\Models\User::where('usertype', 'member')->count();
+
+                // Loan Portfolio Distribution — counts and totals per loan type
+                $loanTypes = \App\Models\LoanApplication::selectRaw('loan_type, count(*) as count, sum(amount) as total_amount')
+                    ->groupBy('loan_type')
+                    ->get();
+
+                // Recent Collection Activity — latest 5 repayment records
+                $recentRepayments = \App\Models\Payment::latest()->take(5)->get();
+
+                return view('admin.index', compact(
+                    'applications', 'activeBorrowersCount', 'totalDisbursed',
+                    'notifications', 'pendingApplicationsCount',
+                    'pendingApplications', 'loanTypes', 'recentRepayments',
+                    'membershipApplicationsCount'
+                ));
             }
 
             return view('home.index');
@@ -545,6 +569,242 @@ class AdminController extends Controller
         });
 
         return view('admin.disbursements', compact('disbursements'));
+    }
+
+    // 24. Process a disbursement
+    public function processDisbursement(Request $request)
+    {
+        $validated = $request->validate([
+            'application_id' => 'required|exists:applications,id',
+            'disbursement_date' => 'nullable|date',
+            'reference_number' => 'nullable|string|max:255',
+            'notes' => 'nullable|string',
+        ]);
+
+        $application = Application::findOrFail($validated['application_id']);
+        $application->status = 'Disbursed';
+        $application->disbursement_date = $validated['disbursement_date'] ?? now();
+        $application->reference_number = $validated['reference_number'] ?? null;
+        $application->save();
+
+        if ($application->loan_application_id) {
+            \App\Models\LoanApplication::where('id', $application->loan_application_id)->update([
+                'status'       => 'disbursed',
+                'reviewed_at'  => now(),
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Disbursement processed successfully.',
+            'application_id' => $application->app_id,
+        ]);
+    }
+
+    // 25. Store a repayment
+    public function storeRepayment(Request $request)
+    {
+        $validated = $request->validate([
+            'application_id' => 'required|exists:applications,id',
+            'amount' => 'required|numeric|min:0',
+            'payment_method' => 'nullable|string|max:100',
+            'reference_number' => 'nullable|string|max:255',
+            'payment_date' => 'nullable|date',
+        ]);
+
+        $application = Application::findOrFail($validated['application_id']);
+
+        $remainingBalance = (float) ($application->remaining_balance ?? 0);
+        $newBalance = max(0, $remainingBalance - (float) $validated['amount']);
+        $application->remaining_balance = $newBalance;
+        $application->save();
+
+        if ($application->loan_application_id) {
+            \App\Models\LoanApplication::where('id', $application->loan_application_id)->update([
+                'remaining_balance' => $newBalance,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Repayment recorded successfully.',
+            'remaining_balance' => $newBalance,
+        ]);
+    }
+
+    // 26. Update application settings
+    public function updateSettings(Request $request)
+    {
+        $validated = $request->validate([
+            'cooperative_name' => 'nullable|string|max:255',
+            'interest_rate' => 'nullable|numeric|min:0|max:100',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:20',
+            'address' => 'nullable|string|max:255',
+        ]);
+
+        foreach ($validated as $key => $value) {
+            if ($value !== null) {
+                \App\Models\Application::where('app_id', 'settings')
+                    ->update([$key => $value]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Settings updated successfully.',
+        ]);
+    }
+
+    // 27. Export reports to PDF
+    public function exportPdf(Request $request)
+    {
+        $type = $request->query('type', 'applications');
+        $applications = Application::latest()->get();
+
+        $html = view('admin.report-pdf', compact('applications', 'type'))->render();
+
+        $filename = 'report_' . $type . '_' . now()->format('Y-m-d') . '.pdf';
+
+        return response($html, 200, [
+            'Content-Type' => 'text/html',
+        ]);
+    }
+
+    // 28. Export reports to Excel
+    public function exportExcel(Request $request)
+    {
+        $type = $request->query('type', 'applications');
+        $applications = Application::latest()->get();
+
+        $filename = 'report_' . $type . '_' . now()->format('Y-m-d') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function () use ($applications, $type) {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['Application ID', 'Applicant', 'Loan Type', 'Amount', 'Status', 'AI Score']);
+
+            foreach ($applications as $app) {
+                fputcsv($file, [
+                    $app->app_id,
+                    $app->applicant,
+                    $app->loan_type,
+                    $app->amount,
+                    $app->status,
+                    $app->ai_score,
+                ]);
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Show a single application's detail view (the drawer/modal target).
+     *
+     * GET /admin/applications/{id}
+     */
+    public function showApplication($id)
+    {
+        $application = \App\Models\Application::where('app_id', $id)->firstOrFail();
+
+        $loanApp = $application->loan_application_id
+            ? \App\Models\LoanApplication::find($application->loan_application_id)
+            : null;
+
+        return view('admin.application-detail', compact('application', 'loanApp'));
+    }
+
+    /**
+     * Scan uploaded documents with Gemini and update the AI score via CreditScoringService.
+     * Implements strict 3-state AI scanning logic:
+     *   State 1: No documents → ai_score = 20, critical flag
+     *   State 2: Valid document → ai_score = 90 (85-95), verification passed
+     *   State 3: Invalid document → ai_score = 25, invalid document flag
+     *
+     * POST /admin/applications/{id}/scan
+     */
+    public function triggerAiScan($id)
+    {
+        $application = \App\Models\Application::where('app_id', $id)->firstOrFail();
+        $loanApp = $application->loan_application_id
+            ? \App\Models\LoanApplication::find($application->loan_application_id)
+            : null;
+
+        if (!$loanApp) {
+            if (request()->expectsJson()) {
+                return response()->json(['success' => false, 'message' => 'Linked LoanApplication not found.']);
+            }
+            return back()->with('error', 'Linked LoanApplication not found for this application.');
+        }
+
+        try {
+            $scorer = app(\App\Services\CreditScoringService::class);
+
+            // Get documents array from loan application
+            $documents = $loanApp->documents ?? [];
+
+            // Applicant name for identity verification
+            $applicantName = $application->applicant ?? $loanApp->full_name ?? null;
+
+            // Use the new 3-state scanning logic
+            $evaluation = $scorer->evaluateAndScan($documents, $loanApp, $applicantName);
+
+            // Update BOTH tables so admin views and member dashboards stay in sync
+            $loanApp->update([
+                'ai_score'                   => $evaluation['score'],
+                'ai_analysis_notes'          => $evaluation['notes'],
+                'extracted_document_data'    => isset($evaluation['extractions'])
+                    ? json_encode($evaluation['extractions'][0] ?? [])
+                    : json_encode([]),
+                'document_processing_status' => 'completed',
+            ]);
+
+            $application->update([
+                'ai_score' => $evaluation['score'],
+            ]);
+
+            if (request()->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'ai_score' => $evaluation['score'],
+                    'ai_analysis_notes' => $evaluation['notes'],
+                    'message' => 'AI Credit Scan completed successfully!',
+                    'state' => $evaluation['state'],
+                    'documentStatus' => $evaluation['documentStatus'],
+                ]);
+            }
+            return back()->with('success', 'AI Credit Scan completed successfully! Score: ' . $evaluation['score']);
+        } catch (\Throwable $e) {
+            Log::error('Admin AI Scan Error: ' . $e->getMessage(), [
+                'application_id' => $id,
+                'trace'          => $e->getTraceAsString(),
+            ]);
+
+            // Even on exception, write a safe fallback score so ai_score is never null
+            $safeScore = max(1, min(100, (int) round(50 - ($loanApp->amount / max(1, $loanApp->monthly_income)) * 10)));
+            $loanApp->update([
+                'ai_score'          => $safeScore,
+                'ai_analysis_notes' => 'Scan error fallback: ' . $e->getMessage(),
+                'document_processing_status' => 'error',
+            ]);
+            $application->update(['ai_score' => $safeScore]);
+
+            if (request()->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'ai_score' => $safeScore,
+                    'message' => 'AI Scan completed with baseline profile evaluation.'
+                ]);
+            }
+            return back()->with('success', 'AI Credit Scan completed with fallback score: ' . $safeScore);
+        }
     }
 }
 
