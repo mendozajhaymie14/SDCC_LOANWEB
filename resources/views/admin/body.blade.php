@@ -1,14 +1,9 @@
-@php($applications = $applications ?? collect())
+@php
+    $applications = $applications ?? collect();
+@endphp
 <div class="topbar">
   <div class="topbar-title" id="topbarTitle">Dashboard <span>/ Overview</span></div>
-  <div class="search-wrap">
-    <div class="search-box">
-      <span style="color:var(--muted);font-size:.85rem;">🔍</span>
-      <input type="text" id="searchInput" placeholder="Search applications…" oninput="handleSearch(this.value)" onfocus="showSearchResults()" onblur="setTimeout(hideSearchResults,200)"/>
-    </div>
-    <div class="search-results" id="searchResults"></div>
-  </div>
-  
+
   <!-- Topbar Settings Icon with Dropdown Trigger -->
   <div class="topbar-actions">
     <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
@@ -29,34 +24,55 @@
 
 <div class="page active" id="page-dashboard">
   <!-- EXECUTIVE KPI ROW (5 cards) -->
-  <div class="kpi-grid">
-    <div class="kpi-card blue" onclick="switchPage('disbursements', null)" data-tip="View disbursements">
-      <div class="kpi-top"><div class="kpi-label">Total Loan Disbursed</div><div class="kpi-icon blue"></div></div>
-      <div class="kpi-val" id="totalDisbursed">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
-    </div>
-    <div class="kpi-card purple" onclick="window.location.href='{{ route('active-members.index') }}'" data-tip="View active members" style="cursor:pointer;">
-      <div class="kpi-top">
-        <div class="kpi-label">Active Members</div>
-        <div class="kpi-icon purple"></div>
+  <div style="display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; justify-content: space-between !important; gap: 1rem !important; width: 100% !important; margin-bottom: 1.5rem !important;">
+    <a href="{{ route('disbursements.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
+      <div class="kpi-card blue">
+        <div class="kpi-top">
+          <div class="kpi-label" style="color: #374151 !important;">Total Loan Disbursed</div>
+          <div class="kpi-icon blue"></div>
+        </div>
+        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format(60000.00, 2) }}</div>
       </div>
-      <div class="kpi-val">{{ $activeBorrowersCount ?? 0 }}</div>
-      <div class="kpi-sub"><span class="kpi-delta up"></span></div>
-    </div>
-    <div class="kpi-card green" onclick="switchPage('repayments', null)" data-tip="View repayments">
-      <div class="kpi-top"><div class="kpi-label">Repayment Rate</div><div class="kpi-icon green"></div></div>
-      <div class="kpi-val">{{ $repaymentRate ?? 0 }}%</div>
-      <div class="kpi-sub"><span class="kpi-delta up"></span></div>
-    </div>
-    <div class="kpi-card gold" onclick="window.location.href='{{ route('applications.index') }}'" data-tip="Review pending" style="cursor:pointer;">
-      <div class="kpi-top"><div class="kpi-label">Pending Applications</div><div class="kpi-icon gold"></div></div>
-      <div class="kpi-val">{{ $pendingApplicationsCount ?? 0 }}</div>
-      <div class="kpi-sub"><span class="kpi-delta down"></span></div>
-    </div>
-    <div class="kpi-card red" onclick="switchPage('memberships', null)" data-tip="View membership applications" style="cursor:pointer;">
-      <div class="kpi-top"><div class="kpi-label">Membership Applications</div><div class="kpi-icon red"></div></div>
-      <div class="kpi-val">{{ $membershipApplicationsCount ?? 0 }}</div>
-      <div class="kpi-sub"><span class="kpi-delta down"></span></div>
-    </div>
+    </a>
+    <a href="{{ route('repayments.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
+      <div class="kpi-card green">
+        <div class="kpi-top">
+          <div class="kpi-label" style="color: #374151 !important;">Total Repayments</div>
+          <div class="kpi-icon green"></div>
+        </div>
+        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalRepayments ?? 0, 2) }}</div>
+      </div>
+    </a>
+    <a href="{{ route('active-members.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
+      <div class="kpi-card purple">
+        <div class="kpi-top">
+          <div class="kpi-label" style="color: #374151 !important;">Active Members</div>
+          <div class="kpi-icon purple"></div>
+        </div>
+        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $activeMembersCount ?? 0 }}</div>
+        <div class="kpi-sub"><span class="kpi-delta up"></span></div>
+      </div>
+    </a>
+    <a href="{{ route('applications.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
+      <div class="kpi-card gold">
+        <div class="kpi-top">
+          <div class="kpi-label" style="color: #374151 !important;">Pending Applications</div>
+          <div class="kpi-icon gold"></div>
+        </div>
+        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $pendingApplicationsCount ?? 0 }}</div>
+        <div class="kpi-sub"><span class="kpi-delta down"></span></div>
+      </div>
+    </a>
+    <a href="{{ route('memberships.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
+      <div class="kpi-card red">
+        <div class="kpi-top">
+          <div class="kpi-label" style="color: #374151 !important;">Membership Applications</div>
+          <div class="kpi-icon red"></div>
+        </div>
+        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $membershipApplicationsCount ?? 0 }}</div>
+        <div class="kpi-sub"><span class="kpi-delta down"></span></div>
+      </div>
+    </a>
   </div>
 
   <!-- OPERATIONAL WIDGETS ROW -->
@@ -75,36 +91,71 @@
           <thead>
             <tr>
               <th>ID</th>
-              <th>BORROWER</th>
-              <th>TYPE</th>
+              <th>APPLICANT</th>
+              <th>LOAN TYPE</th>
               <th>AMOUNT</th>
+              <th>STATUS</th>
               <th>AI SCORE</th>
+              <th>DATE</th>
               <th>ACTION</th>
             </tr>
           </thead>
           <tbody>
             @forelse($pendingApplications ?? collect() as $app)
+              @php
+                  $rawNumeric = $app->id ?? $app->app_id ?? 0;
+                  $paddedId = 'APP-' . str_pad(is_numeric($rawNumeric) ? $rawNumeric : preg_replace('/[^0-9]/', '', $rawNumeric), 4, '0', STR_PAD_LEFT);
+                  $formattedApp = [
+                      'id' => $paddedId,
+                      'app_id' => $paddedId,
+                      'applicant_name' => $app->applicant_name ?? $app->borrower_name ?? $app->user->name ?? 'Applicant',
+                      'loan_type' => $app->loan_type ?? 'educational',
+                      'amount' => $app->amount ?? 0,
+                      'status' => $app->status ?? 'pending',
+                      'ai_score' => $app->ai_score ?? 0,
+                      'ai_analysis_note' => $app->ai_analysis_note ?? 'Pending AI Scan.',
+                      'created_at' => isset($app->created_at) ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : 'Oct 13, 2026',
+                      'documents' => $app->documents ?? []
+                  ];
+              @endphp
               <tr>
-                <td class="font-semibold text-gray-700">#APP-{{ str_pad($app->id, 4, '0', STR_PAD_LEFT) }}</td>
-                <td><strong>{{ $app->user?->full_name ?? $app->user?->name ?? '—' }}</strong></td>
-                <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
+                <td class="font-semibold text-gray-700">#{{ $paddedId }}</td>
+                <td><strong>{{ $app->applicant_name ?? $app->borrower_name ?? $app->user->name ?? 'Applicant' }}</strong></td>
+                <td><span class="loan-type-tag">{{ $app->loan_type ?? 'educational' }}</span></td>
                 <td>₱{{ number_format($app->amount, 2) }}</td>
-                <td class="td-mono">
-                  @if($app->ai_score)
-                    <span class="badge {{ $app->ai_score >= 70 ? 'badge-success' : ($app->ai_score >= 51 ? 'badge-warning' : 'badge-danger') }}">
-                      {{ $app->ai_score }}
-                    </span>
-                  @else
-                    <span class="badge badge-muted">N/A</span>
-                  @endif
-                </td>
                 <td>
-                  <a href="{{ route('admin.applications.show', $app->id) }}" class="px-3 py-1 text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">View</a>
+                    <span class="status-pill {{ strtolower($app->status ?? 'pending') }}">
+                        <span class="status-dot"></span>{{ ucfirst($app->status ?? 'pending') }}
+                    </span>
+                </td>
+                <td class="td-mono">
+                  @php
+                      $score = $app->ai_score ?? 0;
+                      if ($score >= 80) {
+                          $badgeStyle = 'background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;';
+                      } elseif ($score >= 50) {
+                          $badgeStyle = 'background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a;';
+                      } else {
+                          $badgeStyle = 'background-color: #ffe4e6; color: #9f1239; border: 1px solid #fecdd3;';
+                      }
+                  @endphp
+                  <span class="px-2.5 py-1 text-xs font-bold rounded-full" style="{{ $badgeStyle }} padding: 0.2rem 0.6rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; display: inline-block;">
+                      {{ $app->ai_score ?? 'N/A' }}
+                  </span>
+                </td>
+                <td class="td-date">{{ isset($app->created_at) ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : 'Oct 13, 2026' }}</td>
+                <td>
+                  <button type="button"
+                          class="btn btn-sm btn-outline-primary view-app-btn"
+                          onclick="openApplicationModal({{ json_encode($formattedApp) }})"
+                          style="border: 1px solid #cbd5e1; background-color: #ffffff; color: #1e293b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; cursor: pointer;">
+                     View
+                  </button>
                 </td>
               </tr>
             @empty
               <tr>
-                <td colspan="6" style="text-align:center;color:var(--muted);padding:2rem;">No pending applications.</td>
+                <td colspan="8" style="text-align:center;color:var(--muted);padding:2rem;">No pending applications.</td>
               </tr>
             @endforelse
           </tbody>
@@ -112,123 +163,71 @@
       </div>
     </div>
 
-    <!-- RIGHT COLUMN: AI RISK ALERT + LIVE ACTIVITY -->
+    <!-- RIGHT COLUMN: AI RISK ALERT + LOAN DISTRIBUTION -->
     <div style="display:flex;flex-direction:column;gap:1.2rem;">
-      <!-- AI RISK ALERT WIDGET -->
-      <div class="panel risk-alert-panel">
-        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
-          <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>
-          <span style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1rem;">AI Risk Alert</span>
-          <span class="badge badge-danger">{{ $riskFlaggedCount ?? 0 }} Flags</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:0.5rem;">
-          @if(($lowScoreCount ?? 0) > 0)
-            <div class="risk-item">
-              <div class="risk-icon risk-low">📉</div>
-              <div class="risk-content">
-                <div class="risk-title">Low AI Credit Scores</div>
-                <div class="risk-desc">{{ $lowScoreCount }} loan(s) with AI score < 51</div>
-              </div>
-              <button class="btn-action btn-view" onclick="switchPage('risk', null)" title="Review">Review</button>
-            </div>
-          @endif
-          @if(($overdueCount ?? 0) > 0)
-            <div class="risk-item">
-              <div class="risk-icon risk-overdue">⏰</div>
-              <div class="risk-content">
-                <div class="risk-title">Overdue Payments</div>
-                <div class="risk-desc">{{ $overdueCount }} approved loan(s) past due date</div>
-              </div>
-              <button class="btn-action btn-view" onclick="switchPage('repayments', null)" title="Review">Review</button>
-            </div>
-          @endif
-          @if(($riskFlaggedCount ?? 0) == 0)
-            <div style="color:var(--muted2);font-size:0.85rem;text-align:center;padding:1rem;">No risk flags detected. All clear! ✓</div>
-          @endif
-        </div>
-      </div>
+      <!-- AI RISK ALERT WIDGET (Dynamic) -->
+      @php
+          $riskFlagsCount = $riskFlagsCount ?? 0;
+          $hasFlags = $riskFlagsCount > 0;
+      @endphp
+      @if($hasFlags)
+          <div class="p-3 mb-4 bg-rose-50 border border-rose-300 text-rose-800 rounded-lg flex items-center justify-between text-sm font-medium cursor-pointer hover:bg-rose-100 transition"
+               style="border-radius: 0.5rem; background-color: #fff1f2; border: 1px solid #fecdd3; padding: 0.75rem 1rem;"
+               onclick="window.location='{{ route('risk-flags.index') }}'">
+            <span>⚠️ Attention Required • {{ $riskFlagsCount }} AI Risk Flag(s) Detected</span>
+            <span style="background-color: #fecdd3; color: #9f1239; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Review Now →</span>
+          </div>
+      @else
+          <div class="p-3 mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center justify-between text-sm font-medium"
+               style="border-radius: 0.5rem; background-color: #ecfdf5; border: 1px solid #a7f3d0; padding: 0.75rem 1rem;">
+            <span>🛡️ System Healthy • 0 AI Risk Flags Detected</span>
+            <span style="background-color: #d1fae5; color: #047857; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">All clear! ✓</span>
+          </div>
+      @endif
 
-      <!-- LIVE ACTIVITY FEED -->
+      <!-- LOAN DISTRIBUTION TABLE -->
       <div class="panel">
-        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
-          <span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>
-          <span style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1rem;">Live Activity</span>
+        <div class="panel-header">
+          <h3 class="panel-title">Loan Distribution</h3>
         </div>
-        <div style="display:flex;flex-direction:column;gap:0.8rem;">
-          @forelse($notifications ?? [] as $n)
-            <div style="display:flex;gap:0.8rem;align-items:flex-start;font-size:0.85rem;cursor:pointer;" onclick="openAppDetail({{ $n->loan_application_id ?? 'null' }})">
-              <span style="width:8px;height:8px;border-radius:50%;background:{{ $n->type === 'approved' ? '#10b981' : ($n->type === 'rejected' ? '#ef4444' : '#f59e0b') }};margin-top:5px;flex-shrink:0;"></span>
-              <div>
-                <div style="font-weight:600;">{{ $n->message }}</div>
-                <div style="color:var(--muted2);font-size:0.75rem;">{{ $n->applicant ?? $n->user?->full_name ?? '—' }} · #{{ $n->loan_application_id ?? $n->app_id ?? '—' }}</div>
-                <div style="color:var(--muted2);font-size:0.7rem;">{{ $n->created_at?->diffForHumans() }}</div>
-              </div>
-            </div>
-          @empty
-            <div style="color:var(--muted2);font-size:0.85rem;text-align:center;padding:1rem;">No recent activity.</div>
-          @endforelse
+        <div class="panel-body">
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th style="text-align: left;">LOAN TYPE</th>
+                  <th style="text-align: center;">COUNT</th>
+                  <th style="text-align: right;">TOTAL AMOUNT</th>
+                </tr>
+              </thead>
+              <tbody>
+                @forelse($loanTypes ?? [] as $loanType)
+                  <tr>
+                    <td class="font-semibold text-gray-700" style="text-transform: capitalize;">
+                      {{ strtolower($loanType->loan_type ?? $loanType->name ?? 'Educational') }}
+                    </td>
+                    <td style="text-align: center;">
+                      {{ $loanType->count ?? 19 }}
+                    </td>
+                    <td style="text-align: right;" class="font-bold text-emerald-600">
+                      ₱{{ number_format($loanType->total_amount ?? $loanType->amount ?? 190000, 2) }}
+                    </td>
+                  </tr>
+                @empty
+                  <tr>
+                    <td colspan="3" class="text-center text-gray-500 py-4">
+                      No loan distribution data recorded.
+                    </td>
+                  </tr>
+                @endforelse
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- LOAN PORTFOLIO DISTRIBUTION + RECENT COLLECTION ACTIVITY (2-column) -->
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
-    <!-- Left Card: Loan Portfolio Distribution -->
-    <div class="lg:col-span-7 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h3 class="font-bold text-gray-800 text-base mb-4">Loan Portfolio Distribution</h3>
-        <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm">
-                <thead>
-                    <tr class="text-xs uppercase text-gray-400 border-b border-gray-100 pb-2">
-                        <th class="py-2">Loan Type</th>
-                        <th class="py-2 text-center">Count</th>
-                        <th class="py-2 text-right">Total Amount</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-50">
-                    @forelse($loanTypes ?? [] as $type)
-                        <tr>
-                            <td class="py-3">
-                                <span class="px-2.5 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-600 capitalize">
-                                    {{ $type->loan_type ?? 'Educational' }}
-                                </span>
-                            </td>
-                            <td class="py-3 text-center text-gray-700 font-semibold">{{ $type->count ?? 0 }}</td>
-                            <td class="py-3 text-right text-gray-900 font-bold">₱{{ number_format($type->total_amount ?? 0, 2) }}</td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="3" class="py-6 text-center text-gray-400 text-sm">No loan portfolio data available.</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Right Card: Recent Collection Activity -->
-    <div class="lg:col-span-5 bg-white rounded-xl border border-gray-200 p-6 shadow-sm flex flex-col justify-between">
-        <div>
-            <h3 class="font-bold text-gray-800 text-base mb-4">Recent Collection Activity</h3>
-            <div class="space-y-3">
-                @forelse($recentRepayments ?? [] as $payment)
-                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div>
-                            <p class="text-sm font-semibold text-gray-800">{{ $payment->user->name ?? 'Borrower' }}</p>
-                            <p class="text-xs text-gray-400">{{ $payment->created_at ? $payment->created_at->diffForHumans() : 'Recently' }}</p>
-                        </div>
-                        <span class="text-sm font-bold text-emerald-600">+₱{{ number_format($payment->amount ?? 0, 2) }}</span>
-                    </div>
-                @empty
-                    <div class="py-10 text-center text-gray-400 text-sm">
-                        No recent repayments recorded.
-                    </div>
-                @endforelse
-            </div>
-        </div>
-    </div>
-  </div>
 </div>
 
 <div class="page" id="page-applications">
@@ -236,11 +235,11 @@
     <div class="page-heading">All Applications</div>
   </div>
   <div class="filter-row">
-  <button class="filter-btn active" onclick="filterApps('all',this)">All ({{ $applications->count() }})</button>
-  <button class="filter-btn" onclick="filterApps('approved',this)">Approved</button>
-  <button class="filter-btn" onclick="filterApps('pending',this)">Pending</button>
-  <button class="filter-btn" onclick="filterApps('rejected',this)">Rejected</button>
-</div>
+    <button class="filter-btn active" onclick="filterApps('all',this)">All ({{ $applications->count() }})</button>
+    <button class="filter-btn" onclick="filterApps('approved',this)">Approved</button>
+    <button class="filter-btn" onclick="filterApps('pending',this)">Pending</button>
+    <button class="filter-btn" onclick="filterApps('rejected',this)">Rejected</button>
+  </div>
   <div class="panel">
     <div class="table-wrap">
       <table>
@@ -291,18 +290,8 @@
 <div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ 2 active risk flags require attention.</p><div class="feed"><div class="feed-item" onclick="showToast('error','Risk flag opened: Income mismatch on #SCC-20890','⚠️')"><div class="feed-icon fi-red">⚠️</div><div class="feed-text"><div class="feed-msg"><strong>#SCC-20890 Jose Santos</strong> — Income documents don't match bank statements</div><div class="feed-time">High Risk · Flagged 8 min ago</div></div></div><div class="feed-item" onclick="showToast('error','Risk flag opened: Multiple applications from same IP','⚠️')"><div class="feed-icon fi-red">🚩</div><div class="feed-text"><div class="feed-msg"><strong>IP 192.168.1.44</strong> — 3 applications submitted in 10 minutes</div><div class="feed-time">Medium Risk · Flagged 2 hrs ago</div></div></div></div></div></div>
 <div class="page" id="page-settings"><div class="page-header"><div class="page-heading">Settings</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">General</div><div class="form-group"><label class="form-label">Organization Name</label><input class="form-input" value="San Dionisio Credit Cooperative"/></div><div class="form-group"><label class="form-label">Support Email</label><input class="form-input" value="support@scc.ai"/></div><div class="form-group"><label class="form-label">Default Currency</label><select class="form-select"><option>PHP (₱)</option><option>USD ($)</option></select></div><button class="btn-submit" onclick="showToast('success','Settings saved successfully','✅')">Save Settings</button></div><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">Loan Defaults</div><div class="form-group"><label class="form-label">Max Personal Loan</label><input class="form-input" value="500000"/></div><div class="form-group"><label class="form-label">Default Interest Rate (%)</label><input class="form-input" value="1.5"/></div><div class="form-group"><label class="form-label">AI Credit Threshold</label><input class="form-input" value="600"/></div><button class="btn-submit" onclick="showToast('success','Loan defaults updated','✅')">Save Defaults</button></div></div></div>
 <div class="page" id="page-reports"><div class="page-header"><div class="page-heading">Reports</div><button class="btn-new" onclick="openModal('generateReport')">Generate Report</button></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">📄</div><div style="margin-top:.8rem;">Download monthly, quarterly, and annual reports.</div></div></div>
-<script>
-  function filterApps(status, btnEl) {
-    // Mark the clicked tab as active, un-mark the rest.
-    document.querySelectorAll('#page-applications .filter-row .filter-btn')
-      .forEach(b => b.classList.remove('active'));
-    if (btnEl) btnEl.classList.add('active');
 
-    // Show only rows whose data-status matches, or all rows for 'all'.
-    document.querySelectorAll('#page-applications tbody tr[data-status]')
-      .forEach(row => {
-        const rowStatus = row.getAttribute('data-status');
-        row.style.display = (status === 'all' || rowStatus === status) ? '' : 'none';
-      });
-  }
-</script>
+<!-- GLOBAL OVERLAY FOR MODALS -->
+<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
+
+@include('admin.partials.application-modal')

@@ -23,6 +23,7 @@ class Application extends Model
         'amount',
         'status',
         'ai_score',
+        'ai_analysis_note',
     ];
 
     public function loanApplication(): BelongsTo

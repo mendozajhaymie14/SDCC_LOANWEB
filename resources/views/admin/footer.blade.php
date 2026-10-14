@@ -15,6 +15,9 @@
 <!-- OVERLAY CONTAINER -->
 <div class="overlay" id="overlay" onclick="closeAllModals()">
 
+  <!-- SHARED APPLICATION DETAIL MODAL -->
+  @include('admin.partials.application-modal')
+
   <!-- 1. New Loan Application Modal -->
   <div class="modal" id="modal-newApp" onclick="event.stopPropagation()">
     <div class="modal-header">
@@ -46,15 +49,6 @@
       <button class="btn-submit" type="submit">Submit Application</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
-  </div>
-
-  <!-- Application Detail / Approve-Reject-Delete Modal -->
-  <div class="modal" id="modal-appDetail" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <div class="modal-title" id="appDetailTitle">Application Detail</div>
-      <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
-    </div>
-    <div id="appDetailBody"></div>
   </div>
 
   <!-- Active Member Detail / Activate-Suspend-Delete Modal -->
@@ -1123,14 +1117,17 @@
 
   // ─── MODALS ───
   function openModal(modalId) {
-    const overlay = document.getElementById('overlay');
-    const modal = document.getElementById('modal-' + modalId);
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modal-' + modalId);
 
-    if (overlay && modal) {
-      overlay.classList.add('open');
-      modal.classList.add('open');
-    }
+  if (overlay && modal) {
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.classList.add('open');
+    modal.classList.add('open');
   }
+}
 
   function closeAllModals() {
     const overlay = document.getElementById('overlay');
@@ -1194,7 +1191,7 @@
         // Update the AI Scan Analysis Note in the modal
         const aiNotesEl = document.getElementById('modalAiNotes');
         if (aiNotesEl) {
-          const returnedNotes = data.ai_analysis_notes;
+          const returnedNotes = data.ai_analysis_note || data.ai_analysis_notes;
           if (returnedNotes && returnedNotes !== 'null' && returnedNotes.trim() !== '') {
             aiNotesEl.textContent = returnedNotes;
           } else {

@@ -2,284 +2,266 @@
 
 namespace App\Services;
 
-use App\Models\LoanApplication;
+use App\Models\Application;
+use Illuminate\Support\Facades\Log;
 
 class CreditScoringService
 {
     /**
-     * Evaluate an application through the strict 3-state AI scanning pipeline.
+     * Performs 3-tier AI document analysis scan on an Application instance.
+     * Evaluates uploaded documents against Educational Loan Proof of Purpose requirements
+     * and returns a credit score with detailed notes.
      *
-     * States:
-     *   State 1 (No Documents): no files attached → ai_score = 20, critical flag
-     *   State 2 (Valid Document): Gemini validates the educational proof → ai_score = 90 (85-95)
-     *   State 3 (Invalid Document): Gemini rejects the document → ai_score = 25
+     * Three Scenarios:
+     *   Scenario A: No uploaded documents          → ai_score = 30, warning note
+     *   Scenario B: Matched Educational Documents   → ai_score = 85, approval note
+     *   Scenario C: Mismatched / Invalid Documents   → ai_score = 40, mismatch note
      *
-     * The $documents array is checked first for State 1; if populated, Gemini
-     * evaluates the images for educational loan proof. Returns ai_score and
-     * ai_analysis_notes suitable for both LoanApplication and Application tables.
+     * @return array{'ai_score': int, 'ai_analysis_note': string, 'status': string}
      */
-    public function evaluateAndScan(array $documents, LoanApplication $loanApplication, ?string $applicantName): array
+    public function evaluateAndScan($application, ?array $documents = null): array
     {
-        // State 1: No supporting documents attached.
+        // Accept documents from parameter or try to get from LoanApplication relationship
+        if ($documents === null) {
+            $loanApp = $application->loanApplication;
+            $documents = $loanApp->documents ?? [];
+        }
+        $documents = $documents ?? [];
+
+        // Expanded Educational Loan keyword verification rules
+        $eduRegistrationKeywords = [
+            'Certificate of Enrollment',
+            'Enrollment',
+            'Officially Enrolled',
+            'Student ID',
+            'Registration',
+            'School Year',
+        ];
+
+        $eduTuitionKeywords = [
+            'Statement of Account',
+            'Tuition Fee',
+            'Billing',
+            'Statement of Due',
+            'Breakdown',
+            'Total Due',
+        ];
+
+        // Get applicant name for matching (borrower_name or applicant full name)
+        $applicantName = trim($application->borrower_name ?? $application->applicant ?? '');
+
+        // Scenario A: No uploaded documents
         if (empty($documents)) {
+            $score = 30;
+            $note = 'AI Scan Warning: No supporting documents uploaded. Missing School Registration/ID, Statement of Account/Tuition Fee, or School Materials List.';
+            $application->ai_score = $score;
+            $application->ai_analysis_note = $note;
+            $application->save();
             return [
-                'score'          => 20,
-                'notes'          => '⚠️ Critical Flag: No supporting documents uploaded. Proof of enrollment or tuition statement is required.',
-                'state'          => 1,
-                'status'         => 'rejected',
-                'documentStatus' => 'no_documents',
+                'ai_score' => 30,
+                'ai_analysis_note' => $note,
+                'status' => 'warning'
             ];
         }
 
-        // State 2/3: Send attached images to Gemini for educational loan proof.
-        $scanner = app(\App\Services\DocumentScannerService::class);
-        $geminiNotes = [];
-        $geminiStates = [];
-        $geminiScores = [];
-        $geminiExtractions = [];
-        $allValid = true;
-        $geminiNote = '';
+        // Use DocumentScannerService to analyze the first document
+        $scanner = new DocumentScannerService();
+        $firstDoc = $documents[0] ?? null;
 
-        foreach ($documents as $path) {
-            $fullPath = storage_path('app/public/' . $path);
-            if (!file_exists($fullPath)) {
-                $allValid = false;
-                continue;
-            }
-
-            $extraction = $scanner->analyzeDocument($fullPath);
-            $geminiExtractions[] = $extraction;
-            $geminiStates[] = $extraction['state'] ?? 1;
-
-            // Extract a human-readable note from Gemini's response.
-            $note = $extraction['gemini_note'] ?? $this->extractGeminiNote($extraction);
-            $geminiNotes[] = $note;
-
-            // Track scores suggested by Gemini (or derived from validity).
-            $score = $extraction['gemini_score'] ?? null;
-            if ($score === null) {
-                $score = ($extraction['is_valid_document'] ?? false) ? rand(85, 95) : 25;
-            }
-            $geminiScores[] = $score;
+        if (!$firstDoc) {
+            // Edge case: documents array exists but is empty or has no file paths
+            $score = 30;
+            $note = 'AI Scan Warning: No supporting documents uploaded. Missing School Registration/ID, Statement of Account/Tuition Fee, or School Materials List.';
+            $application->ai_score = $score;
+            $application->ai_analysis_note = $note;
+            $application->save();
+            return [
+                'ai_score' => 30,
+                'ai_analysis_note' => $note,
+                'status' => 'warning'
+            ];
         }
 
-        // Determine the dominant outcome across all uploaded documents.
-        $validCount = 0;
-        $invalidCount = 0;
-        $state1Count = 0;
-        foreach ($geminiStates as $state) {
-            if ($state === 2) {
-                $validCount++;
-            } elseif ($state === 3) {
-                $invalidCount++;
+        // Build the full absolute disk path for the document.
+        // Gemini Vision API requires the absolute path to read the file.
+        $filePath = $firstDoc;
+
+        // If the given path is not absolute or does not exist, resolve it.
+        if (!file_exists($filePath)) {
+            // Option 1: storage_path('app/public/' . $relativePath)
+            $storagePath = storage_path('app/public/' . $filePath);
+            if (file_exists($storagePath)) {
+                $filePath = $storagePath;
             } else {
-                $state1Count++;
+                // Option 2: public_path('storage/' . $relativePath)
+                $publicPath = public_path('storage/' . $filePath);
+                if (file_exists($publicPath)) {
+                    $filePath = $publicPath;
+                }
             }
         }
 
-        // Priority: any invalid → State 3. Otherwise any valid → State 2.
-        if ($invalidCount > 0) {
-            // STATE 3: Invalid / wrong document uploaded.
-            $score = 25;
-            $geminiNote = $invalidCount > 1
-                ? implode('; ', $geminiNotes)
-                : ($geminiNotes[0] ?? 'Uploaded files do not contain required proof of purpose or educational tuition details.');
-            $notes = '⚠️ Invalid Document: ' . $geminiNote;
+        // Analyze the document using DocumentScannerService (Gemini Vision / OCR)
+        $scanResult = $scanner->analyzeDocument($filePath ?? '');
 
+        // Extract OCR text and validation data from the Gemini scan result
+        $ocrText = $scanResult['raw_text'] ?? '';
+        $educationPurpose = $scanResult['education_purpose'] ?? false;
+        $educationMarkers = $scanResult['education_markers_found'] ?? [];
+        $acceptedProofType = $scanResult['accepted_proof_type'] ?? null;
+        $isValidDocument = $scanResult['is_valid_document'] ?? false;
+
+        // Normalize text for case-insensitive matching (e.g., "JUAN DELA CRUZ" handling)
+        $normalizedOcrText = mb_strtolower($ocrText);
+        $normalizedApplicant = mb_strtolower($applicantName);
+
+        // 1. Check for Certificate of Enrollment / Registration proof
+        $hasEnrollmentProof = false;
+        foreach ($eduRegistrationKeywords as $keyword) {
+            if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
+                $hasEnrollmentProof = true;
+                break;
+            }
+        }
+        // Also accept Gemini-recognized enrollment proof types
+        $enrollmentProofTypes = ['certificate of enrollment', 'enrollment form', 'registration form',
+                                'officially enrolled', 'student id', 'school year'];
+        if (in_array(mb_strtolower($acceptedProofType ?? ''), $enrollmentProofTypes)) {
+            $hasEnrollmentProof = true;
+        }
+
+        // 2. Check for Statement of Account / Tuition Fee proof
+        $hasTuitionProof = false;
+        foreach ($eduTuitionKeywords as $keyword) {
+            if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
+                $hasTuitionProof = true;
+                break;
+            }
+        }
+        // Also accept Gemini-recognized tuition proof types
+        $tuitionProofTypes = ['statement of account', 'tuition fee breakdown', 'tuition fee statement', 'billing'];
+        if (in_array(mb_strtolower($acceptedProofType ?? ''), $tuitionProofTypes)) {
+            $hasTuitionProof = true;
+        }
+
+        // 3. Applicant name matching: e.g. "JUAN DELA CRUZ" must match borrower_name/applicant
+        $nameMatch = false;
+        if (!empty($normalizedApplicant)) {
+            $applicantNoSpaces = preg_replace('/\s+/', '', $normalizedApplicant);
+            $nameMatch = (
+                str_contains($normalizedOcrText, $normalizedApplicant) ||   // exact name match
+                str_contains($normalizedOcrText, $applicantNoSpaces)         // name without spaces
+            );
+        } else {
+            // No applicant name available; rely on Gemini's document validation
+            $nameMatch = $isValidDocument;
+        }
+
+        // SCENARIO B: Matched Educational Documents (Passes Proof of Purpose)
+        // Condition: BOTH Certificate of Enrollment AND Statement of Account / Tuition Fee
+        // detected, with applicant name match
+        if ($hasEnrollmentProof && $hasTuitionProof && $nameMatch) {
+            $score = 85;
+            $note = 'AI Scan Complete: Verified Educational Loan requirements. Certificate of Enrollment and Statement of Account for ' .
+                    ($applicantName ?: 'the applicant') .
+                    ' matched successfully.';
+            $application->ai_score = $score;
+            $application->ai_analysis_note = $note;
+            $application->save();
             return [
-                'score'          => $score,
-                'notes'          => $notes,
-                'state'          => 3,
-                'status'         => 'rejected',
-                'documentStatus' => 'invalid_documents',
-                'extractions'    => $geminiExtractions,
+                'ai_score' => 85,
+                'ai_analysis_note' => $note,
+                'status' => 'approved'
             ];
         }
 
-        if ($validCount > 0) {
-            // STATE 2: Valid educational document detected.
-            $bestScore = max($geminiScores);
-            $score = min(95, max(85, $bestScore)); // Clamp to 85-95, default 90.
-            $geminiNote = $validCount > 1
-                ? implode('; ', $geminiNotes)
-                : ($geminiNotes[0] ?? 'Supporting documents match the educational loan purpose.');
-            $notes = '✅ Verification Passed: ' . $geminiNote;
-
-            return [
-                'score'          => $score,
-                'notes'          => $notes,
-                'state'          => 2,
-                'status'         => 'approved',
-                'documentStatus' => 'valid_documents',
-                'extractions'    => $geminiExtractions,
-            ];
-        }
-
-        // No usable extraction was produced (State 1 files everywhere).
+        // SCENARIO C: Mismatched / Invalid Documents (Fails Proof of Purpose)
+        // Documents uploaded but the required combination is not satisfied
+        $score = 40;
+        $note = 'AI Scan Alert: Document mismatch detected. The uploaded document does not satisfy Proof of Purpose requirements for Educational Loans (Missing School Registration or Tuition Statement).';
+        $application->ai_score = $score;
+        $application->ai_analysis_note = $note;
+        $application->save();
         return [
-            'score'          => 20,
-            'notes'          => '⚠️ Critical Flag: No supporting documents uploaded. Proof of enrollment or tuition statement is required.',
-            'state'          => 1,
-            'status'         => 'rejected',
-            'documentStatus' => 'no_documents',
+            'ai_score' => 40,
+            'ai_analysis_note' => $note,
+            'status' => 'mismatch'
         ];
     }
 
     /**
-     * Fall back to strict keyword verification (used when Gemini cannot be
-     * reached or the extraction lacks explicit validity fields).
-     *
-     * OCR-extracted text MUST contain at least TWO required keywords
-     * for the document to pass as educational/tuition proof.
+     * Calculates credit score (Range: 0 - 100) based on AI extraction
+     * and declared application data using cooperative financial rules.
+     * Score 51-100: Passing / Good (Green in UI)
+     * Score 0-50: Low Confidence / Flagged for Review (Red in UI)
      */
-    public function evaluateCapacity(float $requestedAmount, float $declaredIncome, array $extraction, ?string $applicantName = null): array
+    public function evaluateCapacity(float $requestedAmount, float $declaredIncome, array $extraction): array
     {
-        $rawText = strtolower($extraction['raw_text'] ?? '');
-        $requiredKeywords = [
-            'tuition', 'statement of account', 'certificate of enrollment',
-            'registration', 'student', 'school', 'university', 'billing',
-            'report card', 'enrollment', 'uniform', 'books', 'school supplies',
-            'tuition fee', 'school materials', 'textbook',
-        ];
-        $matchedCount = 0;
-        foreach ($requiredKeywords as $keyword) {
-            if (str_contains($rawText, $keyword)) {
-                $matchedCount++;
+        // Calculate raw score using original 300-850 scale
+        $rawScore = 600; // Base baseline score
+        $reasons = [];
+
+        // 1. Check Document Legibility
+        if (!($extraction['is_legible'] ?? true)) {
+            $rawScore = 350;
+            $reasons[] = 'Uploaded document was unreadable or poor quality.';
+        } else {
+            // 2. Income Verification Comparison
+            $verifiedIncome = $extraction['monthly_net_income'] ?? null;
+            if ($verifiedIncome && $declaredIncome > 0) {
+                $variance = abs($verifiedIncome - $declaredIncome) / $declaredIncome;
+                if ($variance > 0.25) {
+                    $rawScore -= 50;
+                    $reasons[] = 'Declared income differs significantly from scanned document.';
+                } else {
+                    $rawScore += 50;
+                    $reasons[] = 'Declared income verified by document scan.';
+                }
+            }
+
+            // 3. Debt Service Ratio (Loan Amount vs Monthly Net Income)
+            if ($verifiedIncome && $verifiedIncome > 0) {
+                $loanToIncomeRatio = $requestedAmount / $verifiedIncome;
+                if ($loanToIncomeRatio <= 3.0) {
+                    $rawScore += 120;
+                    $reasons[] = 'Low debt ratio relative to monthly income.';
+                } elseif ($loanToIncomeRatio <= 6.0) {
+                    $rawScore += 80;
+                    $reasons[] = 'Moderate debt ratio relative to monthly income.';
+                } else {
+                    $rawScore -= 100;
+                    $reasons[] = 'Requested loan exceeds safe monthly income capacity.';
+                }
+            }
+
+            // 4. Fraud Flags Penalty
+            if (!empty($extraction['fraud_flags'])) {
+                $rawScore -= 150;
+                $reasons[] = 'Risk flags detected on submitted document.';
             }
         }
-        $hasEducationalKeywords = $matchedCount >= 2;
 
-        if (!$hasEducationalKeywords) {
-            $rawScore = rand(150, 300); // Maps to ~15-30 on 0-100 scale
-            $reasons = ['⚠️ Invalid Document: Uploaded files do not contain required proof of purpose or educational tuition details.'];
-        } else {
-            $rawScore = 700;
-            $reasons = ['Educational document verified — tuition requirements met.'];
-        }
-
+        // Clamp final score range between 300 and 850 (original scale)
         $finalRawScore = max(300, min(850, $rawScore));
-        $score = round((($finalRawScore - 300) * 100) / 550);
+
+        // Convert to 0-100 scale: map 300-850 range to 0-100
+        // Formula: new_score = ((old_score - 300) * 100) / (850 - 300)
+        // This maps: 300→0, 500→36.36, 700→72.73, 850→100
+        $score = (($finalRawScore - 300) * 100) / 550;
+
+        // Round to nearest integer
+        $score = round($score);
+
+        // Determine Loan Status based on new 0-100 scale
+        // Score 51-100: Passing / Good
+        // Score 0-50: Low Confidence / Flagged for Review
+        $status = $score >= 51 ? 'Approved' : 'Rejected';
 
         return [
-            'score'  => $score,
-            'status' => $score >= 51 ? 'Approved' : 'Rejected',
+            'score' => $score,
+
+            'status' => $status,
             'summary' => implode('; ', $reasons),
         ];
-    }
-
-    /**
-     * Try to extract a human-readable note from a Gemini extraction.
-     */
-    private function extractGeminiNote(array $extraction): string
-    {
-        $fraudFlags = $extraction['fraud_flags'] ?? [];
-        $docType = $extraction['document_type'] ?? 'unknown';
-        $legible = $extraction['is_legible'] ?? false;
-
-        if (!$legible) {
-            return 'Document is unreadable or poor quality.';
-        }
-
-        if (!empty($fraudFlags)) {
-            return implode('; ', $fraudFlags);
-        }
-
-        if ($extraction['education_purpose'] ?? false) {
-            return 'Document supports educational purpose with relevant markers.';
-        }
-
-        if ($docType === 'unknown') {
-            return 'Document type could not be determined.';
-        }
-
-        return "Document type: {$docType}.";
-    }
-
-    /**
-     * Generate a human-readable scan analysis note (verification badge)
-     * based on the extracted data and application documents.
-     */
-    public function generateScanNote(array $extraction, array $documents, ?string $applicantName): string
-    {
-        // a. No files attached → Critical flag
-        if (empty($documents)) {
-            return '⚠️ Critical Flag: No supporting documents uploaded. Baseline profile evaluation applied.';
-        }
-
-        // b. Check for name match in document contents
-        if ($applicantName && !empty($documents)) {
-            $normalizedApplicantName = preg_replace('/\s+/', ' ', mb_strtolower(trim($applicantName)));
-            $applicantParts = preg_split('/\s+/', trim($applicantName));
-            $partialName = '';
-            if (\count($applicantParts) >= 2) {
-                $partialName = mb_strtolower($applicantParts[0] . ' ' . end($applicantParts));
-            }
-
-            $extractedText = strtolower($extraction['raw_text'] ?? '');
-            $nameMatch = false;
-
-            if (mb_strtolower($normalizedApplicantName) !== '' &&
-                (str_contains($extractedText, $normalizedApplicantName) ||
-                 ($partialName !== '' && str_contains($extractedText, $partialName)))) {
-                $nameMatch = true;
-            }
-
-            if (!$nameMatch) {
-                return '⚡ Integrity Warning: Document name does not match applicant profile name.';
-            }
-        }
-
-        // c. Documents verified successfully
-        if (!empty($extraction) && !empty($documents)) {
-            return '✅ Verification Passed: Supporting documents match applicant profile and tuition requirements.';
-        }
-
-        // Default fallback
-        return 'ℹ️ Scan in progress — analysis pending.';
-    }
-
-    /**
-     * Check if document content matches educational keywords and name.
-     * Requires AT LEAST TWO educational keywords in the extracted text.
-     */
-    public function hasEducationalDocumentMatch(array $extraction, ?string $applicantName): bool
-    {
-        if (empty($extraction)) {
-            return false;
-        }
-
-        $rawText = strtolower($extraction['raw_text'] ?? '');
-        $requiredKeywords = [
-            'tuition', 'statement of account', 'certificate of enrollment',
-            'registration', 'student', 'school', 'university', 'billing',
-            'report card', 'enrollment', 'uniform', 'books', 'school supplies',
-            'tuition fee', 'school materials', 'textbook',
-        ];
-        $matchedCount = 0;
-        foreach ($requiredKeywords as $keyword) {
-            if (str_contains($rawText, $keyword)) {
-                $matchedCount++;
-            }
-        }
-
-        $hasEduKeyword = $matchedCount >= 2;
-
-        $nameMatch = false;
-        if ($applicantName) {
-            $normalizedApplicantName = preg_replace('/\s+/', ' ', mb_strtolower(trim($applicantName)));
-            $applicantParts = preg_split('/\s+/', trim($applicantName));
-            $partialName = '';
-            if (\count($applicantParts) >= 2) {
-                $partialName = mb_strtolower($applicantParts[0] . ' ' . end($applicantParts));
-            }
-
-            if (mb_strtolower($normalizedApplicantName) !== '' &&
-                (str_contains($rawText, $normalizedApplicantName) ||
-                 ($partialName !== '' && str_contains($rawText, $partialName)))) {
-                $nameMatch = true;
-            }
-        }
-
-        return $hasEduKeyword && $nameMatch;
     }
 }

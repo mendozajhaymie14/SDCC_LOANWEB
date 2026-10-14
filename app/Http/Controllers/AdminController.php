@@ -24,34 +24,42 @@ class AdminController extends Controller
 
             if ($usertype === 'admin') {
                 $applications = Application::latest()->get();
-                $activeBorrowersCount = Borrowers::where('status', 'Active')->count();
+
+                // Count active/approved coop members: registered members OR members with a user_id
+                $activeMembersCount = \App\Models\CoopMember::where('is_registered', true)->orWhereNotNull('user_id')->count();
+
+                $activeBorrowersCount = $activeMembersCount;
+
+                // AI Risk Flags: count of pending applications with AI score < 50
+                $riskFlagsCount = \App\Models\Application::where('ai_score', '<', 50)->where('status', 'Pending')->count();
+                $flaggedApplications = \App\Models\Application::where('ai_score', '<', 50)->where('status', 'Pending')->latest()->get();
+
                 $totalDisbursed = (float) Application::where('status', 'Approved')->sum('amount');
                 $notifications = AppNotification::latest()->take(5)->get();
                 $pendingApplicationsCount = Application::where('status', 'Pending')->count();
 
-                // Pending Applications — latest 5 with user relationship for name display
+                // Pending Applications — latest 5
                 $pendingApplications = \App\Models\LoanApplication::with('user')
                     ->where('status', 'Pending')
                     ->latest()
                     ->take(5)
                     ->get();
 
-                // Pending Membership Applications
-                $membershipApplicationsCount = \App\Models\User::where('usertype', 'member')->count();
+                $membershipApplicationsCount = \App\Models\MemberApplication::whereIn('status', ['Pending', 'pending'])->count();
+                $totalRepayments = \App\Models\Payment::sum('amount_paid');
 
-                // Loan Portfolio Distribution — counts and totals per loan type
                 $loanTypes = \App\Models\LoanApplication::selectRaw('loan_type, count(*) as count, sum(amount) as total_amount')
                     ->groupBy('loan_type')
                     ->get();
 
-                // Recent Collection Activity — latest 5 repayment records
                 $recentRepayments = \App\Models\Payment::latest()->take(5)->get();
 
                 return view('admin.index', compact(
-                    'applications', 'activeBorrowersCount', 'totalDisbursed',
+                    'applications', 'activeBorrowersCount', 'activeMembersCount', 'totalDisbursed',
                     'notifications', 'pendingApplicationsCount',
                     'pendingApplications', 'loanTypes', 'recentRepayments',
-                    'membershipApplicationsCount'
+                    'membershipApplicationsCount', 'totalRepayments',
+                    'riskFlagsCount', 'flaggedApplications'
                 ));
             }
 
@@ -228,7 +236,13 @@ class AdminController extends Controller
     // 10. Active Members Page Route
     public function borrowers()
     {
-        $members = CoopMember::with('user')->where('status', 'active')->latest()->get();
+        // Fetch only approved/active coop members (exclude pending)
+        $members = CoopMember::with('user')
+            ->whereNotIn('status', ['Pending', 'pending'])
+            ->whereIn('status', ['Approved', 'approved', 'Active', 'active'])
+            ->latest()
+            ->get();
+
         return view('admin.activemember', compact('members'));
     }
 
@@ -242,7 +256,7 @@ class AdminController extends Controller
             'phone'         => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|date',
             'is_registered' => 'boolean',
-            'status'        => 'required|string|in:active,inactive,suspended',
+            'status'        => 'required|string|in:active,inactive,suspended,approved,Approved',
         ]);
 
         $lastId = CoopMember::withTrashed()->max('id') ?? 0;
@@ -256,7 +270,7 @@ class AdminController extends Controller
             'email'          => $validated['email'],
             'date_of_birth'  => $validated['date_of_birth'] ?? now(),
             'is_registered'  => $request->boolean('is_registered'),
-            'status'         => $validated['status'] ?? 'active',
+            'status'         => $validated['status'] ?? 'Approved',
         ]);
 
         return redirect()->route('active-members.index')->with('success', 'Member added successfully!');
@@ -266,10 +280,10 @@ class AdminController extends Controller
     public function approveBorrower($id)
     {
         $member = CoopMember::findOrFail($id);
-        $member->status = 'active';
+        $member->status = 'Approved';
         $member->save();
 
-        return redirect()->back()->with('success', 'Member status updated to Active.');
+        return redirect()->back()->with('success', 'Member status updated to Approved.');
     }
 
     // 13. Suspend Member
@@ -286,9 +300,7 @@ class AdminController extends Controller
     public function destroyBorrower($id)
     {
         $member = CoopMember::findOrFail($id);
-
-        $memberId = $member->member_id;
-
+        $id = $member->id;
         $member->delete();
 
         return response()->json([
@@ -297,14 +309,14 @@ class AdminController extends Controller
         ]);
     }
 
-    // 14. Admin Users Page
+    // 15. Admin Users Page
     public function adminUsers()
     {
         $admins = User::where('usertype', 'admin')->latest()->get();
         return view('admin.admins', compact('admins'));
     }
 
-    // 15. Store a new admin account
+    // 16. Store a new admin account
     public function storeAdmin(Request $request)
     {
         $validated = $request->validate([
@@ -328,7 +340,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 16. Update an admin account
+    // 17. Update an admin account
     public function updateAdmin(Request $request, $id)
     {
         $admin = User::where('usertype', 'admin')->findOrFail($id);
@@ -355,7 +367,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 17. Delete an admin account
+    // 18. Delete an admin account
     public function destroyAdmin($id)
     {
         $admin = User::where('usertype', 'admin')->findOrFail($id);
@@ -372,23 +384,20 @@ class AdminController extends Controller
         ]);
     }
 
-    // 18. Membership Applications — List
+    // 19. Membership Applications — List
     public function memberships()
     {
         $applications = MemberApplication::latest()->get();
         return view('admin.memberships', compact('applications'));
     }
 
-    // 19. Approve a membership application
+    // 20. Approve a membership application
     public function approveMember($id)
     {
         $application = MemberApplication::findOrFail($id);
 
         $existing = CoopMember::where('email', $application->email)->first();
 
-        // Resolve the user account this application belongs to. The
-        // application may carry a user_id (logged-in applicant) or the
-        // applicant may have registered as a user before submitting.
         $userId = $application->user_id;
         if (!$userId) {
             $existingUser = \App\Models\User::where('email', $application->email)->first();
@@ -408,21 +417,16 @@ class AdminController extends Controller
                 'email'         => $application->email,
                 'is_registered' => (bool) $userId,
                 'user_id'       => $userId,
+                'status'        => 'Approved',
             ]);
-        } elseif ($application->user_id && !$existing->user_id) {
-            // The member already existed (e.g. applied before registering),
-            // but this application was submitted by a logged-in user — link
-            // them so the dashboard recognizes the member as belonging to
-            // this account.
-            $existing->user_id = $application->user_id;
+        } else {
+            $existing->status = 'Approved';
+            if ($application->user_id && !$existing->user_id) {
+                $existing->user_id = $application->user_id;
+            }
             $existing->save();
         }
 
-        // If the applicant already has a user account, mark the member as
-        // registered and mirror the link on the users table too. Without
-        // this the approved member is invisible to the account that
-        // submitted the application (UserController::dashboard resolves
-        // `$user->coopMember` via users.coop_member_id).
         if ($userId) {
             $existing->is_registered = true;
             $existing->user_id = $userId;
@@ -447,7 +451,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 20. Reject a membership application
+    // 21. Reject a membership application
     public function rejectMember($id)
     {
         $application = MemberApplication::findOrFail($id);
@@ -464,7 +468,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 21. Update a membership application
+    // 22. Update a membership application
     public function updateMember(Request $request, $id)
     {
         $application = MemberApplication::findOrFail($id);
@@ -497,7 +501,7 @@ class AdminController extends Controller
         $application->email             = $validated['email'];
         $application->contact_number    = $validated['contact_number'] ?? null;
         $application->tin               = $validated['tin'] ?? null;
-        $application->nationality        = $validated['nationality'] ?? null;
+        $application->nationality       = $validated['nationality'] ?? null;
         $application->place_of_birth    = $validated['place_of_birth'] ?? null;
         $application->gender            = $validated['gender'] ?? null;
         $application->occupation        = $validated['occupation'] ?? null;
@@ -505,7 +509,7 @@ class AdminController extends Controller
         $application->residency_type    = $validated['residency_type'] ?? null;
         $application->perm_house_no     = $validated['perm_house_no'] ?? null;
         $application->perm_street       = $validated['perm_street'] ?? null;
-        $application->perm_barangay    = $validated['perm_barangay'] ?? null;
+        $application->perm_barangay     = $validated['perm_barangay'] ?? null;
         $application->perm_municipality = $validated['perm_municipality'] ?? null;
         $application->perm_zip_code     = $validated['perm_zip_code'] ?? null;
         $application->perm_stay_years   = $validated['perm_stay_years'] ?? null;
@@ -518,7 +522,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 22. Delete a membership application
+    // 23. Delete a membership application
     public function destroyMember($id)
     {
         $application = MemberApplication::findOrFail($id);
@@ -538,12 +542,21 @@ class AdminController extends Controller
         ]);
     }
 
-    
-
-    // 23. Navigation Placeholder Routes
-    public function repayments()        { return view('admin.index'); }
+    // 24. Navigation Placeholder Routes
+    public function repayments() {
+        $repayments = \App\Models\Payment::latest()->get();
+        $totalRepayments = \App\Models\Payment::sum('amount_paid');
+        return view('admin.repayments', compact('repayments', 'totalRepayments'));
+    }
     public function creditAssessment()  { return view('admin.index'); }
-    public function riskFlags()         { return view('admin.index'); }
+    public function riskFlags() {
+        $flaggedApplications = \App\Models\Application::where('ai_score', '<', 50)
+            ->where('status', 'Pending')
+            ->latest()
+            ->get();
+        $riskFlagsCount = $flaggedApplications->count();
+        return view('admin.risk-flags', compact('flaggedApplications', 'riskFlagsCount'));
+    }
     public function settings()          { return view('admin.index'); }
     public function reports()           { return view('admin.index'); }
 
@@ -571,7 +584,7 @@ class AdminController extends Controller
         return view('admin.disbursements', compact('disbursements'));
     }
 
-    // 24. Process a disbursement
+    // 25. Process a disbursement
     public function processDisbursement(Request $request)
     {
         $validated = $request->validate([
@@ -601,7 +614,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 25. Store a repayment
+    // 26. Store a repayment
     public function storeRepayment(Request $request)
     {
         $validated = $request->validate([
@@ -632,7 +645,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 26. Update application settings
+    // 27. Update application settings
     public function updateSettings(Request $request)
     {
         $validated = $request->validate([
@@ -656,7 +669,7 @@ class AdminController extends Controller
         ]);
     }
 
-    // 27. Export reports to PDF
+    // 28. Export reports to PDF
     public function exportPdf(Request $request)
     {
         $type = $request->query('type', 'applications');
@@ -664,14 +677,12 @@ class AdminController extends Controller
 
         $html = view('admin.report-pdf', compact('applications', 'type'))->render();
 
-        $filename = 'report_' . $type . '_' . now()->format('Y-m-d') . '.pdf';
-
         return response($html, 200, [
             'Content-Type' => 'text/html',
         ]);
     }
 
-    // 28. Export reports to Excel
+    // 29. Export reports to Excel
     public function exportExcel(Request $request)
     {
         $type = $request->query('type', 'applications');
@@ -707,8 +718,6 @@ class AdminController extends Controller
 
     /**
      * Show a single application's detail view (the drawer/modal target).
-     *
-     * GET /admin/applications/{id}
      */
     public function showApplication($id)
     {
@@ -723,12 +732,6 @@ class AdminController extends Controller
 
     /**
      * Scan uploaded documents with Gemini and update the AI score via CreditScoringService.
-     * Implements strict 3-state AI scanning logic:
-     *   State 1: No documents → ai_score = 20, critical flag
-     *   State 2: Valid document → ai_score = 90 (85-95), verification passed
-     *   State 3: Invalid document → ai_score = 25, invalid document flag
-     *
-     * POST /admin/applications/{id}/scan
      */
     public function triggerAiScan($id)
     {
@@ -747,59 +750,46 @@ class AdminController extends Controller
         try {
             $scorer = app(\App\Services\CreditScoringService::class);
 
-            // Get documents array from loan application
             $documents = $loanApp->documents ?? [];
+            $evaluation = $scorer->evaluateAndScan($application, $documents);
 
-            // Applicant name for identity verification
-            $applicantName = $application->applicant ?? $loanApp->full_name ?? null;
-
-            // Use the new 3-state scanning logic
-            $evaluation = $scorer->evaluateAndScan($documents, $loanApp, $applicantName);
-
-            // Update BOTH tables so admin views and member dashboards stay in sync
             $loanApp->update([
-                'ai_score'                   => $evaluation['score'],
-                'ai_analysis_notes'          => $evaluation['notes'],
-                'extracted_document_data'    => isset($evaluation['extractions'])
-                    ? json_encode($evaluation['extractions'][0] ?? [])
-                    : json_encode([]),
-                'document_processing_status' => 'completed',
-            ]);
-
-            $application->update([
-                'ai_score' => $evaluation['score'],
+                'ai_score'          => $evaluation['ai_score'],
+                'ai_analysis_notes' => $evaluation['ai_analysis_note'],
             ]);
 
             if (request()->expectsJson()) {
                 return response()->json([
                     'success' => true,
-                    'ai_score' => $evaluation['score'],
-                    'ai_analysis_notes' => $evaluation['notes'],
-                    'message' => 'AI Credit Scan completed successfully!',
-                    'state' => $evaluation['state'],
-                    'documentStatus' => $evaluation['documentStatus'],
+                    'ai_score' => $evaluation['ai_score'],
+                    'ai_analysis_note' => $evaluation['ai_analysis_note'],
+                    'message' => 'AI Credit Scan completed successfully! Score: ' . $evaluation['ai_score'],
+                    'status' => $evaluation['status'],
                 ]);
             }
-            return back()->with('success', 'AI Credit Scan completed successfully! Score: ' . $evaluation['score']);
+            return back()->with('success', 'AI Credit Scan completed successfully! Score: ' . $evaluation['ai_score']);
         } catch (\Throwable $e) {
             Log::error('Admin AI Scan Error: ' . $e->getMessage(), [
                 'application_id' => $id,
                 'trace'          => $e->getTraceAsString(),
             ]);
 
-            // Even on exception, write a safe fallback score so ai_score is never null
             $safeScore = max(1, min(100, (int) round(50 - ($loanApp->amount / max(1, $loanApp->monthly_income)) * 10)));
             $loanApp->update([
                 'ai_score'          => $safeScore,
                 'ai_analysis_notes' => 'Scan error fallback: ' . $e->getMessage(),
                 'document_processing_status' => 'error',
             ]);
-            $application->update(['ai_score' => $safeScore]);
+            $application->update([
+                'ai_score'        => $safeScore,
+                'ai_analysis_note' => 'Scan error fallback: ' . $e->getMessage(),
+            ]);
 
             if (request()->expectsJson()) {
                 return response()->json([
                     'success' => true,
                     'ai_score' => $safeScore,
+                    'ai_analysis_note' => 'Scan error fallback: ' . $e->getMessage(),
                     'message' => 'AI Scan completed with baseline profile evaluation.'
                 ]);
             }
@@ -807,4 +797,3 @@ class AdminController extends Controller
         }
     }
 }
-

@@ -91,7 +91,21 @@
     </td>
     <td class="td-date">{{ \Carbon\Carbon::parse($app->created_at)->format('M d, Y') }}</td>
     <td>
-      <button class="btn-review" type="button" data-app-id="{{ $app->app_id }}" data-documents='@json($app->loanApplication?->documents ?? [])' data-ai-notes='@json($app->loanApplication?->ai_analysis_notes ?? null)' onclick="openAppDetail(event)">View</button>
+      <div class="ai-note-badge" style="display:none;">
+        {{ $app->ai_analysis_note ?? $app->loanApplication?->ai_analysis_notes ?? 'No scan performed' }}
+      </div>
+      <button class="btn-review" type="button" data-app-id="{{ $app->app_id }}" data-documents='@json($app->loanApplication?->documents ?? [])' data-ai-notes='@json($app->ai_analysis_note ?? $app->loanApplication?->ai_analysis_notes ?? null)' onclick="openAppDetail(event)">View</button>
+    </td>
+    <td>
+      <div class="ai-note-tooltip" style="display:none; padding:0.5rem; background:#f8f9fa; border:1px solid #dee2e6; margin-top:0.5rem; font-size:0.85rem;">
+        @if($app->ai_analysis_note)
+          <strong>AI Scan Note:</strong> {{ $app->ai_analysis_note }}
+        @elseif($app->loanApplication?->ai_analysis_notes)
+          <strong>AI Scan Note:</strong> {{ $app->loanApplication->ai_analysis_notes }}
+        @else
+          No AI scan performed
+        @endif
+      </div>
     </td>
   </tr>
 @empty
@@ -111,6 +125,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 @include('admin.footer')
+@include('admin.partials.application-modal')
 
 </body>
 </html>

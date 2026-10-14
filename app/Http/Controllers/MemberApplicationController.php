@@ -15,8 +15,9 @@ class MemberApplicationController extends Controller
      */
     public function create()
     {
-        $isAuth = Auth::check();
-        $authEmail = $isAuth ? Auth::user()->email : '';
+        $user = Auth::user();              // Single query; null when not logged in
+        $isAuth = $user !== null;
+        $authEmail = $user?->email ?? '';
 
         return view('auth.member-application', compact('isAuth', 'authEmail'));
     }
@@ -206,7 +207,7 @@ class MemberApplicationController extends Controller
      */
     public function show(int $id)
     {
-        $application = MemberApplication::query()->where('id', $id)->first();
+        $application = MemberApplication::find($id);
 
         if (!$application) {
             abort(404);

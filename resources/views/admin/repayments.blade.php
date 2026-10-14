@@ -3,28 +3,21 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>San Dionisio Credit Cooperative — Admin Dashboard</title>
+  <title>San Dionisio Credit Cooperative — Repayments</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
-  @include ('admin.css')
+  @include('admin.css')
 </head>
 
 <body>
 
 <!-- SIDEBAR -->
-@include ('admin.sidebar')
+@include('admin.sidebar')
 
 <!-- MAIN WRAPPER -->
 <div class="main">
   <div class="topbar">
-    <div class="topbar-title" id="topbarTitle">Repayment & Collection Management <span>/ Payment Management</span></div>
-    <div class="search-wrap">
-      <div class="search-box">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="repaymentSearchInput" placeholder="Search repayments…" oninput="handleRepaymentSearch(this.value)" onfocus="showRepaymentSearchResults()" onblur="setTimeout(hideRepaymentSearchResults,200)"/>
-      </div>
-      <div class="search-results" id="repaymentSearchResults"></div>
-    </div>
+    <div class="topbar-title" id="topbarTitle">Repayments <span>/ Payment Management</span></div>
     <div class="topbar-actions">
       <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
         🔔<span class="notif-dot" id="notifDot"></span>
@@ -33,106 +26,174 @@
     </div>
   </div>
 
+  <div class="notif-dropdown" id="notifDropdown">
+    <div class="notif-head">
+      <div class="notif-head-title">Notifications</div>
+      <div class="notif-mark-all" onclick="markAllRead()">Mark all read</div>
+    </div>
+  </div>
+
   <!-- PAGE CONTENT -->
   <div class="content-body">
     <div class="panel app-panel">
       <div class="page-header">
         <div>
-          <h2 class="panel-title">Payment Encoding</h2>
+          <h2 class="panel-title">Repayments</h2>
         </div>
       </div>
 
-      <div class="filter-row">
-        <button class="filter-btn active" onclick="filterRepayments('all',this)">All</button>
-        <button class="filter-btn" onclick="filterRepayments('today',this)">Today</button>
-        <button class="filter-btn" onclick="filterRepayments('this-month',this)">This Month</button>
+      <!-- Summary Panel -->
+      <div class="panel" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div>
+            <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1.05rem;">Total Repayments Collected</div>
+            <div style="font-size: 2rem; font-weight: 700; color: #1e293b;">₱{{ number_format($totalRepayments ?? 0, 2) }}</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 0.75rem 1.25rem;">
+            <div style="font-size: 0.875rem; color: #64748b;">Total Payment Records</div>
+            <div style="font-weight: 700; color: #1e293b;">{{ $repayments->count() }}</div>
+          </div>
+        </div>
       </div>
 
-      <!-- Payment Encoding Card / Form -->
-      <div class="panel encoding-card">
-        <div class="panel-title" style="margin-bottom:1.2rem;">Encode Payment</div>
-        <form id="encodePaymentForm" action="{{ route('repayments.store') }}" method="POST">
-          @csrf
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Select Active Loan</label>
-              <select class="form-select" id="activeLoanSelect" name="loan_application_id" onchange="loadLoanInfo()">
-                <option value="">Select Active Loan</option>
-                @foreach($activeLoans as $loan)
-                  <option value="{{ $loan->id }}" data-borrower="{{ $loan->full_name ?? 'Applicant' }}" data-amount="{{ $loan->amount ?? 0 }}">
-                    {{ $loan->full_name ?? 'Applicant' }} ({{ $loan->reference ?? ('#' . $loan->id) }})
-                  </option>
-                @endforeach
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Borrower</label>
-              <input type="text" class="form-input" id="borrowerName" placeholder="Auto-filled from loan selection" readonly/>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Amount Paid (₱)</label>
-              <input type="number" step="0.01" class="form-input" id="amountPaid" name="amount_paid" placeholder="0.00" required/>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Reference / OR No.</label>
-              <input type="text" class="form-input" id="officialReceipt" name="reference_no" placeholder="OR-XXXXX"/>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Payment Date</label>
-            <input type="date" class="form-input" id="paymentDate" name="payment_date" value="{{ date('Y-m-d') }}"/>
-          </div>
-          <div style="display:flex;gap:1rem;margin-top:1.5rem;">
-            <button class="btn-submit" type="submit">Save Payment</button>
-            <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
-          </div>
-        </form>
-      </div>
-
-      <!-- Payment History Table -->
-      <div class="panel">
-        <div class="panel-title" style="margin-bottom:1.2rem;">Payment History</div>
-        <div class="table-wrap">
-          <table>
-            <thead>
+      <!-- Repayments Data Table -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>PAYMENT REF/ID</th>
+              <th>BORROWER NAME</th>
+              <th>LOAN APPLICATION ID</th>
+              <th>AMOUNT PAID</th>
+              <th>PAYMENT METHOD</th>
+              <th>DATE PAID</th>
+              <th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse($repayments as $repayment)
               <tr>
-                <th>Payment ID</th>
-                <th>Borrower</th>
-                <th>Loan ID</th>
-                <th>Amount Paid</th>
-                <th>Remaining Balance</th>
-                <th>Date</th>
+                <td class="font-semibold text-gray-700">#{{ $repayment->reference_number ?? 'N/A' }}</td>
+                <td>{{ $repayment->borrower_name ?? 'N/A' }}</td>
+                <td><span class="loan-type-tag">{{ $repayment->loan_application_id ?? 'N/A' }}</span></td>
+                <td>₱{{ number_format($repayment->amount_paid ?? 0, 2) }}</td>
+                <td><span class="status-pill {{ strtolower($repayment->payment_method ?? 'cash') }}">{{ ucfirst($repayment->payment_method ?? 'cash') }}</span></td>
+                <td>{{ \Carbon\Carbon::parse($repayment->payment_date ?? now())->format('M d, Y') }}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline-primary"
+                          style="border: 1px solid #cbd5e1; background-color: #ffffff; color: #1e293b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; cursor: pointer;"
+                          onclick="recordNewRepayment()">
+                    Record Repayment
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody id="paymentHistoryTbody">
-              @forelse($payments as $pay)
-                <tr>
-                  <td class="td-mono">#{{ $pay->id }}</td>
-                  <td>{{ $pay->borrower_name }}</td>
-                  <td class="td-mono">{{ $pay->loan_id }}</td>
-                  <td>₱{{ number_format($pay->amount_paid, 2) }}</td>
-                  <td>₱{{ number_format($pay->remaining_balance, 2) }}</td>
-                  <td>{{ \Carbon\Carbon::parse($pay->payment_date)->format('M d, Y') }}</td>
-                </tr>
               @empty
-                <tr>
-                  <td colspan="6" style="text-align:center;color:var(--muted);padding:2rem;">No payment records found.</td>
-                </tr>
-              @endforelse
-            </tbody>
-          </table>
-        </div>
+              <tr>
+                <td colspan="7" style="text-align:center;color:var(--muted);padding:2rem;">No repayment records found.</td>
+              </tr>
+            @endforelse
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
+
+  <!-- RECORD REPAYMENT MODAL -->
+  <div class="modal" id="recordRepaymentModal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">💰 Record New Repayment</div>
+      <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
+    </div>
+    <form action="{{ route('repayments.store') }}" method="POST">
+      @csrf
+
+      <input type="hidden" name="application_id" id="repayAppId" value="">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Application ID</label>
+          <input type="text" name="app_id" id="repayAppIdInput" class="form-input" placeholder="#APP-0001" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Borrower Name</label>
+          <input type="text" name="borrower_name" class="form-input" placeholder="Full name" required/>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Amount Paid (₱)</label>
+          <input type="number" step="0.01" name="amount_paid" class="form-input" placeholder="0.00" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select name="payment_method" class="form-select">
+            <option value="">Select Method</option>
+            <option value="Cash">Cash</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="GCash">GCash</option>
+            <option value="Maya">Maya</option>
+            <option value="BPI">BPI</option>
+            <option value="BDO">BDO</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Reference Number</label>
+          <input type="text" name="reference_number" class="form-input" placeholder="Optional reference"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Date</label>
+          <input type="date" name="payment_date" class="form-input" required/>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.5rem;">
+        <button type="submit" class="btn-submit"
+          style="background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #ffffff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.875rem; font-weight: 700; width: 100%; cursor: pointer;">
+          Record Repayment
+        </button>
+        <button type="button" class="btn-cancel"
+          style="background: transparent; color: var(--muted); border: 1px solid var(--muted); border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.875rem; font-weight: 500; width: 100%; cursor: pointer;"
+          onclick="closeAllModals()">Cancel</button>
+      </div>
+    </form>
+  </div>
+
 </div>
 
-<!-- TOAST CONTAINER -->
-<div class="toast-container" id="toastContainer"></div>
+<!-- GLOBAL OVERLAY FOR MODALS -->
+<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
 
-@include('admin.footer')
+<script>
+  // ─── RECORD REPAYMENT MODAL LOGIC ───
+  function recordNewRepayment() {
+    // Show the modal with the first application pre-filled (or you could implement a selector)
+    const modal = document.getElementById('recordRepaymentModal');
+    if (!modal) return;
+
+    // Optionally pre-fill with a default app ID - you can customize this
+    const appIdInput = document.getElementById('repayAppIdInput');
+    if (appIdInput) {
+      // Default to first pending application or leave empty for selector
+      appIdInput.value = '#APP-0001';
+    }
+
+    // Pre-fill borrower name from the app if available
+    const borrowerInput = modal.querySelector('input[name="borrower_name"]');
+    if (borrowerInput) {
+      borrowerInput.value = '';
+    }
+
+    openModal('recordRepaymentModal');
+  }
+
+  function closeRecordRepaymentModal() {
+    closeAllModals();
+  }
+</script>
 
 </body>
 </html>

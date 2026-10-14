@@ -61,7 +61,7 @@ body {
 .sidebar-logo {
   height: var(--topbar-h);
   padding: 0 0.9rem;
-  border-bottom: none; /* Changed from 1px solid var(--border) */
+  border-bottom: none;
   display: flex;
   align-items: center;
   gap: 0.8rem;
@@ -295,8 +295,8 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;           /* Added to lock container height */
-  overflow-y: auto;        /* Changed from overflow: hidden to allow main area scrolling */
+  height: 100vh;
+  overflow-y: auto;
   min-width: 0;
   background: var(--bg);
 }
@@ -939,14 +939,14 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   border: 1px solid rgba(129, 140, 248, 0.2);
 }
 
-/* MODALS & OVERLAYS */
+/* MODALS & OVERLAYS STRICT OVERRIDES */
 .overlay {
+  display: none !important;
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(4px);
   z-index: 1000;
-  display: none;
   align-items: center;
   justify-content: center;
 }
@@ -956,7 +956,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 }
 
 .modal {
-  display: none;
+  display: none !important;
   background: var(--surface);
   color: var(--text);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
@@ -1085,7 +1085,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 /* Content Body Layout */
 .content-body {
   padding: 1.5rem;
-  flex: 1;                 /* Added flex growth */
+  flex: 1;
 }
 
 /* Panel & Card Containers */

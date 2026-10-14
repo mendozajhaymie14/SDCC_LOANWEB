@@ -44,7 +44,7 @@
       <div class="page-header">
         <div>
           <h2 class="panel-title">Active Members</h2>
-          <span class="records-count">Total Records: {{ $members->count() }}</span>
+          <span class="records-count">Approved Members: {{ $members->where('is_registered', true)->count() }}</span>
         </div>
         <button class="btn-new" type="button" onclick="openModal('addMember')">+ Add Member</button>
       </div>
@@ -76,8 +76,8 @@
                 <td>{{ $member->user_id ? $member->email : '' }}</td>
                 <td>
                   <span class="status-pill {{ $member->is_registered ? 'approved' : 'pending' }}">
-  {{ $member->is_registered ? 'Approved' : 'Pending' }}
-</span>
+                    {{ $member->is_registered ? 'Approved' : 'Pending' }}
+                  </span>
                 </td>
                 <td class="td-mono">
                   {{ $monthlyIncome ? '₱' . $monthlyIncome : '—' }}

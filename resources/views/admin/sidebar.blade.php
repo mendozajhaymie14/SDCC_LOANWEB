@@ -1,5 +1,5 @@
 <aside class="sidebar">
-  <a href="{{ route('dashboard') }}" class="sidebar-logo">
+  <a href="{{ route('dashboard') }}" class="sidebar-logo" title="Main overview">
     <img src="{{ asset('images/logo.jpg') }}" alt="Logo" class="sidebar-custom-logo">
     <div class="logo-text">
       <div class="logo-line">SAN DIONISIO</div>
@@ -15,12 +15,12 @@
   </a>
 
   <div class="sidebar-section">Loan Management</div>
-  <a href="{{ route('applications.index') }}" class="nav-item {{ request()->routeIs('applications.index') ? 'active' : '' }}">
+  <a href="{{ route('applications.index') }}" class="nav-item {{ request()->routeIs('applications.index') ? 'active' : '' }}" title="Loan Applications" data-tip="Loan Applications">
     <i class="fa-solid fa-file-lines nav-icon"></i>
     <span class="nav-label">Loan Applications</span>
     <span class="nav-badge" id="badge-apps"></span>
   </a>
-  <a href="{{ url('/disbursements') }}" class="nav-item {{ request()->is('disbursements*') ? 'active' : '' }}">
+  <a href="{{ url('/disbursements') }}" class="nav-item {{ request()->is('disbursements*') ? 'active' : '' }}" title="Disbursements" data-tip="Disbursements">
     <i class="fa-solid fa-money-bill-transfer nav-icon"></i>
     <span class="nav-label">Disbursements</span>
     <span class="nav-badge gold"></span>
@@ -31,14 +31,14 @@
   </a>
 
   <div class="sidebar-section">Membership</div>
-  <a href="{{ route('memberships.index') }}" class="nav-item {{ request()->routeIs('memberships.index') ? 'active' : '' }}">
+  <a href="{{ route('memberships.index') }}" class="nav-item {{ request()->routeIs('memberships.index') ? 'active' : '' }}" title="Membership Applications" data-tip="Membership Applications">
     <i class="fa-solid fa-id-card nav-icon"></i>
     <span class="nav-label">Membership Applications</span>
     <span class="nav-badge" id="badge-memberships"></span>
   </a>
 
   <div class="sidebar-section">Clients</div>
-  <a href="{{ route('active-members.index') }}" class="nav-item {{ request()->routeIs('active-members.index') ? 'active' : '' }}">
+  <a href="{{ route('active-members.index') }}" class="nav-item {{ request()->routeIs('active-members.index') ? 'active' : '' }}" title="Active Members" data-tip="Active Members">
     <i class="fa-solid fa-users nav-icon"></i>
     <span class="nav-label">Active Members</span>
   </a>
