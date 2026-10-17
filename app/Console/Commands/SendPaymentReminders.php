@@ -3,10 +3,13 @@
 namespace App\Console\Commands;
 
 use App\Models\AppNotification;
+use App\Models\AppNotificationLog;
+use App\Models\AuditLog;
 use App\Models\LoanApplication;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SendPaymentReminders extends Command
 {
@@ -37,23 +40,49 @@ class SendPaymentReminders extends Command
         $this->line("Today: {$today->toDateString()}");
         $this->line("Due soon window: up to {$threeDaysFromNow->toDateString()}");
 
-        // 1. Due in 3 days (due_soon)
-        $dueSoonCount = $this->sendDueSoonReminders($today, $threeDaysFromNow);
+        try {
+            // Log audit entry for job start
+            AuditLog::log('Payment Reminder Job Started',
+                "Job initiated at " . now()->toDateTimeString() .
+                ". Processing loans with due dates between {$today->toDateString()} and {$threeDaysFromNow->toDateString()}.",
+                null); // System job, no specific user
 
-        // 2. Due today (due_today)
-        $dueTodayCount = $this->sendDueTodayReminders($today);
+            // 1. Due in 3 days (due_soon)
+            $dueSoonCount = $this->sendDueSoonReminders($today, $threeDaysFromNow);
 
-        // 3. Overdue (overdue) - daily until paid
-        $overdueCount = $this->sendOverdueReminders($today);
+            // 2. Due today (due_today)
+            $dueTodayCount = $this->sendDueTodayReminders($today);
 
-        $this->newLine();
-        $this->info("Reminder job completed:");
-        $this->line("  Due soon (3 days):    {$dueSoonCount}");
-        $this->line("  Due today:            {$dueTodayCount}");
-        $this->line("  Overdue:              {$overdueCount}");
-        $this->line("  Total sent:           " . ($dueSoonCount + $dueTodayCount + $overdueCount));
+            // 3. Overdue (overdue) - daily until paid
+            $overdueCount = $this->sendOverdueReminders($today);
 
-        return self::SUCCESS;
+            $totalSent = $dueSoonCount + $dueTodayCount + $overdueCount;
+
+            $this->newLine();
+            $this->info("Reminder job completed:");
+            $this->line("  Due soon (3 days):    {$dueSoonCount}");
+            $this->line("  Due today:            {$dueTodayCount}");
+            $this->line("  Overdue:              {$overdueCount}");
+            $this->line("  Total sent:           {$totalSent}");
+
+            // Log audit entry for job completion
+            AuditLog::log('Payment Reminder Job Completed',
+                "Job finished successfully at " . now()->toDateTimeString() .
+                ". Sent {$totalSent} reminders ({$dueSoonCount} due soon, {$dueTodayCount} due today, {$overdueCount} overdue).",
+                null);
+
+            return self::SUCCESS;
+        } catch (\Throwable $e) {
+            // Log error to audit log
+            AuditLog::log('Payment Reminder Job Failed',
+                "Job failed with error: {$e->getMessage()} at " . now()->toDateTimeString(),
+                null);
+
+            $this->error('Job failed: ' . $e->getMessage());
+            Log::error('Payment reminder job failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
+            return self::FAILURE;
+        }
     }
 
     /**
@@ -168,11 +197,17 @@ class SendPaymentReminders extends Command
 
     /**
      * Create a payment reminder notification for the loan's user.
+     * Creates entries in both app_notifications and app_notification_logs tables.
      */
     protected function createNotification(LoanApplication $loan, string $type, array $content): void
     {
         DB::transaction(function () use ($loan, $type, $content) {
-            AppNotification::create([
+            // Get user email for notification log
+            $user = $loan->user;
+            $email = $user ? $user->email : 'system@sdcc.coop';
+
+            // Create notification in app_notifications (for in-app display)
+            $notification = AppNotification::create([
                 'user_id'            => $loan->user_id,
                 'loan_application_id' => $loan->id,
                 'title'              => $content['title'],
@@ -181,6 +216,14 @@ class SendPaymentReminders extends Command
                 'is_read'            => false,
                 'sent_at'            => now(),
             ]);
+
+            // Create log entry in app_notification_logs (for email tracking)
+            AppNotificationLog::log(
+                $email,
+                $content['title'],
+                $type,
+                'Sent'
+            );
         });
     }
 }

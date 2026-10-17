@@ -97,6 +97,14 @@
   function renderRequirements(config) {
     if (!requirementsPanel) return;
     var requirements = config.requirements || [];
+    var guidelinesText = document.getElementById('guidelinesText');
+    if (guidelinesText) {
+      if (requirements.length > 0) {
+        guidelinesText.textContent = requirements.join('. ') + '.';
+      } else {
+        guidelinesText.textContent = 'Select a loan product to see the documents you will need.';
+      }
+    }
     if (!requirements.length) {
       requirementsPanel.innerHTML = '<p class="requirements-hint">No special documents are listed for this product.</p>';
       return;
@@ -155,7 +163,8 @@
     var amount = parseInt(amountInput ? amountInput.value.replace(/\D/g, '') : '0', 10);
     var term = termSelect ? parseInt(termSelect.value, 10) : 0;
     var config = productConfig();
-    var rate = config.rate || 0.12;    // 12% flat p.a. — matches backend RATE
+    // Use the exact 12% flat rate from AmortizationService.php
+    var rate = 0.12;
 
     var estMonthlyEl = document.getElementById('estMonthly');
     var estPrincipalEl = document.getElementById('estPrincipal');
@@ -175,11 +184,12 @@
       return;
     }
 
-    var years = term / 12;
-    var interest = amount * rate * years;           // flat add-on interest
-    var monthlyPayment = (amount + interest) / term; // (principal + interest) / term
+    // Exact AmortizationService flat-rate formula:
+    //   totalInterest = principal * rate * (termMonths / 12)
+    //   emi = round((principal + totalInterest) / termMonths, 2)
+    var totalInterest = amount * rate * (term / 12);
+    var monthlyPayment = Math.round(((amount + totalInterest) / term) * 100) / 100;
     var totalPayable = monthlyPayment * term;
-    var totalInterest = interest;
 
     if (estMonthlyEl) estMonthlyEl.textContent = money(monthlyPayment);
     if (estPrincipalEl) estPrincipalEl.textContent = money(amount);
@@ -187,7 +197,7 @@
     if (estTotalEl) estTotalEl.textContent = money(totalPayable);
 
     if (estRateLabel) {
-      estRateLabel.textContent = 'Estimated interest';
+      estRateLabel.textContent = 'Estimated interest (12% flat p.a.)';
     }
 
     if (statusText) {

@@ -44,43 +44,40 @@
           <div class="field">
             <label for="full_name">Full name *</label>
             <input type="text" id="full_name" name="full_name"
-                   value="{{ old('full_name', $user->name) }}"
-                   class="@error('full_name') has-error @enderror" required autocomplete="name">
+                   value="{{ old('full_name', $user->coopMember ? $user->coopMember->full_name : $user->name) }}"
+                   @if ($user->coopMember) readonly @endif
+                   class="@error('full_name') has-error @enderror {{ $user->coopMember ? 'bg-gray-100 cursor-not-allowed' : '' }}" required autocomplete="name">
             @error('full_name') <span class="error-text">{{ $message }}</span> @enderror
           </div>
 
           <div class="field">
             <label for="email">Email address *</label>
             <input type="email" id="email" name="email"
-                   value="{{ old('email', $user->email) }}"
-                   class="@error('email') has-error @enderror" required autocomplete="email">
+                   value="{{ old('email', $user->coopMember ? $user->coopMember->email : $user->email) }}"
+                   @if ($user->coopMember) readonly @endif
+                   class="@error('email') has-error @enderror {{ $user->coopMember ? 'bg-gray-100 cursor-not-allowed' : '' }}" required autocomplete="email">
             @error('email') <span class="error-text">{{ $message }}</span> @enderror
           </div>
 
           <div class="field">
-            <label for="contact_number">Mobile number *</label>
-            <input type="tel" id="contact_number" name="contact_number"
-                   value="{{ old('contact_number') }}" placeholder="09XX XXX XXXX"
-                   inputmode="numeric" pattern="[0-9]{11}" maxlength="11"
-                   title="Enter exactly 11 digits"
-                   class="@error('contact_number') has-error @enderror" required autocomplete="tel">
-            @error('contact_number') <span class="error-text">{{ $message }}</span> @enderror
+            <label for="existing_monthly_obligations">Existing monthly obligations * <span class="hint">(in pesos)</span></label>
+            <input type="number" id="existing_monthly_obligations" name="existing_monthly_obligations" min="0" step="100"
+                   value="{{ old('existing_monthly_obligations', 0) }}"
+                   class="@error('existing_monthly_obligations') has-error @enderror" required autocomplete="off">
+            @error('existing_monthly_obligations') <span class="error-text">{{ $message }}</span> @enderror
           </div>
 
           <div class="field">
-            <label for="birth_date">Birth date *</label>
-            <input type="date" id="birth_date" name="birth_date"
-                   value="{{ old('birth_date') }}"
-                   class="@error('birth_date') has-error @enderror" required autocomplete="bday">
-            @error('birth_date') <span class="error-text">{{ $message }}</span> @enderror
-          </div>
-
-          <div class="field full">
-            <label for="address">Home address *</label>
-            <input type="text" id="address" name="address" value="{{ old('address') }}"
-                   placeholder="House no., street, barangay, city"
-                   class="@error('address') has-error @enderror" required autocomplete="street-address">
-            @error('address') <span class="error-text">{{ $message }}</span> @enderror
+            <label for="purpose_of_loan">Purpose of loan *</label>
+            <select id="purpose_of_loan" name="purpose_of_loan"
+                    class="@error('purpose_of_loan') has-error @enderror" required>
+              <option value="">Select purpose</option>
+              <option value="Educational" @selected(old('purpose_of_loan') === 'Educational')>Educational</option>
+              <option value="Business" @selected(old('purpose_of_loan') === 'Business')>Business</option>
+              <option value="Personal" @selected(old('purpose_of_loan') === 'Personal')>Personal</option>
+              <option value="Emergency" @selected(old('purpose_of_loan') === 'Emergency')>Emergency</option>
+            </select>
+            @error('purpose_of_loan') <span class="error-text">{{ $message }}</span> @enderror
           </div>
         </div>
       </fieldset>
@@ -89,18 +86,6 @@
         <legend>Income</legend>
 
         <div class="grid-2">
-          <div class="field">
-            <label for="member_status">Member status *</label>
-            <select id="member_status" name="member_status"
-                    class="@error('member_status') has-error @enderror" required>
-              <option value="">Select one</option>
-              @foreach (['Employed', 'Self-employed', 'Business Owner', 'Student'] as $status)
-                <option value="{{ $status }}" @selected(old('member_status') === $status)>{{ $status }}</option>
-              @endforeach
-            </select>
-            @error('member_status') <span class="error-text">{{ $message }}</span> @enderror
-          </div>
-
           <div class="field">
             <label for="monthly_income">Monthly income * <span class="hint">(in pesos)</span></label>
             <select id="monthly_income" name="monthly_income"
@@ -187,6 +172,10 @@
                    capture="user" class="sr-only">
           </div>
           <div class="file-preview" id="filePreview"></div>
+          <div id="documentGuidelines" class="document-guidelines" style="margin-top: 12px; font-size: 0.85rem; color: #4b5563;">
+            <p style="margin: 0 0 4px 0; font-weight: 600; color: #1a5c2a;">Document guidelines:</p>
+            <p id="guidelinesText" style="margin: 0;">Select a loan product to see the documents you will need.</p>
+          </div>
         </div>
       </fieldset>
 

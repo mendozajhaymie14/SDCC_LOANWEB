@@ -16,7 +16,11 @@
 
 <!-- MAIN WRAPPER -->
 <div class="main">
-  @include ('admin.body')
+  @hasSection('admin_content')
+    @yield('admin_content')
+  @else
+    @include ('admin.body')
+  @endif
 </div>
 
 <!-- GLOBAL OVERLAY FOR MODALS -->

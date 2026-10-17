@@ -16,12 +16,14 @@ class CoopMember extends Model
         'date_of_birth',
         'email',
         'is_registered',
+        'status',
         'user_id',
     ];
 
     protected $casts = [
         'date_of_birth' => 'date',
         'is_registered' => 'boolean',
+        'status' => 'string',
     ];
 
     /**

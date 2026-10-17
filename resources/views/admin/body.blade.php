@@ -1,6 +1,18 @@
 @php
     $applications = $applications ?? collect();
+
+    // Chart data: Monthly Disbursements vs Repayments (Phase 2)
+    $monthlyDisbursements = $monthlyDisbursements ?? [0, 0, 0, 0, 0, 0];
+    $monthlyRepayments = $monthlyRepayments ?? [0, 0, 0, 0, 0, 0];
+
+    // AI Risk Profile Distribution (Phase 2)
+    $riskDistribution = $riskDistribution ?? ['Low' => 0, 'Moderate' => 0, 'High' => 0];
+
+    // Risk Flags (Phase 1)
+    $riskFlagsCount = $riskFlagsCount ?? 0;
+    $hasFlags = $riskFlagsCount > 0;
 @endphp
+
 <div class="topbar">
   <div class="topbar-title" id="topbarTitle">Dashboard <span>/ Overview</span></div>
 
@@ -23,19 +35,33 @@
 </div>
 
 <div class="page active" id="page-dashboard">
-  <!-- EXECUTIVE KPI ROW (5 cards) -->
-  <div style="display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; justify-content: space-between !important; gap: 1rem !important; width: 100% !important; margin-bottom: 1.5rem !important;">
-    <a href="{{ route('disbursements.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
-      <div class="kpi-card blue">
+
+  <!-- 1. TOP: Dynamic AI Risk Warning Banner (Phase 1) -->
+  @if($hasFlags)
+  <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+    <span style="color: #dc2626; font-weight: 600; font-size: 0.95rem;">⚠️ Attention Required • {{ $riskFlagsCount }} AI Risk Flag(s) Detected</span>
+    <a href="{{ route('risk-flags.index') }}" style="background-color: #dc2626; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
+  </div>
+  @else
+  <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+    <span style="color: #16a34a; font-weight: 600; font-size: 0.95rem;">🛡️ System Healthy • 0 AI Risk Flags Detected</span>
+    <a href="{{ route('risk-flags.index') }}" style="background-color: #16a34a; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
+  </div>
+  @endif
+
+  <!-- 2. Row 1: KPI Stat Cards -->
+  <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.5rem; width: 100%;">
+    <a href="{{ route('disbursements.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+      <div class="kpi-card blue" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Total Loan Disbursed</div>
           <div class="kpi-icon blue"></div>
         </div>
-        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format(60000.00, 2) }}</div>
+        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
       </div>
     </a>
-    <a href="{{ route('repayments.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
-      <div class="kpi-card green">
+    <a href="{{ route('repayments.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+      <div class="kpi-card green" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Total Repayments</div>
           <div class="kpi-icon green"></div>
@@ -43,8 +69,8 @@
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalRepayments ?? 0, 2) }}</div>
       </div>
     </a>
-    <a href="{{ route('active-members.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
-      <div class="kpi-card purple">
+    <a href="{{ route('active-members.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+      <div class="kpi-card purple" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Active Members</div>
           <div class="kpi-icon purple"></div>
@@ -53,8 +79,8 @@
         <div class="kpi-sub"><span class="kpi-delta up"></span></div>
       </div>
     </a>
-    <a href="{{ route('applications.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
-      <div class="kpi-card gold">
+    <a href="{{ route('applications.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+      <div class="kpi-card gold" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Pending Applications</div>
           <div class="kpi-icon gold"></div>
@@ -63,22 +89,50 @@
         <div class="kpi-sub"><span class="kpi-delta down"></span></div>
       </div>
     </a>
-    <a href="{{ route('memberships.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 0% !important; min-width: 0 !important; width: 100% !important;">
-      <div class="kpi-card red">
+    <a href="{{ route('memberships.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+      <div class="kpi-card teal" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Membership Applications</div>
-          <div class="kpi-icon red"></div>
+          <div class="kpi-icon teal"></div>
         </div>
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $membershipApplicationsCount ?? 0 }}</div>
-        <div class="kpi-sub"><span class="kpi-delta down"></span></div>
       </div>
     </a>
   </div>
 
-  <!-- OPERATIONAL WIDGETS ROW -->
-  <div class="body-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.6rem;align-items:stretch;">
-    <!-- LEFT: URGENT PENDING APPLICATIONS -->
-    <div class="panel">
+  <!-- 3. Row 2: Interactive Chart.js Grid (Phase 2) -->
+  <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1.5rem; width: 100%;">
+
+    <!-- LEFT: Monthly Disbursements vs Repayments Bar Chart -->
+    <div style="flex: 1 1 calc(50% - 0.75rem); min-width: 320px; background: #fff; padding: 1.25rem; border-radius: 12px; border: 1px solid #eaecf0;">
+      <div class="panel-head">
+        <h2 class="panel-title">Monthly Disbursements vs Repayments</h2>
+      </div>
+      <div class="panel-body h-full flex flex-col">
+        <div style="position: relative; height: 260px; width: 100%; overflow: hidden;">
+          <canvas id="disbursementChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: AI Risk Profile Distribution Doughnut Chart -->
+    <div style="flex: 1 1 calc(50% - 0.75rem); min-width: 320px; background: #fff; padding: 1.25rem; border-radius: 12px; border: 1px solid #eaecf0;">
+      <div class="panel-head">
+        <h2 class="panel-title">AI Risk Profile Distribution</h2>
+      </div>
+      <div class="panel-body h-full flex flex-col">
+        <div style="position: relative; height: 260px; width: 100%; overflow: hidden;">
+          <canvas id="riskChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Row 3: Pending Applications Table & Loan Distribution side-by-side -->
+  <div class="body-grid h-full flex flex-col justify-between" style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.6rem;align-items:stretch;">
+
+    <!-- LEFT: Urgent Pending Applications -->
+    <div class="panel h-full flex flex-col justify-between">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
         <div>
           <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1.05rem;">Pending Applications</div>
@@ -163,67 +217,98 @@
       </div>
     </div>
 
-    <!-- RIGHT COLUMN: AI RISK ALERT + LOAN DISTRIBUTION -->
-    <div style="display:flex;flex-direction:column;gap:1.2rem;">
-      <!-- AI RISK ALERT WIDGET (Dynamic) -->
-      @php
-          $riskFlagsCount = $riskFlagsCount ?? 0;
-          $hasFlags = $riskFlagsCount > 0;
-      @endphp
-      @if($hasFlags)
-          <div class="p-3 mb-4 bg-rose-50 border border-rose-300 text-rose-800 rounded-lg flex items-center justify-between text-sm font-medium cursor-pointer hover:bg-rose-100 transition"
-               style="border-radius: 0.5rem; background-color: #fff1f2; border: 1px solid #fecdd3; padding: 0.75rem 1rem;"
-               onclick="window.location='{{ route('risk-flags.index') }}'">
-            <span>⚠️ Attention Required • {{ $riskFlagsCount }} AI Risk Flag(s) Detected</span>
-            <span style="background-color: #fecdd3; color: #9f1239; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Review Now →</span>
-          </div>
-      @else
-          <div class="p-3 mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center justify-between text-sm font-medium"
-               style="border-radius: 0.5rem; background-color: #ecfdf5; border: 1px solid #a7f3d0; padding: 0.75rem 1rem;">
-            <span>🛡️ System Healthy • 0 AI Risk Flags Detected</span>
-            <span style="background-color: #d1fae5; color: #047857; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">All clear! ✓</span>
-          </div>
-      @endif
-
-      <!-- LOAN DISTRIBUTION TABLE -->
-      <div class="panel">
-        <div class="panel-header">
-          <h3 class="panel-title">Loan Distribution</h3>
-        </div>
-        <div class="panel-body">
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
+    <!-- RIGHT: Loan Distribution Table -->
+    <div class="panel h-full flex flex-col justify-between">
+      <div class="panel-header">
+        <h3 class="panel-title">Loan Distribution</h3>
+      </div>
+      <div class="panel-body h-full flex flex-col">
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="text-align: left;">LOAN TYPE</th>
+                <th style="text-align: center;">COUNT</th>
+                <th style="text-align: right;">TOTAL AMOUNT</th>
+              </tr>
+            </thead>
+            <tbody>
+              @forelse($loanTypes ?? [] as $loanType)
                 <tr>
-                  <th style="text-align: left;">LOAN TYPE</th>
-                  <th style="text-align: center;">COUNT</th>
-                  <th style="text-align: right;">TOTAL AMOUNT</th>
+                  <td class="font-semibold text-gray-700" style="text-transform: capitalize;">
+                    {{ strtolower($loanType->loan_type ?? $loanType->name ?? 'Educational') }}
+                  </td>
+                  <td style="text-align: center;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">
+                      <div style="width: 80px; height: 8px; background: #e5e7eb; border-radius: 9999px; overflow: hidden;">
+                        <div style="width: {{ ($loanType->count ?? 19) * 5 }}%; height: 100%; background: linear-gradient(90deg, #10b981, #059669);"></div>
+                      </div>
+                      <span class="font-mono text-sm">{{ $loanType->count ?? 19 }}</span>
+                    </div>
+                  </td>
+                  <td style="text-align: right;" class="font-bold text-emerald-600">
+                    ₱{{ number_format($loanType->total_amount ?? $loanType->amount ?? 190000, 2) }}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                @forelse($loanTypes ?? [] as $loanType)
-                  <tr>
-                    <td class="font-semibold text-gray-700" style="text-transform: capitalize;">
-                      {{ strtolower($loanType->loan_type ?? $loanType->name ?? 'Educational') }}
-                    </td>
-                    <td style="text-align: center;">
-                      {{ $loanType->count ?? 19 }}
-                    </td>
-                    <td style="text-align: right;" class="font-bold text-emerald-600">
-                      ₱{{ number_format($loanType->total_amount ?? $loanType->amount ?? 190000, 2) }}
-                    </td>
-                  </tr>
-                @empty
-                  <tr>
-                    <td colspan="3" class="text-center text-gray-500 py-4">
-                      No loan distribution data recorded.
-                    </td>
-                  </tr>
-                @endforelse
-              </tbody>
-            </table>
-          </div>
+              @empty
+                <tr>
+                  <td colspan="3" class="text-center text-gray-500 py-4">
+                    No loan distribution data recorded.
+                  </td>
+                </tr>
+              @endforelse
+            </tbody>
+            <tfoot>
+              <tr>
+                <td style="text-align: left; font-weight: 600;">Total Exposure</td>
+                <td style="text-align: center;"></td>
+                <td style="text-align: right; font-weight: 600;">₱{{ number_format($totalDisbursed ?? 0, 2) }}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Row 4: Recent Audit Trail Table (Phase 3) -->
+  <div class="panel" style="margin: 32px 0;">
+    <div class="panel-head" style="padding: 1.25rem 1.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 700; color: #101828; margin: 0;">Recent Audit Trail</h3>
+        <a href="{{ url('/admin/audit-logs') }}" style="color: #2563eb; font-size: 0.85rem; font-weight: 600; text-decoration: none;">
+          View All Audit Logs &rarr;
+        </a>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="table-wrap">
+        <table class="min-w-full divide divide-gray-200">
+          <thead>
+            <tr>
+              <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b font-mono">Date</th>
+              <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">User</th>
+              <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">Action</th>
+              <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if($recentAuditLogs->isNotEmpty())
+              @foreach($recentAuditLogs as $log)
+                <tr class="hover:bg-gray-50 transition-colors {{ $loop->odd ? 'bg-white' : 'bg-gray-50' }}">
+                  <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ \Carbon\Carbon::parse($log->created_at)->format('M d, H:i') }}</td>
+                  <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->admin_name ?? 'System' }}</td>
+                  <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->action }}</td>
+                  <td class="py-3 px-4 font-medium text-gray-600 text-sm truncate">{{ Str::limit($log->details ?? '', 60) }}</td>
+                </tr>
+              @endforeach
+            @else
+              <tr>
+                <td colspan="4" class="py-6 text-center text-gray-400">No audit logs found.</td>
+              </tr>
+            @endif
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -257,6 +342,22 @@
         </thead>
         <tbody>
           @forelse($applications as $app)
+            @php
+                $formattedApp = [
+                    'id' => $app->id,
+                    'app_id' => $app->app_id,
+                    'applicant_name' => $app->applicant,
+                    'borrower_name' => $app->applicant,
+                    'applicant' => $app->applicant,
+                    'loan_type' => $app->loan_type,
+                    'amount' => $app->amount,
+                    'status' => $app->status,
+                    'ai_score' => $app->ai_score,
+                    'ai_analysis_note' => $app->ai_analysis_note,
+                    'created_at' => $app->created_at,
+                    'documents' => $app->loanApplication->documents ?? [],
+                ];
+            @endphp
             <tr data-status="{{ strtolower($app->status) }}">
               <td class="td-mono">#{{ $app->app_id }}</td>
               <td><strong>{{ $app->applicant }}</strong></td>
@@ -270,7 +371,7 @@
               <td class="td-mono">{{ $app->ai_score ?? 'N/A' }}</td>
               <td>{{ $app->created_at?->format('M d') ?? '—' }}</td>
               <td>
-                <button class="btn-review" type="button" onclick="openAppDetail('{{ $app->app_id }}')">View</button>
+                <button class="btn-review" type="button" onclick="openApplicationModal({{ json_encode($formattedApp) }}">View</button>
               </td>
             </tr>
           @empty
@@ -287,11 +388,91 @@
 <div class="page" id="page-disbursements"><div class="page-header"><div class="page-heading">Disbursements</div><button class="btn-new" onclick="openModal('processPayout')">+ Process Payout</button></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">💰</div><div style="margin-top:.8rem;">3 disbursements pending. Connect to backend to view all.</div></div></div>
 <div class="page" id="page-repayments"><div class="page-header"><div class="page-heading">Repayments</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔄</div><div style="margin-top:.8rem;">Repayment schedule and history. Connect to backend to populate.</div></div></div>
 <div class="page" id="page-credit"><div class="page-header"><div class="page-heading">Credit Assessment</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔍</div><div style="margin-top:.8rem;">AI-powered credit scoring engine. Connect to backend to view reports.</div></div></div>
-<div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ 2 active risk flags require attention.</p><div class="feed"><div class="feed-item" onclick="showToast('error','Risk flag opened: Income mismatch on #SCC-20890','⚠️')"><div class="feed-icon fi-red">⚠️</div><div class="feed-text"><div class="feed-msg"><strong>#SCC-20890 Jose Santos</strong> — Income documents don't match bank statements</div><div class="feed-time">High Risk · Flagged 8 min ago</div></div></div><div class="feed-item" onclick="showToast('error','Risk flag opened: Multiple applications from same IP','⚠️')"><div class="feed-icon fi-red">🚩</div><div class="feed-text"><div class="feed-msg"><strong>IP 192.168.1.44</strong> — 3 applications submitted in 10 minutes</div><div class="feed-time">Medium Risk · Flagged 2 hrs ago</div></div></div></div></div></div>
+<div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ {{ $riskFlagsCount }} active risk flags require attention.</p><div class="feed"><a href="{{ route('risk-flags.index') }}" style="background:transparent;color:inherit;padding:0.2rem 0.5rem;border-radius:4px;text-decoration:none;font-weight:600;" onclick="event.stopPropagation()">View All Risk Flags</a></div></div></div>
 <div class="page" id="page-settings"><div class="page-header"><div class="page-heading">Settings</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">General</div><div class="form-group"><label class="form-label">Organization Name</label><input class="form-input" value="San Dionisio Credit Cooperative"/></div><div class="form-group"><label class="form-label">Support Email</label><input class="form-input" value="support@scc.ai"/></div><div class="form-group"><label class="form-label">Default Currency</label><select class="form-select"><option>PHP (₱)</option><option>USD ($)</option></select></div><button class="btn-submit" onclick="showToast('success','Settings saved successfully','✅')">Save Settings</button></div><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">Loan Defaults</div><div class="form-group"><label class="form-label">Max Personal Loan</label><input class="form-input" value="500000"/></div><div class="form-group"><label class="form-label">Default Interest Rate (%)</label><input class="form-input" value="1.5"/></div><div class="form-group"><label class="form-label">AI Credit Threshold</label><input class="form-input" value="600"/></div><button class="btn-submit" onclick="showToast('success','Loan defaults updated','✅')">Save Defaults</button></div></div></div>
 <div class="page" id="page-reports"><div class="page-header"><div class="page-heading">Reports</div><button class="btn-new" onclick="openModal('generateReport')">Generate Report</button></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">📄</div><div style="margin-top:.8rem;">Download monthly, quarterly, and annual reports.</div></div></div>
 
-<!-- GLOBAL OVERLAY FOR MODALS -->
-<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
+<!-- Chart.js CDN + Chart Rendering (Phase 2) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Monthly Disbursements vs Repayments Bar Chart
+  const disbursementChartData = {
+    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+    datasets: [
+      {
+        label: 'Disbursements',
+        data: {{ json_encode($monthlyDisbursements) }},
+        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+        borderColor: 'rgba(59, 130, 246, 1)',
+        borderWidth: 1
+      },
+      {
+        label: 'Repayments',
+        data: {{ json_encode($monthlyRepayments) }},
+        backgroundColor: 'rgba(16, 185, 129, 0.5)',
+        borderColor: 'rgba(16, 185, 129, 1)',
+        borderWidth: 1
+      }
+    ]
+  };
 
-@include('admin.partials.application-modal')
+  const disbursementChartConfig = {
+    type: 'bar',
+    data: disbursementChartData,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: false }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  };
+
+  // AI Risk Profile Distribution Doughnut Chart
+  const riskChartData = {
+    labels: ['Low Risk', 'Moderate Risk', 'High Risk'],
+    datasets: [{
+      data: [
+        {{ json_encode($riskDistribution['Low']) }},
+        {{ json_encode($riskDistribution['Moderate']) }},
+        {{ json_encode($riskDistribution['High']) }}
+      ],
+      backgroundColor: [
+        'rgba(34, 197, 94, 0.5)',
+        'rgba(245, 158, 11, 0.5)',
+        'rgba(239, 68, 68, 0.5)'
+      ],
+      borderColor: [
+        'rgba(34, 197, 94, 1)',
+        'rgba(245, 158, 11, 1)',
+        'rgba(239, 68, 68, 1)'
+      ],
+      borderWidth: 1
+    }]
+  };
+
+  const riskChartConfig = {
+    type: 'doughnut',
+    data: riskChartData,
+    options: {
+      layout: { padding: 15 },
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '70%',
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: false }
+      }
+    }
+  };
+
+  // Initialize charts when DOM is ready
+  document.addEventListener('DOMContentLoaded', function() {
+    new Chart('disbursementChart', disbursementChartConfig);
+    new Chart('riskChart', riskChartConfig);
+  });
+</script>

@@ -251,32 +251,38 @@
                             </div>
 
                             <!-- Address Line and Zip Code Row -->
-<div style="display: flex !important; flex-direction: row !important; gap: 16px !important; width: 100% !important; margin-bottom: 16px !important;" class="address-zip-row">
-    <!-- Address Line (70% width) -->
-    <div style="flex: 7 !important; width: 70% !important; display: flex !important; flex-direction: column !important;">
-        <label class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mb-4">
+    <!-- Address Line (70% width on desktop) -->
+    <div class="field">
+        <label for="address_line" class="field label">
             Address Line <span class="text-red-500">*</span>
         </label>
         <input type="text"
+               id="address_line"
                name="address_line"
                value="{{ old('address_line') }}"
                placeholder="e.g. 70 Sampaguita St"
-               class="member-app-input w-full rounded-lg border border-gray-200 bg-white p-3 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm">
-        <span class="text-xs text-gray-500 opacity-75 mt-1 block">Unit No./Floor, Building Name, Building/House No., Street, Subdivision/Village</span>
+               class="member-app-input"
+               maxlength="255" />
+        <span class="text-xs text-gray-500 mt-1 block">Unit No./Floor, Building Name, Building/House No., Street, Subdivision/Village</span>
+        @isset($errors)@error('address_line')<span class="error-text">{{ $message }}</span>@enderror@endisset
     </div>
 
-    <!-- Zip Code (30% width) -->
-    <div style="flex: 3 !important; width: 30% !important; display: flex !important; flex-direction: column !important;">
-        <label class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+    <!-- Zip Code (numeric validation) -->
+    <div class="field">
+        <label for="zip_code" class="field label">
             Zip Code <span class="text-red-500">*</span>
         </label>
         <input type="text"
+               id="zip_code"
                name="zip_code"
-               maxlength="4"
                value="{{ old('zip_code') }}"
                placeholder="e.g. 1740"
-               oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);"
-               class="member-app-input w-full rounded-lg border border-gray-200 bg-white p-3 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm">
+               maxlength="4"
+               pattern="[0-9]{1,4}"
+               inputmode="numeric"
+               oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);" />
+        @isset($errors)@error('zip_code')<span class="error-text">{{ $message }}</span>@enderror@endisset
     </div>
 </div>
 

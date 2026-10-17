@@ -104,6 +104,11 @@ class MemberApplicationController extends Controller
                 $data[$f] = $this->normalize($data[$f]);
             }
         }
+
+        // Map the combined address_line field from the form to the street column
+        if (!empty($data['address_line']) && empty($data['street'])) {
+            $data['street'] = $this->normalize($data['address_line']);
+        }
         foreach (['perm_house_no', 'perm_street', 'perm_barangay', 'perm_municipality', 'perm_zip_code'] as $f) {
             if (!empty($data[$f])) {
                 $data[$f] = $this->normalize($data[$f]);

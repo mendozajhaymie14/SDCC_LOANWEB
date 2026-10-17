@@ -1,5 +1,5 @@
 <aside class="sidebar">
-  <a href="{{ route('dashboard') }}" class="sidebar-logo" title="Main overview">
+  <a href="{{ url('/dashboard') }}" class="sidebar-logo" title="Main overview">
     <img src="{{ asset('images/logo.jpg') }}" alt="Logo" class="sidebar-custom-logo">
     <div class="logo-text">
       <div class="logo-line">SAN DIONISIO</div>
@@ -8,62 +8,53 @@
     </div>
   </a>
 
-  <div class="sidebar-section">Overview</div>
-  <a href="{{ route('dashboard') }}" class="nav-item {{ request()->routeIs('dashboard') ? 'active' : '' }}" data-tip="Main overview">
+  <div class="sidebar-section">MAIN MENU</div>
+  <a href="{{ url('/dashboard') }}" class="nav-item {{ request()->is('dashboard') ? 'active' : '' }}" data-tip="Main overview">
     <i class="fa-solid fa-chart-pie nav-icon"></i>
     <span class="nav-label">Dashboard</span>
   </a>
-
-  <div class="sidebar-section">Loan Management</div>
-  <a href="{{ route('applications.index') }}" class="nav-item {{ request()->routeIs('applications.index') ? 'active' : '' }}" title="Loan Applications" data-tip="Loan Applications">
+  <a href="{{ url('/applications') }}" class="nav-item {{ request()->is('applications*') ? 'active' : '' }}" data-tip="Loan Applications">
     <i class="fa-solid fa-file-lines nav-icon"></i>
     <span class="nav-label">Loan Applications</span>
     <span class="nav-badge" id="badge-apps"></span>
   </a>
-  <a href="{{ url('/disbursements') }}" class="nav-item {{ request()->is('disbursements*') ? 'active' : '' }}" title="Disbursements" data-tip="Disbursements">
-    <i class="fa-solid fa-money-bill-transfer nav-icon"></i>
-    <span class="nav-label">Disbursements</span>
-    <span class="nav-badge gold"></span>
-  </a>
-  <a href="{{ url('/repayments') }}" class="nav-item {{ request()->is('repayments*') ? 'active' : '' }}">
+  <a href="{{ url('/repayments') }}" class="nav-item {{ request()->is('repayments*') ? 'active' : '' }}" data-tip="Repayments">
     <i class="fa-solid fa-arrow-rotate-left nav-icon"></i>
     <span class="nav-label">Repayments</span>
   </a>
-
-  <div class="sidebar-section">Membership</div>
-  <a href="{{ route('memberships.index') }}" class="nav-item {{ request()->routeIs('memberships.index') ? 'active' : '' }}" title="Membership Applications" data-tip="Membership Applications">
+  <a href="{{ url('/memberships') }}" class="nav-item {{ request()->is('memberships*') ? 'active' : '' }}" data-tip="Membership Applications">
     <i class="fa-solid fa-id-card nav-icon"></i>
     <span class="nav-label">Membership Applications</span>
     <span class="nav-badge" id="badge-memberships"></span>
   </a>
 
-  <div class="sidebar-section">Clients</div>
-  <a href="{{ route('active-members.index') }}" class="nav-item {{ request()->routeIs('active-members.index') ? 'active' : '' }}" title="Active Members" data-tip="Active Members">
+  <div class="sidebar-section">RISK & MEMBERS</div>
+  <a href="{{ url('/active-members') }}" class="nav-item {{ request()->is('active-members') ? 'active' : '' }}" data-tip="Active Members">
     <i class="fa-solid fa-users nav-icon"></i>
     <span class="nav-label">Active Members</span>
   </a>
-  <a href="{{ route('credit-assessment.index') }}" class="nav-item {{ request()->routeIs('credit-assessment.index') ? 'active' : '' }}">
-    <i class="fa-solid fa-magnifying-glass-chart nav-icon"></i>
-    <span class="nav-label">Credit Assessment</span>
-  </a>
-  <a href="{{ route('risk-flags.index') }}" class="nav-item {{ request()->routeIs('risk-flags.index') ? 'active' : '' }}">
+  <a href="{{ url('/admin/risk-flags') }}" class="nav-item {{ request()->is('risk-flags.index') ? 'active' : '' }}" data-tip="Risk Flags">
     <i class="fa-solid fa-triangle-exclamation nav-icon"></i>
     <span class="nav-label">Risk Flags</span>
     <span class="nav-badge red"></span>
   </a>
 
-  <div class="sidebar-section">Administration</div>
-  <a href="{{ route('settings.index') }}" class="nav-item {{ request()->routeIs('settings.index') ? 'active' : '' }}">
+  <div class="sidebar-section">ADMINISTRATION</div>
+  <a href="{{ url('/admin/settings') }}" class="nav-item {{ request()->is('admin/settings*') ? 'active' : '' }}" data-tip="Settings">
     <i class="fa-solid fa-gear nav-icon"></i>
     <span class="nav-label">Settings</span>
   </a>
-  <a href="{{ url('/reports') }}" class="nav-item {{ request()->is('reports*') ? 'active' : '' }}">
+  <a href="{{ url('/admin/audit-logs') }}" class="nav-item {{ request()->is('admin/audit-logs*') ? 'active' : '' }}" data-tip="Audit Logs">
+    <i class="fa-solid fa-file-lines nav-icon"></i>
+    <span class="nav-label">Audit Logs</span>
+  </a>
+  <a href="{{ url('/admin/notifications-log') }}" class="nav-item {{ request()->is('admin/notifications-log*') ? 'active' : '' }}" data-tip="Notification Outbox">
+    <i class="fa-solid fa-bell nav-icon"></i>
+    <span class="nav-label">Notification Outbox</span>
+  </a>
+  <a href="{{ url('/reports') }}" class="nav-item {{ request()->is('reports*') ? 'active' : '' }}" data-tip="Reports">
     <i class="fa-solid fa-file-lines nav-icon"></i>
     <span class="nav-label">Reports</span>
-  </a>
-  <a href="{{ route('admins.index') }}" class="nav-item {{ request()->routeIs('admins.index') ? 'active' : '' }}">
-    <i class="fa-solid fa-user-shield nav-icon"></i>
-    <span class="nav-label">Admin Users</span>
   </a>
 
   <div class="sidebar-footer">
@@ -76,5 +67,4 @@
       <div class="admin-more">⋮</div>
     </div>
   </div>
-
 </aside>

@@ -685,14 +685,75 @@
           <span style="font-weight:600;">${value}</span>
         </div>`;
 
+      // Compute Member Financial Profile data
+      const memberApps = Object.values(apps).filter(a => a.name === m.name);
+      const activeLoans = memberApps.filter(a => a.status !== 'rejected');
+      const totalLoans = activeLoans.length;
+      const totalBalance = activeLoans.reduce((sum, a) => sum + (parseFloat(a.amount?.replace(/[₱,]/g, '')) || 0), 0);
+
       bodyEl.innerHTML = `
         ${row('Member ID', m.member_id)}
         ${row('Full Name', m.name)}
         ${row('Email Address', m.email)}
-        ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income}</span>`)}
+        ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</span>`)}
         ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${m.aiScore ?? 'N/A'}</span>`)}
         ${row('Date Joined', m.date)}
         ${row('Status', `<span class="status-pill ${m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
+
+        <!-- Member Financial Profile -->
+        <div style="margin-top: 1rem; padding: 0.8rem; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <div style="font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.4rem;">Member Financial Profile</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; font-size: 0.85rem;">
+            <div>
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Verified Monthly Income</div>
+              <div style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Total Active Loans</div>
+              <div style="font-family:'DM Sans',sans-serif;">${totalLoans} ${totalLoans === 1 ? 'loan' : 'loans'}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Total Remaining Balance</div>
+              <div style="font-family:'DM Sans',sans-serif;">${totalBalance > 0 ? '₱' + Number(totalBalance).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '₱0.00'}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Payment Reliability</div>
+              <div style="font-family:'DM Sans',sans-serif;">${totalLoans > 0 ? `${totalLoans} ${totalLoans === 1 ? 'repaid' : 'repayments'}` : 'No repayments recorded'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Loan Applications -->
+        <div style="margin-top: 1rem;">
+          <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Recent Loan Applications</div>
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid #eaecf0;">
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">AI Score</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">App ID</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Borrower</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${activeLoans.slice(0,5).map(app => {
+                const appStatus = app.status.charAt(0).toUpperCase() + app.status.slice(1);
+                const rowScoreC = app.score != null ? (app.score >= 51 ? '#10b981' : '#ef4444') : 'var(--muted)';
+                return `
+                  <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
+                      <span style="font-family:'DM Sans',sans-serif;color:${rowScoreC};">${app.score ?? 'N/A'}</span>
+                    </td>
+                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">${app.app_id || 'N/A'}</td>
+                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">${app.name || app.applicant || 'N/A'}</td>
+                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
+                      <span class="status-pill ${app.status}"><span class="status-dot"></span>${appStatus}</span>
+                    </td>
+                  </tr>`;
+              }).join('') || '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--muted);">No loan applications found.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
 
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
           ${(m.status === 'inactive' || m.status === 'suspended') ? `

@@ -4,7 +4,6 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\UserController;
 use Laravel\Fortify\Http\Controllers\AuthenticatedSessionController;
-use App\Models\Application;
 use Illuminate\Support\Facades\Auth;
 
 Route::middleware(['auth'])->group(function () {
@@ -19,8 +18,8 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/home', fn () => redirect()->route('dashboard'))->name('home');
 
-    // Member area
-    Route::prefix('user')->name('user.')->group(function () {
+    // Member area - members only
+    Route::middleware(['role:member'])->prefix('user')->name('user.')->group(function () {
         Route::get('/dashboard', [UserController::class, 'dashboard'])->name('dashboard');
 
         Route::get('/notifications', [UserController::class, 'notifications'])->name('notifications');
@@ -29,98 +28,125 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/loans/apply', [UserController::class, 'createApplication'])->name('loans.create');
         Route::post('/loans', [UserController::class, 'storeApplication'])->name('loans.store');
         Route::delete('/loans/{application}', [UserController::class, 'cancelApplication'])->name('loans.cancel');
+
+        Route::post('/loans/{application}/pay', [UserController::class, 'markAsPaid'])->name('loans.pay');
+
+        Route::get('/loans/{application}/amortization', [UserController::class, 'amortizationSchedule'])
+            ->name('loans.amortization');
+
+        // Member-facing amortization PDF export for user dashboard - moved here with ownership check
+        Route::get('/loans/{application}/amortization/pdf', [UserController::class, 'exportAmortizationPdf'])
+            ->name('export.amortization.pdf');
     });
 
-    // Route to render all applications page (Controller handles fetching database rows)
-    Route::get('/applications', [AdminController::class, 'application'])
-        ->name('applications.index');
+    // Admin-only routes
+    Route::middleware(['role:admin'])->group(function () {
+        // Route to render all applications page (Controller handles fetching database rows)
+        Route::get('/applications', [AdminController::class, 'application'])
+            ->name('applications.index');
 
-    // Route to handle form submission and store application in database
-    Route::post('/applications', [AdminController::class, 'store'])
-        ->name('applications.store');
+        // Member notification API
+        Route::get('/api/member/notifications', [UserController::class, 'memberNotifications'])
+            ->name('api.member.notifications');
 
-    // Approve / reject an application (used by the View drawer's Accept/Reject buttons)
-    Route::post('/applications/{appId}/approve', [AdminController::class, 'approve'])
-        ->name('applications.approve');
+        // Route to handle form submission and store application in database
+        Route::post('/applications', [AdminController::class, 'store'])
+            ->name('applications.store');
 
-    Route::post('/applications/{appId}/reject', [AdminController::class, 'reject'])
-        ->name('applications.reject');
+        // Approve / reject an application (used by the View drawer's Accept/Reject buttons)
+        Route::post('/applications/{appId}/approve', [AdminController::class, 'approve'])
+            ->name('applications.approve');
 
-    // Re-run the AI credit scan for a specific application (triggered from the detail modal)
-    Route::get('/admin/applications/{id}', [AdminController::class, 'showApplication'])
-        ->name('admin.applications.show');
+        Route::post('/applications/{appId}/reject', [AdminController::class, 'reject'])
+            ->name('applications.reject');
 
-    Route::post('/admin/applications/{id}/scan', [AdminController::class, 'triggerAiScan'])
-        ->name('admin.applications.scan');
+        // Re-run the AI credit scan for a specific application (triggered from the detail modal)
+        Route::get('/admin/applications/{id}', [AdminController::class, 'showApplication'])
+            ->name('admin.applications.show');
 
-    Route::delete('/applications/{appId}', [AdminController::class, 'destroy'])
-        ->name('applications.destroy');
+        Route::post('/admin/applications/{id}/scan', [AdminController::class, 'triggerAiScan'])
+            ->name('admin.applications.scan');
 
-    Route::post('/notifications/mark-read', [AdminController::class, 'markNotificationsRead'])
-        ->name('notifications.markRead');
+        Route::delete('/applications/{appId}', [AdminController::class, 'destroy'])
+            ->name('applications.destroy');
 
-    Route::get('/active-members', [AdminController::class, 'borrowers'])
-        ->name('active-members.index');
+        Route::post('/notifications/mark-read', [AdminController::class, 'markNotificationsRead'])
+            ->name('notifications.markRead');
 
-    Route::post('/active-members', [AdminController::class, 'storeBorrower'])
-        ->name('active-members.store');
+        Route::get('/active-members', [AdminController::class, 'borrowers'])
+            ->name('active-members.index');
 
-    Route::post('/active-members/{id}/approve', [AdminController::class, 'approveBorrower'])
-        ->name('active-members.approve');
+        Route::post('/active-members', [AdminController::class, 'storeBorrower'])
+            ->name('active-members.store');
 
-    Route::post('/active-members/{id}/reject', [AdminController::class, 'rejectBorrower'])
-        ->name('active-members.reject');
+        Route::post('/active-members/{id}/approve', [AdminController::class, 'approveBorrower'])
+            ->name('active-members.approve');
 
-    Route::delete('/active-members/{id}', [AdminController::class, 'destroyBorrower'])
-        ->name('active-members.destroy');
+        Route::post('/active-members/{id}/reject', [AdminController::class, 'rejectBorrower'])
+            ->name('active-members.reject');
 
-    // Admin Users page — lists accounts with usertype = 'admin'
-    Route::get('/admin/users', [AdminController::class, 'adminUsers'])
-        ->name('admins.index');
-    Route::post('/admin/users', [AdminController::class, 'storeAdmin'])
-        ->name('admins.store');
-    Route::put('/admin/users/{id}', [AdminController::class, 'updateAdmin'])
-        ->name('admins.update');
-    Route::delete('/admin/users/{id}', [AdminController::class, 'destroyAdmin'])
-        ->name('admins.destroy');
+        Route::delete('/active-members/{id}', [AdminController::class, 'destroyBorrower'])
+            ->name('active-members.destroy');
 
-    // Cooperative membership applications
-    Route::get('/memberships', [AdminController::class, 'memberships'])
-        ->name('memberships.index');
-    Route::post('/memberships/{id}/approve', [AdminController::class, 'approveMember'])
-        ->name('memberships.approve');
-    Route::post('/memberships/{id}/reject', [AdminController::class, 'rejectMember'])
-        ->name('memberships.reject');
-    Route::delete('/memberships/{id}', [AdminController::class, 'destroyMember'])
-        ->name('memberships.destroy');
-    Route::put('/memberships/{id}', [AdminController::class, 'updateMember'])
-        ->name('memberships.update');
+        // Admin Users page — lists accounts with usertype = 'admin'
+        Route::get('/admin/users', [AdminController::class, 'adminUsers'])
+            ->name('admins.index');
+        Route::post('/admin/users', [AdminController::class, 'storeAdmin'])
+            ->name('admins.store');
+        Route::put('/admin/users/{id}', [AdminController::class, 'updateAdmin'])
+            ->name('admins.update');
+        Route::delete('/admin/users/{id}', [AdminController::class, 'destroyAdmin'])
+            ->name('admins.destroy');
 
-    // Dashboard navigation routes
-    Route::get('/disbursements', [AdminController::class, 'disbursements'])
-        ->name('disbursements.index');
-    Route::post('/admin/disbursements/process', [AdminController::class, 'processDisbursement'])
-        ->name('disbursements.process');
-    Route::get('/repayments', [AdminController::class, 'repayments'])
-        ->name('repayments.index');
-    Route::post('/admin/repayments', [AdminController::class, 'storeRepayment'])
-        ->name('repayments.store');
-    Route::get('/admin/credit-assessment', [AdminController::class, 'creditAssessment'])
-        ->name('credit-assessment.index');
-    Route::get('/admin/risk-flags', [AdminController::class, 'riskFlags'])
-        ->name('risk-flags.index');
-    Route::get('/admin/settings', [AdminController::class, 'settings'])
-        ->name('settings.index');
-    Route::post('/admin/settings', [AdminController::class, 'updateSettings'])
-        ->name('settings.update');
-    Route::get('/reports', [AdminController::class, 'reports'])
-        ->name('reports.index');
-    Route::get('/reports/export-pdf', [AdminController::class, 'exportPdf'])
-        ->name('reports.exportPdf');
-    Route::get('/reports/export-excel', [AdminController::class, 'exportExcel'])
-        ->name('reports.exportExcel');
+        // Cooperative membership applications
+        Route::get('/memberships', [AdminController::class, 'memberships'])
+            ->name('memberships.index');
+        Route::post('/memberships/{id}/approve', [AdminController::class, 'approveMember'])
+            ->name('memberships.approve');
+        Route::post('/memberships/{id}/reject', [AdminController::class, 'rejectMember'])
+            ->name('memberships.reject');
+        Route::delete('/memberships/{id}', [AdminController::class, 'destroyMember'])
+            ->name('memberships.destroy');
+        Route::put('/memberships/{id}', [AdminController::class, 'updateMember'])
+            ->name('memberships.update');
+
+        // Dashboard navigation routes
+        Route::get('/disbursements', [AdminController::class, 'disbursements'])
+            ->name('disbursements.index');
+        Route::post('/admin/disbursements/process', [AdminController::class, 'processDisbursement'])
+            ->name('disbursements.process');
+        Route::get('/repayments', [AdminController::class, 'repayments'])
+            ->name('repayments.index');
+        Route::post('/admin/repayments', [AdminController::class, 'storeRepayment'])
+            ->name('repayments.store');
+        Route::get('/admin/credit-assessment', [AdminController::class, 'creditAssessment'])
+            ->name('credit-assessment.index');
+        Route::get('/admin/risk-flags', [AdminController::class, 'riskFlags'])
+            ->name('risk-flags.index');
+        Route::get('/admin/applications/{id}/amortization', [AdminController::class, 'amortizationSchedule'])
+            ->name('admin.applications.amortization');
+        Route::get('/admin/applications/{id}/amortization/pdf', [AdminController::class, 'exportAmortizationPdf'])
+            ->name('admin.applications.amortization.pdf');
+        Route::get('/admin/audit-logs', [AdminController::class, 'auditLogs'])
+            ->name('admin.audit-logs');
+        Route::get('/admin/settings', [AdminController::class, 'settings'])
+            ->name('settings.index');
+        Route::post('/admin/settings', [AdminController::class, 'updateSettings'])
+            ->name('settings.update');
+        Route::get('/admin/backup', [AdminController::class, 'backup'])
+            ->name('admin.backup');
+        Route::get('/admin/notifications-log', [AdminController::class, 'notificationLogs'])
+            ->name('admin.notifications-log');
+        Route::get('/reports', [AdminController::class, 'reports'])
+            ->name('reports.index');
+        Route::get('/reports/export-pdf', [AdminController::class, 'exportPdf'])
+            ->name('reports.exportPdf');
+        Route::get('/reports/export-excel', [AdminController::class, 'exportExcel'])
+            ->name('reports.exportExcel');
+    });
 });
 
+// Public routes - no auth required
 Route::get('/api/member/{memberId}', [\App\Http\Controllers\MemberLookupController::class, 'show'])->name('member.lookup');
 
 // Cooperative membership application (guests only — for people who are not
@@ -136,22 +162,13 @@ Route::get('/', function () {
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
-Route::get('/disbursements', [AdminController::class, 'disbursements'])->name('disbursements.index');
-
-// Fixed /admin/data route
-Route::middleware(['auth'])->group(function () {
-    Route::get('/admin/data', function () {
-        $applications = Application::latest()->get();
-        return view('admin.data', compact('applications'));
-    });
-});
-
-Route::get('/exit', function () {
+// Changed /exit to POST
+Route::post('/exit', function () {
     Auth::logout();
     request()->session()->invalidate();
     request()->session()->regenerateToken();
     return redirect('/login');
-});
+})->name('exit');
 
 Route::get('/faqs', function () {
     return view('home.faqs');

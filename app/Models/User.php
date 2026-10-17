@@ -35,7 +35,6 @@ class User extends Authenticatable
         'email',
         'password',
         'phone',
-        'usertype',
         'coop_member_id',
     ];
 
@@ -83,6 +82,14 @@ class User extends Authenticatable
 {
     return $this->belongsTo(CoopMember::class, 'coop_member_id');
 }
+
+    /**
+     * Relationship to the member application record.
+     */
+    public function memberApplication()
+    {
+        return $this->hasOne(MemberApplication::class);
+    }
 
     /**
      * Accessor for first_name derived from the single 'name' column.

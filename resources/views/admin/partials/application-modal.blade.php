@@ -11,28 +11,23 @@
 </div>
 
 <script>
-  // ─── ABSOLUTE MODAL & OVERLAY CLEANUP ───
   window.closeAllModals = function() {
-    // 1. Hide all modal dialogs
     document.querySelectorAll('.modal').forEach(m => {
       m.classList.remove('open', 'show');
       m.setAttribute('style', 'display: none !important;');
     });
 
-    // 2. Hide and reset all overlays
     document.querySelectorAll('.overlay').forEach(o => {
       o.classList.remove('open', 'show');
       o.setAttribute('style', 'display: none !important;');
     });
 
-    // 3. Remove dynamically generated backdrops (from Bootstrap/Tailwind/JS plugins)
     document.querySelectorAll('.modal-backdrop, .backdrop, [class*="backdrop"]').forEach(b => {
       if (b && b.parentNode) {
         b.parentNode.removeChild(b);
       }
     });
 
-    // 4. Restore body state completely
     document.body.classList.remove('modal-open', 'overflow-hidden');
     document.body.style.overflow = '';
     document.body.style.paddingRight = '';
@@ -99,7 +94,7 @@
     const statusLabel = statusStr.charAt(0).toUpperCase() + statusStr.slice(1);
     const dateStr = app.created_at || app.date || 'Oct 13, 2026';
 
-    const scanTargetId = String(app.id || app.app_id || appId || '').trim();
+    const scanTargetId = String(app.app_id || appId || '').trim();
     const cleanDisplayId = String(appId || app.app_id || app.id || '0000').replace(/^(#?APP-?)+/i, '');
 
     const titleEl = document.getElementById('appDetailTitle');
@@ -182,7 +177,6 @@
     }
   };
 
-  // ─── AI SCAN / RE-EVALUATE FUNCTION ───
   window.triggerAiScan = function(id) {
     if (!id || id === 'undefined' || id === 'null') {
       if (typeof showToast === 'function') showToast('error', 'Invalid application ID for AI scan', '❌');
@@ -246,16 +240,18 @@
           return;
         }
         if (typeof showToast === 'function') showToast('success', data.message || 'AI Scan completed.', '⚡');
-        
+
         if (aiScoreEl) {
-          const score = data.ai_score;
+          const score = data.score;
           aiScoreEl.textContent = score != null ? score : 'N/A';
           aiScoreEl.style.color = score >= 80 ? 'var(--accent3)' : (score >= 50 ? 'var(--gold)' : 'var(--red)');
         }
 
         const aiNotesEl = document.getElementById('modalAiNotes');
         if (aiNotesEl) {
-          aiNotesEl.textContent = data.ai_analysis_note || data.ai_analysis_notes || 'Verified Educational Loan requirements matched successfully.';
+          aiNotesEl.textContent = data.analysis_note || (data.has_risk_flags
+            ? `⚠️ Risk flag detected`
+            : 'Verified Educational Loan requirements matched successfully.');
         }
 
         if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ AI Scan'; }

@@ -18,7 +18,8 @@ class LoanApplication extends Model
     protected $fillable = [
         'user_id', 'reference', 'full_name', 'email', 'contact_number', 'address',
         'birth_date', 'employment_status', 'employer_name',
-        'source_of_income', 'monthly_income', 'loan_type', 'amount', 'share_capital',
+        'source_of_income', 'monthly_income', 'existing_monthly_obligations',
+        'loan_type', 'purpose_of_loan', 'amount', 'share_capital',
         'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
         'remaining_balance', 'next_due_date',
         // AI scoring fields (added for synchronous fallback)
@@ -72,6 +73,41 @@ class LoanApplication extends Model
     public function getLoanTypeLabelAttribute(): string
     {
         return config('loan_matrix.loan_types.' . $this->loan_type, $this->loan_type);
+    }
+
+    /**
+     * Generate a month-by-month amortization schedule using the
+     * cooperative's flat 12 % add-on rate.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function amortizationSchedule(): \Illuminate\Support\Collection
+    {
+        $principal = (float) $this->amount;
+        $termMonths = (int) ($this->term_months ?? 12);
+        $rate = config('loan_matrix.rate', 0.12);
+        $monthlyPayment = $this->getMonthlyPaymentAttribute();
+
+        $schedule = [];
+        $remaining = $principal;
+
+        for ($month = 1; $month <= $termMonths; $month++) {
+            $interest = round($remaining * ($rate / 12), 2);
+            $principalPortion = round($monthlyPayment - $interest, 2);
+            $principalPortion = max(0, min($principalPortion, $remaining));
+            $remaining = max(0, round($remaining - $principalPortion, 2));
+
+            $schedule[] = [
+                'month'               => $month,
+                'due_date'            => now()->addMonths($month - 1)->endOfMonth(),
+                'payment'             => $monthlyPayment,
+                'principal'           => $principalPortion,
+                'interest'            => $interest,
+                'remaining_balance'   => $remaining,
+            ];
+        }
+
+        return collect($schedule);
     }
 
     public static function makeReference(): string

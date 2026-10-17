@@ -11,10 +11,8 @@ class Application extends Model
 {
     use HasFactory, SoftDeletes;
 
-    // Explicitly define the table name in MySQL
     protected $table = 'applications';
 
-    // Allow mass assignment for these fields
     protected $fillable = [
         'loan_application_id',
         'app_id',
@@ -24,10 +22,41 @@ class Application extends Model
         'status',
         'ai_score',
         'ai_analysis_note',
+        'has_risk_flags',
+    ];
+
+    protected $casts = [
+        'amount'   => 'decimal:2',
+        'ai_score' => 'integer',
     ];
 
     public function loanApplication(): BelongsTo
     {
         return $this->belongsTo(LoanApplication::class, 'loan_application_id');
+    }
+
+    /**
+     * Get AI score with fallback for pending applications.
+     */
+    public function getAiScoreAttribute($value)
+    {
+        if ($value !== null) {
+            return $value;
+        }
+
+        if ($this->relationLoaded('loanApplication') && $this->loanApplication) {
+            $loanApp = $this->loanApplication;
+            if ($loanApp->monthly_income > 0 && $loanApp->amount > 0) {
+                $ratio = $loanApp->amount / $loanApp->monthly_income;
+                return max(1, min(100, (int) round(50 - $ratio * 10)));
+            }
+        }
+
+        return null;
+    }
+
+    public function getAiScorePendingAttribute(): bool
+    {
+        return $this->attributes['ai_score'] === null;
     }
 }

@@ -67,6 +67,8 @@ class CreateNewUser implements CreatesNewUsers
                     'password'       => Hash::make($input['password']),
                     'coop_member_id' => $member->id,
                 ]);
+                $user->usertype = 'user';
+                $user->save();
 
                 $member->update([
                     'is_registered' => true,
@@ -82,11 +84,15 @@ class CreateNewUser implements CreatesNewUsers
             implode(' ', array_filter([$input['first_name'] ?? null, $input['middle_name'] ?? null, $input['last_name'] ?? null]))
         );
 
-        return User::create([
+        $user = User::create([
             'name'     => $fullName,
             'email'    => strtolower(trim($input['email'])),
             'password' => Hash::make($input['password']),
         ]);
+        $user->usertype = 'user';
+        $user->save();
+
+        return $user;
     }
 
     /**

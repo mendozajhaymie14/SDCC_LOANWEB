@@ -104,5 +104,69 @@
           }
         });
     }
+
+    // ─── Mark as Paid (member portal) ───
+    // Delegated handler so buttons rendered after page load still work.
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest('.btn-mark-paid');
+      if (!btn) return;
+
+      const ref = btn.dataset.reference;
+      const remaining = btn.dataset.remaining;
+      if (!confirm('Mark loan ' + ref + ' as fully paid for ₱' +
+          Number(remaining).toLocaleString('en-US', { minimumFractionDigits: 2 }) + '?')) {
+        return;
+      }
+
+      const url = btn.dataset.url;
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+      btn.disabled = true;
+      btn.textContent = 'Processing…';
+
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': csrf,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (!data || !data.success) {
+            if (typeof showToast === 'function') {
+              showToast('error', (data && data.message) ? data.message : 'Could not mark as paid.', '❌');
+            }
+            btn.disabled = false;
+            btn.textContent = 'Mark as Paid';
+            return;
+          }
+
+          if (typeof showToast === 'function') {
+            showToast('success', data.message, '✅');
+          }
+
+          // Disable the button and show the paid amount
+          btn.disabled = true;
+          btn.textContent = 'Paid ✓';
+          btn.classList.add('btn-mark-paid-done');
+
+          // Update the remaining balance display in the passbook card
+          const balanceEl = document.querySelector('.balance-due-item .balance-due-value');
+          if (balanceEl) {
+            const newRemaining = Math.max(0, parseFloat(balanceEl.textContent.replace(/[^0-9.]/g, '')) - parseFloat(remaining));
+            balanceEl.textContent = '₱' + newRemaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+        })
+        .catch(err => {
+          console.error('Mark as paid error:', err);
+          if (typeof showToast === 'function') {
+            showToast('error', 'Network error while marking as paid.', '❌');
+          }
+          btn.disabled = false;
+          btn.textContent = 'Mark as Paid';
+        });
+    });
   });
 </script>
