@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Services\AmortizationService;
 
 class LoanApplication extends Model
 {
@@ -22,6 +23,7 @@ class LoanApplication extends Model
         'loan_type', 'purpose_of_loan', 'amount', 'share_capital',
         'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
         'remaining_balance', 'next_due_date',
+        'recommended_amount', 'risk_level', 'risk_score', 'risk_factors',
         // AI scoring fields (added for synchronous fallback)
         'ai_score', 'ai_analysis_notes', 'extracted_document_data', 'document_processing_status',
     ];
@@ -34,6 +36,7 @@ class LoanApplication extends Model
         'share_capital'     => 'decimal:2',
         'monthly_income'    => 'decimal:2',
         'remaining_balance' => 'decimal:2',
+        'recommended_amount'=> 'decimal:2',
         'next_due_date'     => 'date',
     ];
 
@@ -43,18 +46,12 @@ class LoanApplication extends Model
     }
 
     /**
-     * Rough monthly amortisation used for the preview on the form and the
-     * dashboard. Flat 12% per annum add-on rate — change RATE if the
-     * cooperative uses a different one.
+     * Monthly payment — delegated to AmortizationService.
      */
-    public const RATE = 0.12;
-
     public function getMonthlyPaymentAttribute(): float
     {
-        $years    = $this->term_months / 12;
-        $interest = (float) $this->amount * self::RATE * $years;
-
-        return round(((float) $this->amount + $interest) / $this->term_months, 2);
+        return app(AmortizationService::class)
+            ->emi((float) $this->amount, (int) ($this->term_months ?? 12));
     }
 
     public function getStatusLabelAttribute(): string
@@ -65,6 +62,45 @@ class LoanApplication extends Model
             'rejected'   => 'Rejected',
             default      => 'Under review',
         };
+    }
+
+    /**
+     * Human-readable applicant name, formatted as "Last, First Middle".
+     * Handles Filipino compound surnames (Dela Cruz, Van der, Mc, etc.)
+     * Falls back to applicant field if no user relationship.
+     */
+    public function fullName(): string
+    {
+        $user = $this->user;
+        if ($user) {
+            $last = $user->last_name ?? '';
+            $first = $user->first_name ?? '';
+            $middle = $user->middle_name ?? '';
+
+            // If middle_name starts with a compound-surname prefix, fold it
+            // (and any remaining parts) into last_name so "Dela Cruz" stays together.
+            $compoundPrefixes = ['De', 'Dela', 'Del', 'Van', 'Von', 'Mc', 'Mac', 'Di', 'Da'];
+            $middleParts = trim($middle) ? explode(' ', trim($middle)) : [];
+            $firstMiddleParts = array_filter([trim($first), trim($middle)]);
+
+            if ($middleParts && in_array(mb_ucfirst($middleParts[0]), $compoundPrefixes, true)) {
+                // Middle starts with compound prefix → everything in middle + last goes to last name
+                $combinedLast = trim($middle . ' ' . $last);
+                $combinedFirst = $first;
+                if ($combinedLast && $combinedFirst) {
+                    return $combinedLast . ', ' . $combinedFirst;
+                }
+                if ($combinedLast) return $combinedLast;
+            }
+
+            $firstMiddle = trim($first . ' ' . $middle);
+            if ($last && $firstMiddle) {
+                return $last . ', ' . $firstMiddle;
+            }
+            if ($last) return $last;
+            if ($firstMiddle) return $firstMiddle;
+        }
+        return $this->applicant ?? 'Applicant';
     }
 
     /**
@@ -83,31 +119,8 @@ class LoanApplication extends Model
      */
     public function amortizationSchedule(): \Illuminate\Support\Collection
     {
-        $principal = (float) $this->amount;
-        $termMonths = (int) ($this->term_months ?? 12);
-        $rate = config('loan_matrix.rate', 0.12);
-        $monthlyPayment = $this->getMonthlyPaymentAttribute();
-
-        $schedule = [];
-        $remaining = $principal;
-
-        for ($month = 1; $month <= $termMonths; $month++) {
-            $interest = round($remaining * ($rate / 12), 2);
-            $principalPortion = round($monthlyPayment - $interest, 2);
-            $principalPortion = max(0, min($principalPortion, $remaining));
-            $remaining = max(0, round($remaining - $principalPortion, 2));
-
-            $schedule[] = [
-                'month'               => $month,
-                'due_date'            => now()->addMonths($month - 1)->endOfMonth(),
-                'payment'             => $monthlyPayment,
-                'principal'           => $principalPortion,
-                'interest'            => $interest,
-                'remaining_balance'   => $remaining,
-            ];
-        }
-
-        return collect($schedule);
+        return app(AmortizationService::class)
+            ->schedule((float) $this->amount, (int) ($this->term_months ?? 12));
     }
 
     public static function makeReference(): string

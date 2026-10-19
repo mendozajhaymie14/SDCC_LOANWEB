@@ -29,8 +29,6 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/loans', [UserController::class, 'storeApplication'])->name('loans.store');
         Route::delete('/loans/{application}', [UserController::class, 'cancelApplication'])->name('loans.cancel');
 
-        Route::post('/loans/{application}/pay', [UserController::class, 'markAsPaid'])->name('loans.pay');
-
         Route::get('/loans/{application}/amortization', [UserController::class, 'amortizationSchedule'])
             ->name('loans.amortization');
 
@@ -55,19 +53,32 @@ Route::middleware(['auth'])->group(function () {
 
         // Approve / reject an application (used by the View drawer's Accept/Reject buttons)
         Route::post('/applications/{appId}/approve', [AdminController::class, 'approve'])
+            ->whereNumber('appId')
             ->name('applications.approve');
 
         Route::post('/applications/{appId}/reject', [AdminController::class, 'reject'])
+            ->whereNumber('appId')
             ->name('applications.reject');
 
         // Re-run the AI credit scan for a specific application (triggered from the detail modal)
         Route::get('/admin/applications/{id}', [AdminController::class, 'showApplication'])
+            ->whereNumber('id')
             ->name('admin.applications.show');
 
         Route::post('/admin/applications/{id}/scan', [AdminController::class, 'triggerAiScan'])
+            ->whereNumber('id')
             ->name('admin.applications.scan');
 
+        // JSON data endpoint for modal re-fetch
+        Route::get('/admin/applications/{id}/data', [AdminController::class, 'applicationData'])
+            ->whereNumber('id')
+            ->name('admin.applications.data');
+
+        Route::post('/admin/reminders/run', [AdminController::class, 'runReminders'])
+            ->name('reminders.run');
+
         Route::delete('/applications/{appId}', [AdminController::class, 'destroy'])
+            ->whereNumber('appId')
             ->name('applications.destroy');
 
         Route::post('/notifications/mark-read', [AdminController::class, 'markNotificationsRead'])

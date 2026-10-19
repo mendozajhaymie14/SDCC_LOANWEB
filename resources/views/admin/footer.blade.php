@@ -18,7 +18,7 @@
   <!-- SHARED APPLICATION DETAIL MODAL -->
   @include('admin.partials.application-modal')
 
-  <!-- 1. New Loan Application Modal -->
+  <!-- New Loan Application Modal -->
   <div class="modal" id="modal-newApp" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">📋 New Loan Application</div>
@@ -454,7 +454,7 @@
         $docs = $a->loanApplication ? ($a->loanApplication->documents ?? []) : [];
         $aiNotes = $a->loanApplication ? ($a->loanApplication->ai_analysis_notes ?? null) : null;
       @endphp
-      "{{ $a->app_id }}": {
+      "{{ $a->id }}": {
         name: @json($a->applicant),
         type: @json($a->loan_type),
         amount: @json('₱' . number_format($a->amount, 2)),
@@ -555,84 +555,6 @@
       topbarTitle.innerHTML = (titles[id] || id) + ' <span>/ ' + (id === 'dashboard' ? 'Overview' : id.charAt(0).toUpperCase() + id.slice(1)) + '</span>';
     }
     closeAllDropdowns();
-  }
-
-  // ─── APPLICATION DETAIL MODAL ───
-  function openAppDetail(event) {
-    closeAllDropdowns();
-    const btn = event.currentTarget;
-    const appId = btn.dataset.appId;
-    const app = apps[appId];
-    if (!app) {
-      showToast('error', 'Application #' + appId + ' not found', '❌');
-      return;
-    }
-
-    // Parse documents and AI analysis note from the button's data attribute (fresh from the row)
-    let docs = [];
-    try {
-      docs = JSON.parse(btn.dataset.documents || '[]');
-    } catch (e) {
-      docs = app.documents || [];
-    }
-
-    // Pull the AI scan analysis note from the button (stored per row by Blade)
-    const aiNotes = btn.dataset.aiNotes;
-
-    const statusLabel = app.status.charAt(0).toUpperCase() + app.status.slice(1);
-    const scoreC = app.score != null ? scoreColor(app.score) : 'var(--muted)';
-
-    const titleEl = document.getElementById('appDetailTitle');
-    if (titleEl) titleEl.textContent = '#' + appId + ' — ' + app.name;
-
-    const bodyEl = document.getElementById('appDetailBody');
-    if (bodyEl) {
-      const row = (label, value) => `
-        <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
-          <span style="color:var(--muted);">${label}</span>
-          <span style="font-weight:600;">${value}</span>
-        </div>`;
-
-      bodyEl.innerHTML = `
-        ${row('Applicant', app.name)}
-        ${row('Loan Type', app.type)}
-        ${row('Amount', `<span style="font-family:'DM Sans',sans-serif;">${app.amount}</span>`)}
-        ${row('AI Score', `<span id="modalAiScore" style="font-family:'DM Sans',sans-serif;color:${scoreC};">${app.score ?? 'N/A'}</span>`)}
-        ${row('Date', app.date)}
-        ${row('Status', `<span class="status-pill ${app.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
-        ${documentsSection(docs)}
-
-        <!-- AI Scan Analysis Note Section -->
-        <div id="aiScanNoteSection" style="margin-top: 1rem; padding: 0.8rem; background-color: #ffffff; border: 1px solid #e2e8f0; color: #1e293b; border-radius: 8px;">
-          <div style="font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; margin-bottom: 0.4rem;">AI Scan Analysis Note</div>
-          <div id="modalAiNotes" style="font-size: 0.85rem; color: #1e293b; line-height: 1.5;">
-            ${aiNotes && aiNotes !== 'null' && aiNotes.trim() !== '' ? aiNotes : 'Pending AI Scan. Click "⚡ AI Scan" below to evaluate attached documents.'}
-          </div>
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%; margin-top: 1.2rem;">
-          ${(app.status === 'pending' || app.status === 'review') ? `
-            <!-- Row 1: Primary Decision -->
-            <div style="display: flex; gap: 0.5rem; width: 100%;">
-              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--red); border: 1px solid var(--red); background: transparent; white-space: nowrap;" onclick="rejectApp('${appId}')">✗ Reject</button>
-              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #ffffff; border: none; white-space: nowrap;" onclick="approveApp('${appId}')">✓ Approve</button>
-            </div>
-            <!-- Row 2: Tools & Cleanup -->
-            <div style="display: flex; gap: 0.5rem; width: 100%;">
-              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: #4f46e5; border: 2px solid #4f46e5; background: rgba(79, 70, 229, 0.08); white-space: nowrap;" onclick="triggerAiScan('${appId}')">⚡ AI Scan</button>
-              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.05); white-space: nowrap;" onclick="deleteApp('${appId}')">🗑 Delete Application</button>
-            </div>` : `
-            <!-- Row 2 only (when not pending/review): Tools & Cleanup -->
-            <div style="display: flex; gap: 0.5rem; width: 100%;">
-              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: #4f46e5; border: 2px solid #4f46e5; background: rgba(79, 70, 229, 0.08); white-space: nowrap;" onclick="triggerAiScan('${appId}')">⚡ AI Scan</button>
-              <button type="button" style="flex: 1; width: 100%; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.05); white-space: nowrap;" onclick="deleteApp('${appId}')">🗑 Delete Application</button>
-            </div>`
-          }
-</div>
-      `;
-    }
-
-    openModal('appDetail');
   }
 
   // ─── DELETE APPLICATION ACTION ───
@@ -964,7 +886,7 @@
     if (!res.length) { box.classList.remove('open'); return; }
     
     box.innerHTML = res.map(r => `
-      <div class="search-result-item" onmousedown="openAppDetail('${r.id}');hideSearchResults()">
+      <div class="search-result-item" onmousedown="openApplicationModal(apps['${r.id}']);hideSearchResults()">
         <div style="flex:1"><strong>${r.name}</strong><div style="font-size:.75rem;color:var(--muted);">#${r.id}</div></div>
         <span class="sr-badge">${r.type}</span>
         <span class="status-pill ${r.status}" style="font-size:.7rem;">${r.status}</span>
@@ -1201,93 +1123,4 @@
     });
   }
 
-  // ─── AI SCAN / RE-EVALUATE ACTION ───
-  function triggerAiScan(id) {
-    if (!confirm('Re-run AI credit score scan for application #' + id + '?\nThis may take a moment to re-evaluate the documents and recalculate the risk score.')) {
-      return;
-    }
-
-    // Disable the AI Scan button and show a loading spinner so the user
-    // knows the scan is in flight and can't double-submit.
-    const scanBtn = Array.from(document.querySelectorAll('#appDetailBody button'))
-      .find(b => b.textContent.trim().includes('AI Scan'));
-    if (scanBtn) {
-      scanBtn.disabled = true;
-      scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display:inline-block;width:0.85rem;height:0.85rem;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;"></span> Scanning...';
-    }
-
-    // Set the AI Score row to a "scanning" state while the request is in flight.
-    const aiScoreEl = document.getElementById('modalAiScore');
-    if (aiScoreEl) {
-      aiScoreEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing documents...';
-      aiScoreEl.style.color = 'var(--muted)';
-    }
-
-    fetch(`/admin/applications/${id}/scan`, {
-      method: 'POST',
-      headers: {
-        'X-CSRF-TOKEN': csrfToken,
-        'Accept': 'application/json',
-      }
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('Scan failed');
-        return res.json();
-      })
-      .then(data => {
-        if (!data.success) {
-          showToast('error', data.message || 'AI Scan failed.', '❌');
-          restoreScanButton(scanBtn);
-          return;
-        }
-        showToast('success', data.message || 'AI Scan completed.', '⚡');
-        const newScore = data.ai_score;
-
-        // Update the modal's AI Score cell directly
-        if (aiScoreEl) {
-          aiScoreEl.textContent = newScore != null ? newScore : 'N/A';
-          aiScoreEl.style.color = newScore != null ? scoreColor(newScore) : 'var(--muted)';
-        }
-
-        // Update the AI Scan Analysis Note in the modal
-        const aiNotesEl = document.getElementById('modalAiNotes');
-        if (aiNotesEl) {
-          const returnedNotes = data.ai_analysis_note || data.ai_analysis_notes;
-          if (returnedNotes && returnedNotes !== 'null' && returnedNotes.trim() !== '') {
-            aiNotesEl.textContent = returnedNotes;
-          } else {
-            aiNotesEl.textContent = 'Pending AI Scan. Click "⚡ AI Scan" below to evaluate attached documents.';
-          }
-        }
-
-        // Update the main table row AI Score cell
-        const tableRow = document.querySelector(`tr[data-app-id="${id}"]`);
-        if (tableRow) {
-          const scoreCell = tableRow.querySelector('td.td-mono span[style*="font-weight:700"]');
-          if (scoreCell) {
-            scoreCell.textContent = newScore != null ? newScore : 'N/A';
-            scoreCell.style.color = newScore != null ? scoreColor(newScore) : 'var(--muted)';
-          }
-        }
-
-        // Update the in-memory apps object
-        if (apps[id]) {
-          apps[id].score = newScore;
-        }
-
-        restoreScanButton(scanBtn);
-      })
-      .catch(err => {
-        console.error('AI Scan error:', err);
-        showToast('error', 'AI Scan failed: ' + (err.message || 'unknown error'), '❌');
-        restoreScanButton(scanBtn);
-      });
-  }
-
-  function restoreScanButton(scanBtn) {
-    if (scanBtn) {
-      scanBtn.disabled = false;
-      scanBtn.innerHTML = '⚡ AI Scan';
-    }
-  }
-</script>
+  </script>

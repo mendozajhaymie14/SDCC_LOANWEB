@@ -57,16 +57,43 @@
             <strong>DTI Ratio:</strong> {{ isset($loanApp->debt_to_income_ratio) ? $loanApp->debt_to_income_ratio . '%' : 'N/A' }}
         </div>
         <div style="margin-bottom: 0.5rem;">
-            <strong>Document Score:</strong> {{ isset($loanApp->document_processing_status) ? $loanApp->document_processing_status : 'N/A' }}
+            <strong>Document Score:</strong> {{ $application->ai_score !== null ? $application->ai_score . '/100' : 'N/A' }}
         </div>
         <div>
             <strong>Credit Rating:</strong> {{ isset($loanApp->ai_credit_score) ? $loanApp->ai_credit_score : 'N/A' }}
         </div>
+
+        {{-- Risk Evaluation Results --}}
+        @if($application->recommended_amount || $application->risk_level)
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+            <strong>Loan Evaluation:</strong>
+        </div>
+        <div style="margin-bottom: 0.5rem;">
+            <strong>Recommended Amount:</strong> {{ '₱' . number_format($application->recommended_amount, 2) }}
+        </div>
+        <div style="margin-bottom: 0.5rem;">
+            <strong>Risk Level:</strong>
+            <span style="background-color: {{ $application->risk_level === 'Low' ? '#dcfce7' : ($application->risk_level === 'Medium' ? '#fef3c7' : '#fee2e2') }}; color: {{ $application->risk_level === 'Low' ? '#15803d' : ($application->risk_level === 'Medium' ? '#92400e' : '#dc2626') }}; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">{{ ucfirst($application->risk_level) }}</span>
+        </div>
+        <div style="margin-bottom: 0.5rem;">
+            <strong>Risk Score:</strong> {{ $application->risk_score }}/100
+        </div>
+        @if($application->risk_factors)
+        <div style="margin-bottom: 0.5rem;">
+            <strong>Risk Factors:</strong>
+            <ul style="margin: 0; padding-left: 1.25rem; color: #4a5568; font-size: 0.875rem;">
+                @foreach(json_decode($application->risk_factors, true) as $factor)
+                    <li>{{ $factor['reason'] ?? $factor }}</li>
+                @endforeach
+            </ul>
+        </div>
+        @endif
+        @endif
     </div>
 
     {{-- Action Buttons --}}
     <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e2e8f0;">
-        @if($application->status === 'Pending')
+        @if(in_array(strtolower($application->status), ['pending', 'flagged']))
             {{-- Approval button (only available while the application is still pending) --}}
             <form method="POST" action="{{ route('applications.approve', ['appId' => $application->app_id]) }}" style="display: inline;">
                 @csrf

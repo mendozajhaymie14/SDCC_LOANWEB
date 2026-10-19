@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>San Dionisio Credit Cooperative — Admin Dashboard</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
@@ -64,6 +64,8 @@
               <th>Applicant</th>
               <th>Loan Type</th>
               <th>Amount</th>
+              <th>Recommended</th>
+              <th>Risk</th>
               <th>Status</th>
               <th>AI Score</th>
               <th>Date</th>
@@ -74,9 +76,15 @@
             @forelse($applications as $app)
   <tr data-status="{{ strtolower($app->status) }}" data-app-id="{{ $app->app_id }}">
     <td class="td-mono">#{{ $app->app_id }}</td>
-    <td class="applicant-name">{{ $app->applicant }}</td>
+    <td class="applicant-name">{{ $app->loanApplication?->fullName() ?? $app->applicant ?? 'Applicant' }}</td>
     <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
     <td>₱{{ number_format($app->amount, 2) }}</td>
+    <td>₱{{ number_format($app->recommended_amount, 2) }}</td>
+    <td class="td-mono">
+      <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
+        {{ ucfirst($app->risk_level ?? 'None') }}
+      </span>
+    </td>
     <td>
       <span class="status-pill {{ strtolower($app->status) }}">
         {{ ucfirst($app->status) }}
@@ -110,7 +118,7 @@
   </tr>
 @empty
   <tr>
-    <td colspan="8" class="empty-table-msg">No applications found.</td>
+    <td colspan="10" class="empty-table-msg">No applications found.</td>
   </tr>
 @endforelse
           </tbody>
@@ -126,6 +134,20 @@
 
 @include('admin.footer')
 @include('admin.partials.application-modal')
+
+<script>
+// Auto-open the shared modal when arriving from Risk Flags (?open=APP-0014)
+document.addEventListener('DOMContentLoaded', function () {
+  try {
+    var code = new URLSearchParams(window.location.search).get('open');
+    if (!code) return;
+    var btn = document.querySelector('button.btn-review[data-app-id="' + code.replace(/"/g, '') + '"]');
+    if (btn) btn.click();
+    // remove ?open= so a refresh doesn't reopen the modal
+    window.history.replaceState({}, '', window.location.pathname);
+  } catch (e) { console.error(e); }
+});
+</script>
 
 </body>
 </html>

@@ -27,7 +27,6 @@ return new class extends Migration
     {
         Schema::table('loan_applications', function (Blueprint $table) {
             $table->dropColumn([
-                'ai_score',
                 'ai_analysis_notes',
                 'extracted_document_data',
                 'document_processing_status',

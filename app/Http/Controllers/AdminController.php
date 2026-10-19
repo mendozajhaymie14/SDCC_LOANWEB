@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\LoanApplicationApproved;
+use App\Events\PaymentReceived;
+use Carbon\Carbon;
 use App\Models\Application;
 use App\Models\AppNotification;
 use App\Models\AppNotificationLog;
@@ -12,6 +15,10 @@ use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\LoanStatus;
+use App\Services\AmortizationService;
+use App\Services\LoanEvaluationService;
+use App\Services\PaymentReminderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -35,13 +42,13 @@ class AdminController extends Controller
                 $activeMembersCount = CoopMember::where('is_registered', true)->count();
                 $activeBorrowersCount = $activeMembersCount;
 
-                $riskFlagsCount = Application::where('ai_score', '<', 50)->count();
-                $flaggedApplications = Application::where('ai_score', '<', 50)->with('loanApplication.user')->latest()->get();
+                $riskFlagsCount = Application::where('risk_level', 'High')->count();
+                $flaggedApplications = Application::where('risk_level', 'High')->with('loanApplication.user')->latest()->get();
 
                 $notifications = AppNotification::latest()->take(5)->get();
-                $pendingApplicationsCount = LoanApplication::where('status', 'pending')->count();
+                $pendingApplicationsCount = Application::where('status', 'pending')->count();
 
-                $pendingApplications = LoanApplication::with('user')
+                $pendingApplications = Application::with('loanApplication.user')
                     ->where('status', 'Pending')
                     ->latest()
                     ->take(5)
@@ -51,25 +58,18 @@ class AdminController extends Controller
                 $totalRepayments = Payment::sum('amount_paid');
 
                 $loanTypes = LoanApplication::selectRaw('loan_type, count(*) as count, sum(amount) as total_amount')
-                    ->groupBy('loan_type')
-                    ->get();
-
-                if ($loanTypes->isEmpty()) {
-                    $loanTypes = collect([
-                        (object) ['loan_type' => 'educational',   'count' => 19, 'total_amount' => 190000.00],
-                        (object) ['loan_type' => 'emergency',     'count' => 12, 'total_amount' => 120000.00],
-                        (object) ['loan_type' => 'business',      'count' => 8,  'total_amount' => 240000.00],
-                        (object) ['loan_type' => 'personal',      'count' => 15, 'total_amount' => 150000.00],
-                    ]);
-                }
-
+    ->where('status', 'approved')
+    ->groupBy('loan_type')
+    ->orderByDesc('total_amount')
+    ->get();
+    
                 $recentRepayments = Payment::latest()->take(5)->get();
 
                 $monthlyDisbursements = [];
-                $monthlyRepayments = [];
+                $monthlyRepayments = []; $monthLabels = [];
                 for ($i = 5; $i >= 0; $i--) {
                     $monthStart = now()->subMonths($i)->startOfMonth();
-                    $monthEnd = now()->subMonths($i)->endOfMonth();
+                    $monthEnd = now()->subMonths($i)->endOfMonth(); $monthLabels[] = now()->subMonths($i)->format('M');
 
                     $disbursed = Application::whereIn('status', ['Approved', 'Disbursed'])
                         ->whereBetween('created_at', [$monthStart, $monthEnd])
@@ -82,9 +82,9 @@ class AdminController extends Controller
                     $monthlyRepayments[] = (float) $collected;
                 }
 
-                $lowRisk = Application::where('ai_score', '>=', 70)->count();
-                $moderateRisk = Application::whereBetween('ai_score', [50, 69])->count();
-                $highRisk = Application::where('ai_score', '<', 50)->count();
+                $lowRisk = Application::where('risk_level', 'Low')->count();
+                $moderateRisk = Application::where('risk_level', 'Medium')->count();
+                $highRisk = Application::where('risk_level', 'High')->count();
 
                 $riskDistribution = [
                     'Low' => $lowRisk,
@@ -128,7 +128,7 @@ class AdminController extends Controller
                     'pendingApplications', 'loanTypes', 'recentRepayments',
                     'membershipApplicationsCount', 'totalRepayments',
                     'riskFlagsCount', 'flaggedApplications',
-                    'monthlyDisbursements', 'monthlyRepayments', 'riskDistribution',
+                    'monthlyDisbursements', 'monthlyRepayments','monthLabels', 'riskDistribution',
                     'recentAuditLogs', 'emailsSentToday'
                 ));
             }
@@ -173,67 +173,104 @@ class AdminController extends Controller
     }
 
     // 4. Approve an application
-    public function approve($appId)
+    public function approve(int $appId)
     {
-        $application = Application::where('app_id', $appId)->firstOrFail();
-        $application->status = 'Approved';
-        $application->next_due_date = now()->addMonth();
-        $application->remaining_balance = $application->amount;
-        $application->save();
+        // Pending applications may be soft-deleted; include trashed rows so the
+        // act/reject flows work on them too.
+        $application = Application::withTrashed()->where('id', $appId)->firstOrFail();
 
-        if ($application->loan_application_id) {
-            LoanApplication::where('id', $application->loan_application_id)->update([
-                'status'            => 'approved',
-                'reviewed_at'       => now(),
-                'remaining_balance' => $application->amount,
-                'next_due_date'     => now()->addMonth(),
-            ]);
+        // Accept approved_amount and reason from JSON or form requests
+        $approvedAmount = request()->json('approved_amount') ?? request('approved_amount') ?? null;
+        $reason = request()->json('reason') ?? request('reason') ?? null;
+
+        // If approved amount exceeds recommended, require a reason
+        if ($approvedAmount && $approvedAmount > ($application->recommended_amount ?? 0) && !$reason) {
+            if (request()->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A reason is required when approving above the recommended amount.',
+                ], 400);
+            }
+            return back()->with('error', 'A reason is required when approving above the recommended amount.');
         }
 
-        $borrower = Borrowers::withTrashed()->where('full_name', $application->applicant)->first();
+        $disbursementDate = now();
+        $totalPayable = $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
+
+        DB::transaction(function () use ($application, $disbursementDate, $totalPayable, $approvedAmount, $reason) {
+            $application->status = 'Approved';
+            $application->approved_amount = $approvedAmount ?? $application->recommended_amount ?? 0.00;
+            $application->next_due_date = $disbursementDate->copy()->addMonth();
+            $application->remaining_balance = $totalPayable;
+            $application->save();
+
+            if ($application->loan_application_id) {
+                LoanApplication::where('id', $application->loan_application_id)->update([
+                    'status'            => 'approved',
+                    'reviewed_at'       => now(),
+                    'remaining_balance' => $totalPayable,
+                    'next_due_date'     => $disbursementDate->copy()->addMonth(),
+                ]);
+            }
+
+            $loanApp = $application->loan_application_id
+                ? LoanApplication::find($application->loan_application_id)
+                : null;
+            $monthlyIncome = $loanApp?->monthly_income ?? 0.00;
+            $phone         = $loanApp?->contact_number ?? 'N/A';
+
+            // Keep the score from the scorer; if no scan has run yet, leave it
+            // null so the UI shows "pending scan" rather than inventing a number.
+            $rawScore = $application->ai_score;
+            $aiCreditScore = is_numeric($rawScore)
+                ? (int) round(300 + ($rawScore / 100) * 550)
+                : null;
+
+            $borrower = Borrowers::withTrashed()->where('full_name', $application->applicant)->first();
+
+            if (!$borrower) {
+                $lastId = Borrowers::withTrashed()->max('id') ?? 0;
+                $borrowerId = 'BOR-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+
+                Borrowers::create([
+                    'borrower_id'     => $borrowerId,
+                    'full_name'       => $application->applicant,
+                    'email'           => $loanApp?->email ?? 'N/A',
+                    'phone_number'    => $phone,
+                    'monthly_income'  => $monthlyIncome,
+                    'ai_credit_score' => $aiCreditScore,
+                    'status'          => 'Active',
+                    'address'         => $loanApp?->address ?? null,
+                ]);
+            } else {
+                $borrower->status          = 'Active';
+                $borrower->monthly_income  = $monthlyIncome;
+                $borrower->phone_number    = $phone;
+                if ($aiCreditScore !== null) {
+                    $borrower->ai_credit_score = $aiCreditScore;
+                }
+                $borrower->restore();
+                $borrower->save();
+            }
+
+            AppNotification::create([
+                'app_id'    => $application->app_id,
+                'applicant' => $application->applicant,
+                'type'      => 'approved',
+                'message'   => 'Application Approved',
+            ]);
+
+            AuditLog::log('Application Approved', "Application {$application->app_id} approved for {$application->applicant}. Approved amount: " . ($approvedAmount ?? $application->recommended_amount ?? 0) . ($reason ? ". Reason: $reason" : ''));
+        });
 
         $loanApp = $application->loan_application_id
             ? LoanApplication::find($application->loan_application_id)
             : null;
-        $monthlyIncome = $loanApp?->monthly_income ?? 0.00;
-        $phone         = $loanApp?->contact_number ?? 'N/A';
-
-        $rawScore = $application->ai_score;
-        $aiCreditScore = is_numeric($rawScore)
-            ? (int) round(300 + ($rawScore / 100) * 550)
-            : rand(300, 850);
-
-        if (!$borrower) {
-            $lastId = Borrowers::withTrashed()->max('id') ?? 0;
-            $borrowerId = 'BOR-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
-
-            Borrowers::create([
-                'borrower_id'     => $borrowerId,
-                'full_name'       => $application->applicant,
-                'email'           => strtolower(str_replace(' ', '', $application->applicant)) . '@gmail.com',
-                'phone_number'    => $phone,
-                'monthly_income'  => $monthlyIncome,
-                'ai_credit_score' => $aiCreditScore,
-                'status'          => 'Active',
-                'address'         => null,
-            ]);
-        } else {
-            $borrower->status          = 'Active';
-            $borrower->monthly_income  = $monthlyIncome;
-            $borrower->phone_number    = $phone;
-            $borrower->ai_credit_score = $aiCreditScore;
-            $borrower->restore();
-            $borrower->save();
+        if ($loanApp) {
+            DB::afterCommit(function () use ($loanApp) {
+                LoanApplicationApproved::dispatch($loanApp);
+            });
         }
-
-        AppNotification::create([
-            'app_id'    => $application->app_id,
-            'applicant' => $application->applicant,
-            'type'      => 'approved',
-            'message'   => 'Application Approved',
-        ]);
-
-        AuditLog::log('Application Approved', "Application {$application->app_id} approved for {$application->applicant}");
 
         return response()->json([
             'success'        => true,
@@ -243,28 +280,44 @@ class AdminController extends Controller
         ]);
     }
 
-    // 5. Reject an application
-    public function reject($appId)
+    public function totalPayable(float $principal, int $termMonths): float
     {
-        $application = Application::where('app_id', $appId)->firstOrFail();
-        $application->status = 'Rejected';
-        $application->save();
+        return app(AmortizationService::class)->summary($principal, $termMonths)['total_paid'];
+    }
 
-        if ($application->loan_application_id) {
-            LoanApplication::where('id', $application->loan_application_id)->update([
-                'status'      => 'rejected',
-                'reviewed_at' => now(),
+    // 5. Reject an application
+    public function reject(int $appId)
+    {
+        // Pending applications may be soft-deleted; include trashed rows so the
+        // act/reject flows work on them too.
+        $application = Application::withTrashed()->where('id', $appId)->firstOrFail();
+
+        // Accept reason from JSON or form requests
+        $rejectReason = request()->json('reason') ?? request('reason') ?? null;
+
+        DB::transaction(function () use ($application, $rejectReason) {
+            $application->status = 'Rejected';
+            if ($rejectReason) {
+                $application->admin_remarks = $rejectReason;
+            }
+            $application->save();
+
+            if ($application->loan_application_id) {
+                LoanApplication::where('id', $application->loan_application_id)->update([
+                    'status'      => 'rejected',
+                    'reviewed_at' => now(),
+                ]);
+            }
+
+            AppNotification::create([
+                'app_id'    => $application->app_id,
+                'applicant' => $application->applicant,
+                'type'      => 'rejected',
+                'message'   => 'Application Rejected',
             ]);
-        }
 
-        AppNotification::create([
-            'app_id'    => $application->app_id,
-            'applicant' => $application->applicant,
-            'type'      => 'rejected',
-            'message'   => 'Application Rejected',
-        ]);
-
-        AuditLog::log('Application Rejected', "Application {$application->app_id} rejected for {$application->applicant}");
+            AuditLog::log('Application Rejected', "Application {$application->app_id} rejected for {$application->applicant}" . ($rejectReason ? ". Reason: $rejectReason" : ''));
+        });
 
         return response()->json([
             'success'        => true,
@@ -275,9 +328,9 @@ class AdminController extends Controller
     }
 
     // 6. Delete an application
-    public function destroy($appId)
+    public function destroy(int $appId)
     {
-        $application = Application::where('app_id', $appId)->firstOrFail();
+        $application = Application::where('id', $appId)->firstOrFail();
         $applicantName = $application->applicant;
 
         if ($application->loan_application_id) {
@@ -285,7 +338,7 @@ class AdminController extends Controller
         }
 
         $application->delete();
-        AppNotification::where('app_id', $appId)->delete();
+        AppNotification::where('app_id', $application->app_id)->delete();
         Borrowers::where('full_name', $applicantName)->delete();
 
         return response()->json([
@@ -365,7 +418,7 @@ class AdminController extends Controller
         $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
         $coopMemberId = $validated['member_id'] ?? $memberId;
 
-        $member = CoopMember::create([
+        CoopMember::create([
             'member_id'      => $coopMemberId,
             'full_name'      => $validated['full_name'],
             'email'          => $validated['email'],
@@ -629,28 +682,25 @@ class AdminController extends Controller
 
     public function riskFlags()
     {
-        $flaggedApplications = Application::where('ai_score', '<', 50)
+        $flaggedApplications = Application::where('risk_level', 'High')
             ->with('loanApplication.user')
             ->latest()
             ->get();
 
         $flagReasons = [];
         foreach ($flaggedApplications as $app) {
-            $appId = $app->app_id ?? $app->id;
-            switch ($appId) {
-                case 'APP-0028':
-                    $flagReasons[$app->id] = 'DTI Ratio Exceeds 45%';
-                    break;
-                case 'APP-0024':
-                    $flagReasons[$app->id] = 'Flag: Low Document Trust';
-                    break;
-                case 'APP-0023':
-                    $flagReasons[$app->id] = 'Insufficient Savings-to-Loan Ratio';
-                    break;
-                default:
-                    $flagReasons[$app->id] = 'Flag: Low Document Trust';
-                    break;
+            $loanApp = $app->loanApplication;
+            $reasons = [];
+            if ($loanApp && isset($loanApp->risk_factors)) {
+                $riskFactors = is_array($loanApp->risk_factors) ? $loanApp->risk_factors : json_decode($loanApp->risk_factors, true);
+                if (is_array($riskFactors) && !empty($riskFactors)) {
+                    $reasons = array_column($riskFactors, 'reason',);
+                    $reasons = array_map(function($item) {
+                        return $item['reason'] ?? $item;
+                    }, $riskFactors);
+                }
             }
+            $flagReasons[$app->id] = !empty($reasons) ? implode(', ', $reasons) : 'High risk factors detected';
         }
 
         $riskFlagsCount = count($flaggedApplications);
@@ -720,19 +770,22 @@ class AdminController extends Controller
         ]);
 
         $application = Application::findOrFail($validated['application_id']);
+        $disbursementDate = $validated['disbursement_date'] ?? now();
+        $totalPayable = $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
+
         $application->status = 'Disbursed';
-        $application->disbursement_date = $validated['disbursement_date'] ?? now();
+        $application->disbursement_date = $disbursementDate;
         $application->reference_number = $validated['reference_number'] ?? null;
-        $application->next_due_date = now()->addMonth();
-        $application->remaining_balance = $application->amount;
+        $application->next_due_date = Carbon::parse($disbursementDate)->copy()->addMonth();
+        $application->remaining_balance = $totalPayable;
         $application->save();
 
         if ($application->loan_application_id) {
             LoanApplication::where('id', $application->loan_application_id)->update([
                 'status'            => 'disbursed',
                 'reviewed_at'       => now(),
-                'remaining_balance' => $application->amount,
-                'next_due_date'     => now()->addMonth(),
+                'remaining_balance' => $totalPayable,
+                'next_due_date'     => Carbon::parse($disbursementDate)->copy()->addMonth(),
             ]);
         }
 
@@ -748,30 +801,127 @@ class AdminController extends Controller
     {
         $validated = $request->validate([
             'application_id' => 'required|exists:applications,id',
-            'amount' => 'required|numeric|min:0',
+            'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'nullable|string|max:100',
-            'reference_number' => 'nullable|string|max:255',
+            'reference_no' => 'nullable|string|max:255',
             'payment_date' => 'nullable|date',
+            'notes' => 'nullable|string|max:500',
         ]);
 
-        $application = Application::findOrFail($validated['application_id']);
-        $remainingBalance = (float) ($application->remaining_balance ?? 0);
-        $newBalance = max(0, $remainingBalance - (float) $validated['amount']);
-        $application->remaining_balance = $newBalance;
-        $application->save();
+        $application = Application::where('id', $validated['application_id'])
+            ->lockForUpdate()
+            ->firstOrFail();
 
-        if ($application->loan_application_id) {
-            LoanApplication::where('id', $application->loan_application_id)->update([
-                'remaining_balance' => $newBalance,
-            ]);
+        // Only allow payments on approved/disbursed loans
+        if (!LoanStatus::isApproved($application->status) && !LoanStatus::isDisbursed($application->status)) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Repayments can only be made on approved or disbursed loans.',
+                ], 422);
+            }
+            return back()->with('error', 'Repayments can only be made on approved or disbursed loans.');
         }
 
-        AuditLog::log('Payment Recorded', "Repayment of ₱{$validated['amount']} recorded for {$application->app_id}");
+        $amount = (float) $validated['amount'];
+        $remainingBalance = (float) ($application->remaining_balance ?? 0);
+
+        // Reject overpayment
+        if ($amount > $remainingBalance) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment amount exceeds remaining balance.',
+                ], 422);
+            }
+            return back()->with('error', 'Payment amount exceeds remaining balance.');
+        }
+
+        // Reject duplicate reference number for same loan
+        if (!empty($validated['reference_no'])) {
+            $exists = Payment::where('loan_application_id', $application->loan_application_id)
+                ->where('reference_no', $validated['reference_no'])
+                ->exists();
+            if ($exists) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'A payment with this reference number already exists for this loan.',
+                    ], 422);
+                }
+                return back()->with('error', 'A payment with this reference number already exists for this loan.');
+            }
+        }
+
+        DB::transaction(function () use ($application, $validated, $remainingBalance) {
+            $newBalance = $remainingBalance - (float) $validated['amount'];
+
+            $application->remaining_balance = $newBalance;
+            $application->save();
+
+            if ($application->loan_application_id) {
+                LoanApplication::where('id', $application->loan_application_id)->update([
+                    'remaining_balance' => $newBalance,
+                ]);
+            }
+
+            // Update status if balance reaches zero
+            if (bccomp((string) $newBalance, '0', 2) <= 0) {
+                $application->status = LoanStatus::write(LoanStatus::PAID, 'applications');
+                $application->next_due_date = null;
+                $application->save();
+
+                if ($application->loan_application_id) {
+                    LoanApplication::where('id', $application->loan_application_id)->update([
+                        'status'            => LoanStatus::write(LoanStatus::PAID),
+                        'next_due_date'     => null,
+                    ]);
+                }
+            } else {
+                // Advance next_due_date by one month
+                $nextDue = $application->next_due_date ?? now()->endOfMonth();
+                $newDueDate = Carbon::parse($nextDue)->addMonth();
+                $application->next_due_date = $newDueDate;
+                $application->save();
+
+                if ($application->loan_application_id) {
+                    LoanApplication::where('id', $application->loan_application_id)->update([
+                        'next_due_date'     => $newDueDate,
+                    ]);
+                }
+            }
+
+            // Create Payment record
+            Payment::create([
+                'loan_application_id' => $application->loan_application_id,
+                'user_id'             => $application->user_id,
+                'amount_paid'         => (float) $validated['amount'],
+                'remaining_balance_after' => $newBalance,
+                'reference_no'        => $validated['reference_no'] ?? null,
+                'payment_date'        => $validated['payment_date'] ?? now(),
+                'payment_method'      => $validated['payment_method'] ?? null,
+                'notes'               => $validated['notes'] ?? null,
+                'encoded_by'          => Auth::id(),
+            ]);
+
+            AuditLog::log('Payment Recorded', "Repayment of ₱{$validated['amount']} recorded for {$application->app_id}");
+        });
+
+        // Dispatch event after transaction commits
+        if ($application->loan_application_id) {
+            DB::afterCommit(function () use ($application) {
+                PaymentReceived::dispatch(
+                    Payment::where('loan_application_id', $application->loan_application_id)
+                        ->latest()
+                        ->first()
+                );
+            });
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Repayment recorded successfully.',
-            'remaining_balance' => $newBalance,
+            'remaining_balance' => (float) ($application->remaining_balance ?? 0),
         ]);
     }
 
@@ -838,7 +988,7 @@ class AdminController extends Controller
         return response()->stream($callback, 200, $headers);
     }
 
-    public function notificationLogs(Request $request)
+    public function notificationLogs()
     {
         $logs = AppNotificationLog::latest()
             ->when(request('search'), fn ($q, $s) => $q->where('subject', 'like', "%{$s}%")->orWhere('recipient_email', 'like', "%{$s}%"))
@@ -852,12 +1002,63 @@ class AdminController extends Controller
 
     public function showApplication($id)
     {
-        $application = Application::where('app_id', $id)->firstOrFail();
+        $application = Application::where('app_id', $id)->first()
+            ?? Application::where('id', (int) $id)->first()
+            ?? Application::where('loan_application_id', (int) $id)->first();
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Application not found.'], 404);
+        }
+
         $loanApp = $application->loan_application_id
             ? LoanApplication::find($application->loan_application_id)
             : null;
 
         return view('admin.application-detail', compact('application', 'loanApp'));
+    }
+
+    public function applicationData($id)
+    {
+        // Pending applications may be soft-deleted in the audit trail, so
+        // include trashed rows to ensure the modal can still display them.
+        $application = Application::withTrashed()->where('app_id', $id)->first()
+            ?? Application::withTrashed()->where('id', (int) $id)->first();
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Application not found.'], 404);
+        }
+
+        $loanApp = $application->loan_application_id
+            ? LoanApplication::find($application->loan_application_id)
+            : null;
+
+        $user = $loanApp?->user;
+
+        return response()->json([
+            'success' => true,
+            'application' => [
+                'id' => $application->id,
+                'app_id' => $application->app_id,
+                'applicant' => $application->applicant,
+                'loan_type' => $application->loan_type,
+                'amount' => (float) $application->amount,
+                'term_months' => (int) ($application->term_months ?? 12),
+                'status' => $application->status,
+                'recommended_amount' => $application->recommended_amount ? (float) $application->recommended_amount : null,
+                'risk_level' => $application->risk_level ?? 'None',
+                'risk_score' => $application->risk_score ?? null,
+                'risk_factors' => $application->risk_factors ? json_decode($application->risk_factors, true) : [],
+                'ai_score' => $application->ai_score ?? null,
+                'ai_analysis_note' => $application->ai_analysis_note,
+                'has_risk_flags' => $application->has_risk_flags ?? false,
+                'document_processing_status' => $loanApp?->document_processing_status ?? 'pending',
+                'last_scanned_at' => $application->updated_at ? \Carbon\Carbon::parse($application->updated_at)->format('Y-m-d H:i:s') : null,
+                'full_name' => $loanApp?->fullName() ?? ($application->applicant ?? 'Applicant'),
+                'monthly_income' => $loanApp ? (float) $loanApp->monthly_income : 0,
+                'existing_monthly_obligations' => $loanApp ? (float) $loanApp->existing_monthly_obligations : 0,
+                'share_capital' => $loanApp ? (float) $loanApp->share_capital : 0,
+            ],
+        ]);
     }
 
     public function amortizationSchedule($id)
@@ -959,22 +1160,25 @@ class AdminController extends Controller
         $termMonths = (int) ($loanApp?->term_months ?? 12);
         $shareCapital = (float) ($loanApp?->share_capital ?? 0);
         $savings = (float) ($loanApp?->savings ?? 0);
-        $rate = (float) config('loan_matrix.rate', 0.12);
 
-        $emi =$amount > 0 && $termMonths > 0 ? round(($amount + $amount * $rate * ($termMonths / 12)) /$termMonths, 2) : 0;
-        $dti =$monthlyIncome > 0 ? round(($emi / $monthlyIncome) * 100, 2) : null;
-        $savingsPool = $shareCapital +$savings;
-        $savingsToLoan =$amount > 0 ? round(($savingsPool / $amount) * 100, 2) : null;
+        // Delegate EMI calculation to AmortizationService
+        $emi = $amount > 0 && $termMonths > 0 ? app(AmortizationService::class)->emi($amount, $termMonths) : 0;
+        $dti = $monthlyIncome > 0 ? round(($emi / $monthlyIncome) * 100, 2) : null;
+        $savingsPool = $shareCapital + $savings;
+        $savingsToLoan = $amount > 0 ? round(($savingsPool / $amount) * 100, 2) : null;
 
-        $delinquencyStatus = 'Clean';$delinquencyFlagged = false;
+        $delinquencyStatus = 'Clean';
+        $delinquencyFlagged = false;
         if ($loanApp) {
-            $latePayments = Payment::where('loan_application_id',$loanApp->id)->where('payment_date', '<', now()->subDays(30))->count();
-            $delinquencyFlagged =$latePayments > 0;
+            $latePayments = Payment::where('loan_application_id', $loanApp->id)
+                ->where('payment_date', '<', now()->subDays(30))
+                ->count();
+            $delinquencyFlagged = $latePayments > 0;
             $delinquencyStatus = $delinquencyFlagged ? 'Flagged (' . $latePayments . ' late payment(s))' : 'Clean';
         }
 
-        $managerOverride =$application?->ai_analysis_note ?? null;
-        $overrideReason = ($managerOverride && str_contains(strtolower($managerOverride), 'override')) ?$managerOverride : null;
+        $managerOverride = $application?->ai_analysis_note ?? null;
+        $overrideReason = ($managerOverride && str_contains(strtolower($managerOverride), 'override')) ? $managerOverride : null;
 
         return [
             'dti'                 => $dti,
@@ -1020,13 +1224,18 @@ class AdminController extends Controller
             $score =$result['score'];
             $analysisNote =$result['analysis_note'];
             $hasRiskFlags =$result['has_risk_flags'];
+            $riskLevel =$result['risk_level'] ?? 'None';
+            $riskFactors =$result['risk_factors'] ?? [];
+            $recommendedAmount =$result['recommended_amount'] ?? 0.0;
 
             $application->ai_score =$score;
             $application->ai_analysis_note =$analysisNote;
+            $application->risk_level =$riskLevel;
+            $application->risk_score =$score;
+            $application->risk_factors = json_encode($riskFactors);
+            $application->recommended_amount =$recommendedAmount;
             if (Schema::hasColumn('applications', 'has_risk_flags')) {
                 $application->has_risk_flags =$hasRiskFlags;
-            }
-            if ($hasRiskFlags) {$application->status = 'flagged';
             }
             $application->save();
 
@@ -1034,6 +1243,10 @@ class AdminController extends Controller
                     'ai_score'                   => $score,
                     'ai_analysis_notes'          => $analysisNote,
                     'document_processing_status' => $hasRiskFlags ? 'flagged' : 'completed',
+                    'risk_level'                 => $riskLevel,
+                    'risk_score'                 => $score,
+                    'risk_factors'               => json_encode($riskFactors),
+                    'recommended_amount'         => $recommendedAmount,
                 ]);
             }
 
@@ -1041,13 +1254,14 @@ class AdminController extends Controller
                 return response()->json([
                     'success'        => true,
                     'score'          => $score,
+                    'risk_level'     => $riskLevel,
                     'analysis_note'  => $analysisNote,
                     'has_risk_flags' => $hasRiskFlags,
-                    'message'        => 'AI Credit Scan completed successfully! Score: ' . $score,
+                    'message'        => 'AI Credit Scan completed successfully! Score: ' . $score . ' • Risk: ' . $riskLevel,
                     'status'         => $hasRiskFlags ? 'flagged' : $application->status,
                 ]);
             }
-            return back()->with('success', 'AI Credit Scan completed successfully! Score: ' . $score);
+            return back()->with('success', 'AI Credit Scan completed successfully! Score: ' . $score . ' • Risk: ' . $riskLevel);
 
         } catch (\Throwable $e) {
             Log::error('Admin AI Scan Error: ' . $e->getMessage(), [
@@ -1055,32 +1269,86 @@ class AdminController extends Controller
                 'trace'          => $e->getTraceAsString(),
             ]);
 
-            $monthlyIncome = (float) ($loanApp?->monthly_income ?? 10000);
-            $amount = (float) ($application->amount ?? 10000);
-            $safeScore = max(1, min(100, (int) round(50 - ($amount / max(1,$monthlyIncome)) * 10)));
-            $fallbackNote = 'Scan error fallback: ' .$e->getMessage();
+            // If Gemini is unavailable, mark documents as "unverified" and
+            // fall back to a rule-based score computed from the declared data
+            // (income / obligations / term). We never fabricate a document
+            // extraction — the note makes the source explicit.
+            $fallbackScore = null;
+            $riskLevel = 'None';
+            $riskFactors = [];
+            $recommendedAmount = 0.0;
+            if ($loanApp) {
+                try {
+                    $eval = app(LoanEvaluationService::class)->evaluate($loanApp);
+                    $fallbackScore = (int) $eval['risk_score'];
+                    $riskLevel = $fallbackScore >= 70 ? 'Low' : ($fallbackScore >= 50 ? 'Medium' : 'High');
+                    $riskFactors = $eval['reasons'] ?? [];
+                    $recommendedAmount = $eval['recommended_amount'] ?? 0.0;
+                } catch (\Throwable $de) {
+                    Log::warning('Rule-based fallback score failed for application', [
+                        'application_id' => $loanApp->id,
+                        'error'          => $de->getMessage(),
+                    ]);
+                }
+            }
 
-            $application->ai_score =$safeScore;
-            $application->ai_analysis_note =$fallbackNote;
+            $application->ai_score = $fallbackScore;
+            $application->ai_analysis_note = 'Document scan failed (' . $e->getMessage()
+                . '). Score computed from declared data only; documents unverified.';
+            $application->risk_level = $riskLevel;
+            $application->risk_score = $fallbackScore;
+            $application->risk_factors = json_encode($riskFactors);
+            $application->recommended_amount = $recommendedAmount;
             $application->save();
 
-            if ($loanApp) {$loanApp->update([
-                    'ai_score'          => $safeScore,
-                    'ai_analysis_notes' => $fallbackNote,
-                    'document_processing_status' => 'error',
+            if ($loanApp) {
+                $loanApp->update([
+                    'ai_score'                   => $fallbackScore,
+                    'ai_analysis_notes'          => 'Document scan failed (' . $e->getMessage()
+                        . '). Score computed from declared data only; documents unverified.',
+                    'document_processing_status' => 'unverified',
+                    'risk_level'                 => $riskLevel,
+                    'risk_score'                 => $fallbackScore,
+                    'risk_factors'               => json_encode($riskFactors),
+                    'recommended_amount'         => $recommendedAmount,
                 ]);
             }
 
             if (request()->expectsJson()) {
                 return response()->json([
                     'success'        => true,
-                    'score'          => $safeScore,
-                    'analysis_note'  => $fallbackNote,
+                    'score'          => null,
+                    'risk_level'     => $riskLevel,
+                    'analysis_note'  => 'Document scan failed. Documents marked unverified.',
                     'has_risk_flags' => true,
-                    'message'        => 'AI Scan completed with baseline profile evaluation.'
+                    'message'        => 'AI Scan failed. Documents marked unverified.',
                 ]);
             }
-            return back()->with('success', 'AI Credit Scan completed with fallback score: ' . $safeScore);
+            return back()->with('error', 'AI Scan failed. Documents marked unverified.');
         }
+    }
+
+    /**
+     * Manually trigger payment reminders (admin only).
+     */
+    public function runReminders(Request $request)
+    {
+        \Log::info("DEBUG: runReminders called");
+        $result = app(PaymentReminderService::class)->run();
+
+        $message = "{$result['sent']} reminders sent, {$result['skipped']} skipped, {$result['errors']} errors";
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'sent'    => $result['sent'],
+                'skipped' => $result['skipped'],
+                'errors'  => $result['errors'],
+                'details' => $result['details'],
+                'message' => $message,
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 }

@@ -19,15 +19,26 @@ class Application extends Model
         'applicant',
         'loan_type',
         'amount',
+        'term_months',
         'status',
         'ai_score',
         'ai_analysis_note',
         'has_risk_flags',
+        'remaining_balance',
+        'next_due_date',
+        'disbursement_date',
+        'recommended_amount',
+        'risk_level',
+        'risk_score',
+        'risk_factors',
+        'approved_amount',
+        'admin_remarks',
     ];
 
     protected $casts = [
         'amount'   => 'decimal:2',
         'ai_score' => 'integer',
+        'next_due_date' => 'date',
     ];
 
     public function loanApplication(): BelongsTo
@@ -36,23 +47,12 @@ class Application extends Model
     }
 
     /**
-     * Get AI score with fallback for pending applications.
+     * Get AI score. Returns the stored value as-is; null when no score yet.
+     * No fabricated fallback — the UI shows N/A when there's no real score.
      */
-    public function getAiScoreAttribute($value)
+    public function getAiScoreAttribute($value): ?int
     {
-        if ($value !== null) {
-            return $value;
-        }
-
-        if ($this->relationLoaded('loanApplication') && $this->loanApplication) {
-            $loanApp = $this->loanApplication;
-            if ($loanApp->monthly_income > 0 && $loanApp->amount > 0) {
-                $ratio = $loanApp->amount / $loanApp->monthly_income;
-                return max(1, min(100, (int) round(50 - $ratio * 10)));
-            }
-        }
-
-        return null;
+        return $value !== null ? (int) $value : null;
     }
 
     public function getAiScorePendingAttribute(): bool

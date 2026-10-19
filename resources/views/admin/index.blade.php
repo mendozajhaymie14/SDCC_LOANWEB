@@ -23,9 +23,6 @@
   @endif
 </div>
 
-<!-- GLOBAL OVERLAY FOR MODALS -->
-<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
-
 @include('admin.footer')
 
 </body>

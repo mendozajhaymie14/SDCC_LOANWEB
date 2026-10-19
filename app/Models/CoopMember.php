@@ -18,6 +18,10 @@ class CoopMember extends Model
         'is_registered',
         'status',
         'user_id',
+        'approved_credit_limit',
+        'share_capital',
+        'savings_balance',
+        'is_migs',
     ];
 
     protected $casts = [

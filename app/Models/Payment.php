@@ -21,6 +21,7 @@ class Payment extends Model
         'payment_date',
         'encoded_by',
         'notes',
+        'payment_method',
     ];
 
     protected $casts = [

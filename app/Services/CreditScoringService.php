@@ -14,14 +14,17 @@ class CreditScoringService
      * Evaluates uploaded documents against Educational Loan Proof of Purpose requirements
      * and returns a credit score with detailed notes.
      *
-     * Three Scenarios:
-     *   Scenario A: No uploaded documents          → score = 30, warning note
-     *   Scenario B: Matched Educational Documents   → score = 85 (or 25 on name mismatch)
-     *   Scenario C: Mismatched / Invalid Documents   → score = 40, mismatch note
+     * Scenarios:
+     *   No documents        → base score (rule-based), documents unverified note
+     *   Matched docs        → base score + doc component, truthful verification note
+     *   Mismatched docs     → base score (rule-based), mismatch note
+     *
+     * The score always equals the LoanEvaluationService rule-based score (0-100).
+     * Document analysis only adjusts the documents component (0-15 pts).
      *
      * @param LoanApplication|Application $loanApp
      * @param array|null $documents
-     * @return array{'score': int, 'analysis_note': string, 'has_risk_flags': bool}
+     * @return array{score: int, analysis_note: string, has_risk_flags: bool, risk_level: string, risk_factors: array<int,string>, recommended_amount: float}
      */
     public function evaluateAndScan($loanApp, ?array $documents = null): array
     {
@@ -32,7 +35,10 @@ class CreditScoringService
         $applicantName = trim($loanApp->full_name ?? $loanApp->applicant ?? '');
         $application = ($loanApp instanceof Application) ? $loanApp : ($loanApp->application ?? null);
 
-        // Expanded Educational Loan keyword verification rules
+        // Determine loan type for document verification rules
+        $loanType = $loanApp->loan_type ?? 'regular';
+
+        // Define document verification rules per loan type
         $eduRegistrationKeywords = [
             'Certificate of Enrollment',
             'Enrollment',
@@ -51,15 +57,44 @@ class CreditScoringService
             'Total Due',
         ];
 
-        // Scenario A: No uploaded documents
+        $emergencyKeywords = [
+            'Hospitalization',
+            'Medical Certificate',
+            'Doctor\'s Note',
+            'Hospital Bill',
+            'Medical Receipt',
+            'Typhoon',
+            'Flood',
+            'Fire',
+            'Earthquake',
+            'Natural Disaster',
+            'Accident Report',
+            'Police Report',
+            'Barangay Certificate',
+            'Emergency',
+            'Urgent',
+            'Calamity',
+            'Disaster Relief',
+        ];
+
+        // Compute the base rule-based score and also retrieve full evaluation
+        // (reasons, recommended_amount, risk_level) so we can return them.
+        $eval = $this->computeBaseScoreWithEvaluation($loanApp);
+
+        // Scenario A: No uploaded documents — documents unverified, truthful note
         if (empty($documents)) {
-            $score = 30;
-            $note = 'AI Scan Warning: No supporting documents uploaded. Missing School Registration/ID, Statement of Account/Tuition Fee, or School Materials List.';
-            $this->persistScore($application, $loanApp, $score, $note);
+            $score = $eval['risk_score'];
+            $note = 'AI Scan: No supporting documents uploaded. Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
+            $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+            $riskFactors = $eval['reasons'] ?? [];
+            $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
-                'score' => 30,
+                'score' => $score,
                 'analysis_note' => $note,
-                'has_risk_flags' => true
+                'has_risk_flags' => $score < 50,
+                'risk_level' => $riskLevel,
+                'risk_factors' => $riskFactors,
+                'recommended_amount' => $eval['recommended_amount'] ?? 0.0
             ];
         }
 
@@ -67,13 +102,18 @@ class CreditScoringService
         $firstDoc = $documents[0] ?? null;
 
         if (!$firstDoc) {
-            $score = 30;
-            $note = 'AI Scan Warning: No supporting documents uploaded. Missing School Registration/ID, Statement of Account/Tuition Fee, or School Materials List.';
-            $this->persistScore($application, $loanApp, $score, $note);
+            $score = $eval['risk_score'];
+            $note = 'AI Scan: No supporting documents uploaded. Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
+            $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+            $riskFactors = $eval['reasons'] ?? [];
+            $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
-                'score' => 30,
+                'score' => $score,
                 'analysis_note' => $note,
-                'has_risk_flags' => true
+                'has_risk_flags' => $score < 50,
+                'risk_level' => $riskLevel,
+                'risk_factors' => $riskFactors,
+                'recommended_amount' => $eval['recommended_amount'] ?? 0.0
             ];
         }
 
@@ -103,30 +143,54 @@ class CreditScoringService
         $normalizedOcrText = mb_strtolower($ocrText);
         $normalizedApplicant = mb_strtolower($applicantName);
 
-        // 1. Check for Certificate of Enrollment / Registration proof
-        $hasEnrollmentProof = false;
-        foreach ($eduRegistrationKeywords as $keyword) {
-            if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
-                $hasEnrollmentProof = true;
-                break;
-            }
-        }
-        $enrollmentProofTypes = ['certificate of enrollment', 'enrollment form', 'registration form', 'officially enrolled', 'student id', 'school year'];
-        if (in_array(mb_strtolower($acceptedProofType ?? ''), $enrollmentProofTypes)) {
-            $hasEnrollmentProof = true;
-        }
+        // 1. Check for Proof of Purpose — loan-type-aware
+        $hasPrimaryProof = false;
+        $hasSecondaryProof = false;
+        $docSummary = '';
 
-        // 2. Check for Statement of Account / Tuition Fee proof
-        $hasTuitionProof = false;
-        foreach ($eduTuitionKeywords as $keyword) {
-            if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
-                $hasTuitionProof = true;
-                break;
+        if ($loanType === 'emergency') {
+            foreach ($emergencyKeywords as $keyword) {
+                if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
+                    $hasPrimaryProof = true;
+                    break;
+                }
             }
-        }
-        $tuitionProofTypes = ['statement of account', 'tuition fee breakdown', 'tuition fee statement', 'billing'];
-        if (in_array(mb_strtolower($acceptedProofType ?? ''), $tuitionProofTypes)) {
-            $hasTuitionProof = true;
+            $emergencyProofTypes = [
+                'hospitalization', 'medical certificate', 'hospital bill',
+                'medical receipt', 'doctor\'s note', 'typhoon', 'flood', 'fire',
+                'earthquake', 'natural disaster', 'accident report', 'police report',
+                'barangay certificate', 'emergency', 'calamity', 'disaster relief',
+            ];
+            if (in_array(mb_strtolower($acceptedProofType ?? ''), $emergencyProofTypes)) {
+                $hasPrimaryProof = true;
+            }
+            $hasSecondaryProof = $hasPrimaryProof;
+            $docSummary = $hasPrimaryProof ? 'Emergency documentation verified' : 'Emergency documentation not identified';
+        } else {
+            foreach ($eduRegistrationKeywords as $keyword) {
+                if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
+                    $hasPrimaryProof = true;
+                    break;
+                }
+            }
+            $enrollmentProofTypes = ['certificate of enrollment', 'enrollment form', 'registration form', 'officially enrolled', 'student id', 'school year'];
+            if (in_array(mb_strtolower($acceptedProofType ?? ''), $enrollmentProofTypes)) {
+                $hasPrimaryProof = true;
+            }
+
+            foreach ($eduTuitionKeywords as $keyword) {
+                if (str_contains($normalizedOcrText, mb_strtolower($keyword))) {
+                    $hasSecondaryProof = true;
+                    break;
+                }
+            }
+            $tuitionProofTypes = ['statement of account', 'tuition fee breakdown', 'tuition fee statement', 'billing'];
+            if (in_array(mb_strtolower($acceptedProofType ?? ''), $tuitionProofTypes)) {
+                $hasSecondaryProof = true;
+            }
+            $docSummary = $hasPrimaryProof && $hasSecondaryProof
+                ? 'Educational documents verified'
+                : 'Educational documents not fully verified';
         }
 
         // 3. Applicant name matching
@@ -141,46 +205,70 @@ class CreditScoringService
             $nameMatch = $isValidDocument;
         }
 
-        // SCENARIO B: Matched Educational Documents
-        if ($hasEnrollmentProof && $hasTuitionProof) {
+        // SCENARIO B: Matched Documents
+        if ($hasPrimaryProof && $hasSecondaryProof) {
             if ($nameMatch) {
-                $score = 85;
-                $note = 'AI Scan Complete: Verified Educational Loan requirements for ' . ($applicantName ?: 'the applicant') . ' matched successfully.';
+                $score = min(100, $eval['risk_score'] + 15);
+                $note = 'AI Scan: ' . $docSummary . ' for ' . ($applicantName ?: 'the applicant') . '. Document verification adds 15 pts to the rule-based score.';
+                $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+                $riskFactors = $eval['reasons'] ?? [];
+                $riskFactors[] = 'Documents verified';
                 $has_risk_flags = false;
             } else {
-                $score = 25;
-                $note = '❌ CRITICAL RISK: Document name mismatch. Uploaded document does not match applicant name (' . ucwords($applicantName) . ').';
+                $score = $eval['risk_score'];
+                $note = '❌ CRITICAL RISK: Document name mismatch. Uploaded document does not match applicant name (' . ucwords($applicantName) . '). Documents not verified automatically; manual review required.';
+                $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+                $riskFactors = $eval['reasons'] ?? [];
+                $riskFactors[] = 'Document name mismatch';
                 $has_risk_flags = true;
             }
 
-            $this->persistScore($application, $loanApp, $score, $note);
+            $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
                 'score' => $score,
                 'analysis_note' => $note,
-                'has_risk_flags' => $has_risk_flags
+                'has_risk_flags' => $has_risk_flags,
+                'risk_level' => $riskLevel,
+                'risk_factors' => $riskFactors,
+                'recommended_amount' => $eval['recommended_amount'] ?? 0.0
             ];
         }
 
-        // SCENARIO C: Mismatched / Invalid Documents
-        $score = 40;
-        $note = 'AI Scan Alert: Document mismatch detected. Uploaded document does not satisfy Proof of Purpose requirements (Missing School Registration or Tuition Statement).';
-        $this->persistScore($application, $loanApp, $score, $note);
+        // SCENARIO C: Mismatched / Invalid Documents — documents unverified, truthful note
+        $score = $eval['risk_score'];
+        if ($loanType === 'emergency') {
+            $note = 'AI Scan Alert: Document mismatch detected. Uploaded document does not satisfy Emergency Loan Proof of Purpose requirements (Missing hospitalization, medical certificate, or calamity documentation). Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
+        } else {
+            $note = 'AI Scan Alert: Document mismatch detected. Uploaded document does not satisfy Proof of Purpose requirements (Missing Certificate of Enrollment or Statement of Account/Tuition Fee). Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
+        }
+        $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+        $riskFactors = $eval['reasons'] ?? [];
+        $riskFactors[] = 'Document does not satisfy Proof of Purpose';
+        $has_risk_flags = true;
+
+        $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
 
         return [
             'score' => $score,
             'analysis_note' => $note,
-            'has_risk_flags' => true
+            'has_risk_flags' => true,
+            'risk_level' => $riskLevel,
+            'risk_factors' => $riskFactors,
+            'recommended_amount' => $eval['recommended_amount'] ?? 0.0
         ];
     }
 
     /**
      * Safely persist AI scan results to both Application and LoanApplication records.
      */
-    protected function persistScore(?Application $application, $loanApp, int $score, string $note): void
+    protected function persistScore(?Application $application, $loanApp, int $score, string $note, string $riskLevel, array $riskFactors): void
     {
         if ($application) {
             $application->ai_score = $score;
             $application->ai_analysis_note = $note;
+            $application->risk_level = $riskLevel;
+            $application->risk_score = $score;
+            $application->risk_factors = json_encode($riskFactors);
             if (Schema::hasColumn('applications', 'has_risk_flags')) {
                 $application->has_risk_flags = ($score < 50);
             }
@@ -191,7 +279,58 @@ class CreditScoringService
             $loanApp->ai_score = $score;
             $loanApp->ai_analysis_notes = $note;
             $loanApp->document_processing_status = ($score < 50) ? 'flagged' : 'completed';
+            $loanApp->risk_level = $riskLevel;
+            $loanApp->risk_score = $score;
+            $loanApp->risk_factors = json_encode($riskFactors);
             $loanApp->save();
+        }
+    }
+
+    /**
+     * Compute the base rule-based score and return full evaluation result
+     * from LoanEvaluationService including reasons and recommended_amount.
+     */
+    private function computeBaseScoreWithEvaluation($loanApp): array
+    {
+        try {
+            $eval = app(LoanEvaluationService::class)->evaluate($loanApp);
+            return [
+                'risk_score' => (int) $eval['risk_score'],
+                'reasons'    => $eval['reasons'] ?? [],
+                'recommended_amount' => $eval['recommended_amount'] ?? 0.0,
+            ];
+        } catch (\Throwable $e) {
+            // Fallback if evaluation fails
+            Log::warning('Failed to compute base score from LoanEvaluationService', [
+                'loan_app_id' => $loanApp?->id,
+                'error'       => $e->getMessage(),
+            ]);
+            return [
+                'risk_score' => 50,
+                'reasons'    => ['Rule-based evaluation unavailable'],
+                'recommended_amount' => 0.0,
+            ];
+        }
+    }
+
+    /**
+     * Compute the base rule-based score (0-100) from LoanEvaluationService.
+     * This is the "declared data only" score before any document adjustment.
+     * Used when documents are missing/unverified to ensure ai_score always equals
+     * the LoanEvaluationService rule-based score.
+     */
+    private function computeBaseScore($loanApp): int
+    {
+        try {
+            $eval = app(LoanEvaluationService::class)->evaluate($loanApp);
+            return (int) $eval['risk_score'];
+        } catch (\Throwable $e) {
+            // Fallback if evaluation fails
+            Log::warning('Failed to compute base score from LoanEvaluationService', [
+                'loan_app_id' => $loanApp?->id,
+                'error'       => $e->getMessage(),
+            ]);
+            return 50; // Medium risk fallback
         }
     }
 

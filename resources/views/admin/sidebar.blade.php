@@ -1,3 +1,26 @@
+@php
+    $riskFlagsCount = $riskFlagsCount ?? \App\Models\Application::where('risk_level', 'High')->count();
+
+    // Loan applications that still need an admin decision (pending or flagged by the AI scan)
+    try {
+        $loanAppsCount = $loanAppsCount ?? \App\Models\Application::whereIn(
+            \Illuminate\Support\Facades\DB::raw('LOWER(status)'),
+            ['pending', 'flagged']
+        )->count();
+    } catch (\Throwable $e) {
+        $loanAppsCount = 0;
+    }
+
+    // Membership applications still waiting for review
+    try {
+        $membershipAppsCount = $membershipAppsCount ?? \App\Models\MemberApplication::whereIn(
+            \Illuminate\Support\Facades\DB::raw('LOWER(status)'),
+            ['pending']
+        )->count();
+    } catch (\Throwable $e) {
+        $membershipAppsCount = 0;
+    }
+@endphp
 <aside class="sidebar">
   <a href="{{ url('/dashboard') }}" class="sidebar-logo" title="Main overview">
     <img src="{{ asset('images/logo.jpg') }}" alt="Logo" class="sidebar-custom-logo">
@@ -16,7 +39,7 @@
   <a href="{{ url('/applications') }}" class="nav-item {{ request()->is('applications*') ? 'active' : '' }}" data-tip="Loan Applications">
     <i class="fa-solid fa-file-lines nav-icon"></i>
     <span class="nav-label">Loan Applications</span>
-    <span class="nav-badge" id="badge-apps"></span>
+    <span class="nav-badge red" id="badge-apps">{{ $loanAppsCount }}</span>
   </a>
   <a href="{{ url('/repayments') }}" class="nav-item {{ request()->is('repayments*') ? 'active' : '' }}" data-tip="Repayments">
     <i class="fa-solid fa-arrow-rotate-left nav-icon"></i>
@@ -24,8 +47,8 @@
   </a>
   <a href="{{ url('/memberships') }}" class="nav-item {{ request()->is('memberships*') ? 'active' : '' }}" data-tip="Membership Applications">
     <i class="fa-solid fa-id-card nav-icon"></i>
-    <span class="nav-label">Membership Applications</span>
-    <span class="nav-badge" id="badge-memberships"></span>
+    <span class="nav-label">Membership </span>
+    <span class="nav-badge red" id="badge-memberships">{{ $membershipAppsCount }}</span>
   </a>
 
   <div class="sidebar-section">RISK & MEMBERS</div>
@@ -33,10 +56,10 @@
     <i class="fa-solid fa-users nav-icon"></i>
     <span class="nav-label">Active Members</span>
   </a>
-  <a href="{{ url('/admin/risk-flags') }}" class="nav-item {{ request()->is('risk-flags.index') ? 'active' : '' }}" data-tip="Risk Flags">
+  <a href="{{ url('/admin/risk-flags') }}" class="nav-item {{ request()->is('admin/risk-flags*') ? 'active' : '' }}" data-tip="Risk Flags">
     <i class="fa-solid fa-triangle-exclamation nav-icon"></i>
     <span class="nav-label">Risk Flags</span>
-    <span class="nav-badge red"></span>
+    <span class="nav-badge red">{{ $riskFlagsCount }}</span>
   </a>
 
   <div class="sidebar-section">ADMINISTRATION</div>

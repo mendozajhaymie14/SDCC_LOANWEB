@@ -82,7 +82,7 @@
     <a href="{{ route('applications.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card gold" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
-          <div class="kpi-label" style="color: #374151 !important;">Pending Applications</div>
+          <div class="kpi-label" style="color: #374151 !important;">Loan Applications</div>
           <div class="kpi-icon gold"></div>
         </div>
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $pendingApplicationsCount ?? 0 }}</div>
@@ -135,7 +135,7 @@
     <div class="panel h-full flex flex-col justify-between">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
         <div>
-          <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1.05rem;">Pending Applications</div>
+          <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1.05rem;">Pending Loan Applications</div>
           <a href="{{ route('applications.index') }}" style="font-size:0.8rem;color:var(--accent);cursor:pointer;margin-top:0.2rem;display:inline-block;text-decoration:none;">View All →</a>
         </div>
         <span class="badge badge-warning">{{ $pendingApplicationsCount ?? 0 }} Pending</span>
@@ -148,6 +148,8 @@
               <th>APPLICANT</th>
               <th>LOAN TYPE</th>
               <th>AMOUNT</th>
+              <th>RECOMMENDED</th>
+              <th>RISK</th>
               <th>STATUS</th>
               <th>AI SCORE</th>
               <th>DATE</th>
@@ -157,26 +159,33 @@
           <tbody>
             @forelse($pendingApplications ?? collect() as $app)
               @php
-                  $rawNumeric = $app->id ?? $app->app_id ?? 0;
-                  $paddedId = 'APP-' . str_pad(is_numeric($rawNumeric) ? $rawNumeric : preg_replace('/[^0-9]/', '', $rawNumeric), 4, '0', STR_PAD_LEFT);
                   $formattedApp = [
-                      'id' => $paddedId,
-                      'app_id' => $paddedId,
-                      'applicant_name' => $app->applicant_name ?? $app->borrower_name ?? $app->user->name ?? 'Applicant',
+                      'id' => $app->app_id,
+                      'app_id' => $app->app_id,
+                      'applicant_name' => $app->loanApplication?->fullName() ?? $app->applicant ?? 'Applicant',
                       'loan_type' => $app->loan_type ?? 'educational',
                       'amount' => $app->amount ?? 0,
                       'status' => $app->status ?? 'pending',
-                      'ai_score' => $app->ai_score ?? 0,
+                      'ai_score' => $app->ai_score,
+                      'risk_level' => $app->risk_level,
+                      'risk_score' => $app->risk_score,
+                      'recommended_amount' => $app->recommended_amount,
                       'ai_analysis_note' => $app->ai_analysis_note ?? 'Pending AI Scan.',
                       'created_at' => isset($app->created_at) ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : 'Oct 13, 2026',
-                      'documents' => $app->documents ?? []
+                      'documents' => $app->loanApplication?->documents ?? [],
                   ];
               @endphp
               <tr>
-                <td class="font-semibold text-gray-700">#{{ $paddedId }}</td>
-                <td><strong>{{ $app->applicant_name ?? $app->borrower_name ?? $app->user->name ?? 'Applicant' }}</strong></td>
+                <td class="font-semibold text-gray-700">#{{ $app->app_id }}</td>
+                <td><strong>{{ $app->loanApplication?->user->name ?? $app->applicant ?? 'Applicant' }}</strong></td>
                 <td><span class="loan-type-tag">{{ $app->loan_type ?? 'educational' }}</span></td>
                 <td>₱{{ number_format($app->amount, 2) }}</td>
+                <td>₱{{ number_format($app->recommended_amount ?? 0, 2) }}</td>
+                <td class="td-mono">
+                  <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
+                    {{ ucfirst($app->risk_level ?? 'None') }}
+                  </span>
+                </td>
                 <td>
                     <span class="status-pill {{ strtolower($app->status ?? 'pending') }}">
                         <span class="status-dot"></span>{{ ucfirst($app->status ?? 'pending') }}
@@ -184,14 +193,16 @@
                 </td>
                 <td class="td-mono">
                   @php
-                      $score = $app->ai_score ?? 0;
-                      if ($score >= 80) {
-                          $badgeStyle = 'background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;';
-                      } elseif ($score >= 50) {
-                          $badgeStyle = 'background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a;';
-                      } else {
-                          $badgeStyle = 'background-color: #ffe4e6; color: #9f1239; border: 1px solid #fecdd3;';
-                      }
+                    $score = $app->ai_score;
+                    if ($score !== null && $score >= 80) {
+                        $badgeStyle = 'background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;';
+                    } elseif ($score !== null && $score >= 50) {
+                        $badgeStyle = 'background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a;';
+                    } elseif ($score !== null) {
+                        $badgeStyle = 'background-color: #ffe4e6; color: #9f1239; border: 1px solid #fecdd3;';
+                    } else {
+                        $badgeStyle = 'background-color: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db;';
+                    }
                   @endphp
                   <span class="px-2.5 py-1 text-xs font-bold rounded-full" style="{{ $badgeStyle }} padding: 0.2rem 0.6rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; display: inline-block;">
                       {{ $app->ai_score ?? 'N/A' }}
@@ -209,7 +220,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="8" style="text-align:center;color:var(--muted);padding:2rem;">No pending applications.</td>
+                <td colspan="10" style="text-align:center;color:var(--muted);padding:2rem;">No pending applications.</td>
               </tr>
             @endforelse
           </tbody>
@@ -236,12 +247,12 @@
               @forelse($loanTypes ?? [] as $loanType)
                 <tr>
                   <td class="font-semibold text-gray-700" style="text-transform: capitalize;">
-                    {{ strtolower($loanType->loan_type ?? $loanType->name ?? 'Educational') }}
+                    {{ config('loan_matrix.loan_types.' . $loanType->loan_type, ucfirst($loanType->loan_type)) }}
                   </td>
                   <td style="text-align: center;">
                     <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">
                       <div style="width: 80px; height: 8px; background: #e5e7eb; border-radius: 9999px; overflow: hidden;">
-                        <div style="width: {{ ($loanType->count ?? 19) * 5 }}%; height: 100%; background: linear-gradient(90deg, #10b981, #059669);"></div>
+                        <div style="width: {{ round(($loanType->count / max(1, $loanTypes->sum('count'))) * 100) }}%; height: 100%; background: linear-gradient(90deg, #10b981, #059669);"></div>
                       </div>
                       <span class="font-mono text-sm">{{ $loanType->count ?? 19 }}</span>
                     </div>
@@ -334,6 +345,8 @@
             <th>Applicant</th>
             <th>Loan Type</th>
             <th>Amount</th>
+            <th>Recommended</th>
+            <th>Risk</th>
             <th>Status</th>
             <th>AI Score</th>
             <th>Date</th>
@@ -344,25 +357,34 @@
           @forelse($applications as $app)
             @php
                 $formattedApp = [
-                    'id' => $app->id,
+                    'id' => $app->app_id,
                     'app_id' => $app->app_id,
-                    'applicant_name' => $app->applicant,
-                    'borrower_name' => $app->applicant,
-                    'applicant' => $app->applicant,
+                    'applicant_name' => $app->loanApplication?->user->name ?? $app->applicant,
+                    'borrower_name' => $app->loanApplication?->user->name ?? $app->applicant,
+                    'applicant' => $app->loanApplication?->user->name ?? $app->applicant,
                     'loan_type' => $app->loan_type,
                     'amount' => $app->amount,
                     'status' => $app->status,
                     'ai_score' => $app->ai_score,
+                    'risk_level' => $app->risk_level,
+                    'risk_score' => $app->risk_score,
+                    'recommended_amount' => $app->recommended_amount,
                     'ai_analysis_note' => $app->ai_analysis_note,
                     'created_at' => $app->created_at,
-                    'documents' => $app->loanApplication->documents ?? [],
+                    'documents' => $app->loanApplication?->documents ?? [],
                 ];
             @endphp
             <tr data-status="{{ strtolower($app->status) }}">
               <td class="td-mono">#{{ $app->app_id }}</td>
-              <td><strong>{{ $app->applicant }}</strong></td>
+              <td><strong>{{ $app->loanApplication?->user->name ?? $app->applicant }}</strong></td>
               <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
               <td>₱{{ number_format($app->amount, 2) }}</td>
+              <td>₱{{ number_format($app->recommended_amount ?? 0, 2) }}</td>
+              <td class="td-mono">
+                <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
+                  {{ ucfirst($app->risk_level ?? 'None') }}
+                </span>
+              </td>
               <td>
                 <span class="status-pill {{ strtolower($app->status) }}">
                   <span class="status-dot"></span>{{ ucfirst($app->status) }}
@@ -371,12 +393,12 @@
               <td class="td-mono">{{ $app->ai_score ?? 'N/A' }}</td>
               <td>{{ $app->created_at?->format('M d') ?? '—' }}</td>
               <td>
-                <button class="btn-review" type="button" onclick="openApplicationModal({{ json_encode($formattedApp) }}">View</button>
+                <button class="btn-review" type="button" onclick="openApplicationModal({{ json_encode($formattedApp) }})">View</button>
               </td>
             </tr>
           @empty
             <tr>
-              <td colspan="8" style="text-align:center;color:var(--muted);padding:2rem;">No applications found.</td>
+              <td colspan="10" style="text-align:center;color:var(--muted);padding:2rem;">No applications found.</td>
             </tr>
           @endforelse
         </tbody>
@@ -397,7 +419,7 @@
 <script>
   // Monthly Disbursements vs Repayments Bar Chart
   const disbursementChartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+    labels: {!! json_encode($monthLabels) !!},
     datasets: [
       {
         label: 'Disbursements',

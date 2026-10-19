@@ -31,11 +31,6 @@ return [
     |--------------------------------------------------------------------------
     | Form Options for Dropdowns
     |--------------------------------------------------------------------------
-    |
-    | These options are used in the loan application form for monthly income
-    | and source of income dropdowns. Keeping them here ensures consistency
-    | between the view and the validation rules.
-    |
     */
 
     'form_options' => [
@@ -77,7 +72,7 @@ return [
             'rate' => 0.12,
         ],
         'healthcare' => [
-            'max_amount' => 2000000,
+            'max_amount' => 'healthcare_plan',
             'terms' => [12],
             'collateral_options' => ['None'],
             'requirements' => [
@@ -113,7 +108,7 @@ return [
             'rate' => 0.12,
         ],
         'educational' => [
-            'max_amount' => 2000000,
+            'max_amount' => 'approved_credit_limit',
             'terms' => [36],
             'collateral_options' => ['Chattel', 'Real Estate Mortgage'],
             'requirements' => [
@@ -123,7 +118,7 @@ return [
             'rate' => 0.12,
         ],
         'emergency' => [
-            'max_amount' => 2000000,
+            'max_amount' => '20%_credit_limit',
             'terms' => [36],
             'collateral_options' => ['Chattel', 'Real Estate Mortgage'],
             'requirements' => [
@@ -134,7 +129,10 @@ return [
             'rate' => 0.12,
         ],
         'recovery' => [
-            'max_amount' => 30000,
+            'max_amount' => [
+                'MIGS'   => '50%_share_cap_capped_30000',
+                'NON-MIGS' => '50%_share_cap_capped_15000',
+            ],
             'terms' => [24],
             'collateral_options' => ['None'],
             'requirements' => [
@@ -156,7 +154,7 @@ return [
             'rate' => 0.12,
         ],
         'share_cap' => [
-            'max_amount' => 15000,
+            'max_amount' => 'share_capital_15000_minimum',
             'terms' => [12],
             'collateral_options' => ['100% Share Capital'],
             'requirements' => [
@@ -166,7 +164,7 @@ return [
             'rate' => 0.12,
         ],
         'special' => [
-            'max_amount' => 2000000,
+            'max_amount' => 'approved_credit_limit',
             'terms' => [120],
             'collateral_options' => ['TCT and Machinery & Equipment'],
             'requirements' => [
@@ -190,4 +188,17 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Interest Settings
+    |--------------------------------------------------------------------------
+    |
+    | Monthly interest rate applied across all loan types. Placeholder default:
+    | 1.00 % per month (~12 %/yr). SDCC to confirm real rate-by-term table.
+    |
+    */
+
+    'interest' => [
+        'monthly_rate' => 0.01,
+    ],
 ];

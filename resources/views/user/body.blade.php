@@ -154,14 +154,13 @@
               <button type="submit" class="link-withdraw">Withdraw</button>
             </form>
           @elseif (in_array($application->status, ['approved', 'disbursed']) && $application->remaining_balance > 0)
-            <button type="button"
-                    class="btn-mark-paid"
-                    data-reference="{{ $application->reference }}"
-                    data-remaining="{{ number_format($application->remaining_balance, 2) }}"
-                    data-url="{{ route('loans.pay', $application) }}">
-              Mark as Paid
-            </button>
-          @endif
+  <div class="app-cell-label">
+    Balance: ₱{{ number_format($application->remaining_balance, 2) }}
+    @if ($application->next_due_date)
+      &middot; Next due {{ $application->next_due_date->format('d M Y') }}
+    @endif
+  </div>
+@endif
         </div>
       </article>
     @endforeach

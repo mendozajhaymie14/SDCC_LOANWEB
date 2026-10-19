@@ -142,7 +142,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Reference Number</label>
-          <input type="text" name="reference_number" class="form-input" placeholder="Optional reference"/>
+          <input type="text" name="reference_no" class="form-input" placeholder="Optional reference"/>
         </div>
         <div class="form-group">
           <label class="form-label">Payment Date</label>

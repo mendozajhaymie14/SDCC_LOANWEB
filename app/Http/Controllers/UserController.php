@@ -7,6 +7,7 @@ use App\Models\Application;
 use App\Models\LoanApplication;
 use App\Models\Payment;
 use App\Services\AmortizationService;
+use App\Services\LoanEvaluationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -179,38 +180,48 @@ class UserController extends Controller
 
         $application = LoanApplication::create($data);
 
-        // ─── AI DOCUMENT ANALYSIS ───
-        // Run asynchronously so the member isn't kept waiting. The score
-        // is written back to both tables when the job finishes.
-        $declaredIncome = (float) $request->input('monthly_income');
-        $requestedAmount = (float) $request->input('amount');
+        $requestedAmount = (float) $data['amount'];
+        $declaredIncome  = (float) $data['monthly_income'];
 
-        Queue::push(new ProcessLoanDocuments(
-            $application->id,
-            $documentPaths,
-            $declaredIncome,
-            $requestedAmount
-        ));
+        // ─── RULE-BASED EVALUATION (SYNCHRONOUS) ───
+        $evaluation  = app(LoanEvaluationService::class)->evaluate($application);
+        $riskFactors = is_array($evaluation['details'] ?? null)
+            ? json_encode($evaluation['details'])
+            : null;
+
+        $application->update([
+            'recommended_amount' => $evaluation['recommended_amount'],
+            'risk_level'         => $evaluation['risk_level'],
+            'risk_score'         => $evaluation['risk_score'],
+            'risk_factors'       => $riskFactors,
+        ]);
 
         // ─── MIRROR INTO THE ADMIN APPLICATIONS TABLE ───
-        // Your admin dashboard reads from `applications`, not
-        // `loan_applications`, so every member submission gets a matching
-        // row there too. The link lets AdminController::approve()/reject()
-        // update this same LoanApplication's status further down.
-        // Include soft-deleted rows so a withdrawn mirror row's app_id can
-        // never be reissued. (Application::max('id') alone adds WHERE deleted_at IS NULL.)
         $lastId = Application::withTrashed()->max('id') ?? 0;
         $appId  = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
         Application::create([
             'loan_application_id' => $application->id,
-            'app_id'    => $appId,
-            'applicant' => $application->full_name,
-            'loan_type' => $application->loan_type,
-            'amount'    => $application->amount,
-            'status'    => 'Pending',
-            'ai_score'  => null, // Filled in by the document analysis job
+            'app_id'              => $appId,
+            'applicant'           => $application->full_name,
+            'loan_type'           => $application->loan_type,
+            'amount'              => $application->amount,
+            'status'              => 'Pending',
+            'recommended_amount'  => $evaluation['recommended_amount'],
+            'risk_level'          => $evaluation['risk_level'],
+            'risk_score'          => $evaluation['risk_score'],
+            'risk_factors'        => $riskFactors,
+            'ai_score'            => null, // filled in by the document analysis job
         ]);
+
+        // ─── AI DOCUMENT ANALYSIS ───
+        // Runs after the mirror row exists so the job can copy ai_score into it.
+        // A scan problem must never break the member's submission.
+        try {
+            ProcessLoanDocuments::dispatch($application->id, (float) $declaredIncome, (float) $requestedAmount, $documentPaths);
+        } catch (\Throwable $e) {
+            \Log::warning('Could not start document analysis: ' . $e->getMessage());
+        }
 
         return redirect()
             ->route('user.dashboard')
@@ -237,75 +248,7 @@ class UserController extends Controller
         return back()->with('success', 'Application withdrawn.');
     }
 
-    /**
-     * Mark a loan as fully paid by the member.
-     *
-     * Records a Payment, zeroes out remaining_balance, and clears
-     * next_due_date. Returns JSON for AJAX callers.
-     */
-    public function markAsPaid(Request $request, LoanApplication $application)
-    {
-        abort_unless($application->user_id === Auth::id(), 403);
-
-        if (!in_array($application->status, ['approved', 'disbursed'], true)) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Only approved loans can be marked as paid.',
-                ], 422);
-            }
-            return back()->with('error', 'Only approved loans can be marked as paid.');
-        }
-
-        $remainingBalance = (float) ($application->remaining_balance ?? 0);
-        if ($remainingBalance <= 0) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This loan has no remaining balance to pay.',
-                ], 422);
-            }
-            return back()->with('error', 'This loan has no remaining balance to pay.');
-        }
-
-        $amount = $remainingBalance;
-        $application->update([
-            'remaining_balance' => 0.0,
-            'status'           => 'paid',
-            'next_due_date'    => null,
-        ]);
-
-        Payment::create([
-            'loan_application_id' => $application->id,
-            'user_id'             => Auth::id(),
-            'amount_paid'         => $amount,
-            'remaining_balance_after' => 0.0,
-            'payment_date'        => now(),
-            'payment_method'      => 'member_portal',
-            'notes'               => 'Marked as paid by member.',
-        ]);
-
-        // Sync the mirrored admin Application row
-        Application::where('loan_application_id', $application->id)->update([
-            'remaining_balance' => 0.0,
-            'status'            => 'Paid',
-        ]);
-
-        $message = "Payment of ₱" . number_format($amount, 2) . " recorded. "
-                 . "Loan {$application->reference} is now fully paid.";
-
-        if ($request->expectsJson()) {
-            return response()->json([
-                'success'          => true,
-                'message'          => $message,
-                'remaining_balance' => 0.0,
-                'reference'        => $application->reference,
-            ]);
-        }
-
-        return back()->with('success', $message);
-    }
-
+    
     /**
      * Show the member's amortization schedule for a loan application.
      */

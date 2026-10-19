@@ -112,7 +112,23 @@ class User extends Authenticatable
         return Attribute::make(
             get: function () {
                 $parts = explode(' ', trim($this->name ?? ''));
-                return count($parts) > 2 ? implode(' ', array_slice($parts, 1, -1)) : null;
+                if (count($parts) <= 2) return null;
+
+                // Detect compound surname prefixes in what would be the "middle" position
+                // e.g., "Juan Dela Cruz" -> parts = ["Juan", "Dela", "Cruz"]
+                // "Dela" is a compound prefix, so it's actually part of the surname
+                $compoundPrefixes = ['De', 'Dela', 'Del', 'Van', 'Von', 'Mc', 'Mac', 'Di', 'Da'];
+                $middleStart = 1;
+
+                // If there are 3+ parts and the second part is a compound prefix,
+                // the middle starts from the third part (the rest of the surname)
+                if (count($parts) >= 3 && in_array(mb_ucfirst($parts[1]), $compoundPrefixes, true)) {
+                    $middleStart = 2;
+                }
+
+                return count($parts) > $middleStart
+                    ? implode(' ', array_slice($parts, $middleStart, -1))
+                    : null;
             }
         );
     }
@@ -125,7 +141,19 @@ class User extends Authenticatable
         return Attribute::make(
             get: function () {
                 $parts = explode(' ', trim($this->name ?? ''));
-                return count($parts) > 1 ? end($parts) : '';
+                if (count($parts) < 2) return end($parts) ?: '';
+
+                // Detect compound surname prefixes
+                // e.g., "Juan Dela Cruz" -> parts = ["Juan", "Dela", "Cruz"]
+                // Should return "Dela Cruz" not just "Cruz"
+                $compoundPrefixes = ['De', 'Dela', 'Del', 'Van', 'Von', 'Mc', 'Mac', 'Di', 'Da'];
+
+                if (count($parts) >= 3 && in_array(mb_ucfirst($parts[1]), $compoundPrefixes, true)) {
+                    // Compound surname: return last two parts joined
+                    return $parts[1] . ' ' . end($parts);
+                }
+
+                return end($parts) ?: '';
             }
         );
     }

@@ -6,8 +6,8 @@
     <!-- Header Section -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
-            <h1 style="font-size: 1.5rem; font-weight: 700; color: #101828; margin: 0;">AI Risk Flags</h1>
-            <p style="font-size: 0.875rem; color: #667085; margin-top: 0.25rem;">Flagged Applications: {{ $riskFlagsCount ?? count($flaggedApplications) }}</p>
+            <h1 style="font-size: 1.5rem; font-weight: 700; color: #101828; margin: 0;">Risk Flags</h1>
+            <p style="font-size: 0.875rem; color: #667085; margin-top: 0.25rem;">High Risk Applications: {{ $riskFlagsCount ?? count($flaggedApplications) }}</p>
         </div>
 
         <!-- KPI Summary Badges -->
@@ -34,10 +34,11 @@
                 <tr style="border-bottom: 1px solid #eaecf0;">
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">App ID</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Borrower Name</th>
-                    <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">AI Score</th>
+                    <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Risk Level</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Flag Reason</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Loan Type</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Amount</th>
+                    <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Recommended</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Date</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Action</th>
                 </tr>
@@ -51,24 +52,11 @@
                         <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
                             {{ $flag->applicant }}
                         </td>
-                        <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
-                            <div style="font-weight: 700; color: #dc2626; font-size: 0.9rem;">
-                                {{ $flag->ai_score }}/100 (High Risk)
-                            </div>
-                            <div style="font-size: 0.75rem; color: #6b7280;">
-                                Risk Score: {{ $flag->ai_score }}%
-                            </div>
+                        <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #dc2626; font-weight: 700;">
+                            High
                         </td>
                         <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
-                            <!-- Flag Reason badge -->
-                            @php
-                                $reason = $flagReasons[$flag->id] ?? 'Flag: Low Document Trust';
-                                $reasonBg = '#fef3c7';
-                                $reasonTxt = '#92400e';
-                            @endphp>
-                            <span style="background-color:{{ $reasonBg }}; color:{{ $reasonTxt }}; border: 1px solid #fde68a; padding: 0.25rem 0.65rem; border-radius: 6px; font-size: 0.775rem; font-weight: 600;">
-                                {{ $reason }}
-                            </span>
+                            {{ $flagReasons[$flag->id] ?? 'High risk factors detected' }}
                         </td>
                         <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
                             <span class="loan-type-tag">{{ $flag->loan_type }}</span>
@@ -77,10 +65,13 @@
                             ₱{{ number_format($flag->amount, 2) }}
                         </td>
                         <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
+                            ₱{{ number_format($flag->recommended_amount ?? 0, 2) }}
+                        </td>
+                        <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
                             {{ \Carbon\Carbon::parse($flag->created_at)->format('M d, Y') }}
                         </td>
                         <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
-                            <a href="{{ route('admin.applications.show', $flag->app_id) }}" style="background-color: #2563eb; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none; display: inline-block;">Review &rarr;</a>
+                            <a href="{{ url('/applications') }}?open={{ urlencode($flag->app_id) }}" style="background-color: #2563eb; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none; display: inline-block;">Review &rarr;</a>
                         </td>
                     </tr>
                 @empty

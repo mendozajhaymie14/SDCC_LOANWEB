@@ -15,14 +15,18 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'two_factor_secret')) {
-                DB::statement('ALTER TABLE users MODIFY two_factor_secret TEXT NULL');
-            }
-            if (Schema::hasColumn('users', 'two_factor_recovery_codes')) {
-                DB::statement('ALTER TABLE users MODIFY two_factor_recovery_codes TEXT NULL');
-            }
-        });
+        $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'mysql' || $driver === 'mariadb') {
+            Schema::table('users', function (Blueprint $table) {
+                if (Schema::hasColumn('users', 'two_factor_secret')) {
+                    DB::statement('ALTER TABLE users MODIFY two_factor_secret TEXT NULL');
+                }
+                if (Schema::hasColumn('users', 'two_factor_recovery_codes')) {
+                    DB::statement('ALTER TABLE users MODIFY two_factor_recovery_codes TEXT NULL');
+                }
+            });
+        }
     }
 
     /**
@@ -30,13 +34,17 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'two_factor_recovery_codes')) {
-                DB::statement('ALTER TABLE users MODIFY two_factor_recovery_codes VARCHAR(100) NULL');
-            }
-            if (Schema::hasColumn('users', 'two_factor_secret')) {
-                DB::statement('ALTER TABLE users MODIFY two_factor_secret VARCHAR(16) NULL');
-            }
-        });
+        $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'mysql' || $driver === 'mariadb') {
+            Schema::table('users', function (Blueprint $table) {
+                if (Schema::hasColumn('users', 'two_factor_recovery_codes')) {
+                    DB::statement('ALTER TABLE users MODIFY two_factor_recovery_codes VARCHAR(100) NULL');
+                }
+                if (Schema::hasColumn('users', 'two_factor_secret')) {
+                    DB::statement('ALTER TABLE users MODIFY two_factor_secret VARCHAR(16) NULL');
+                }
+            });
+        }
     }
 };
