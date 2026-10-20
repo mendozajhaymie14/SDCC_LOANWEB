@@ -102,7 +102,7 @@
       <div class="ai-note-badge" style="display:none;">
         {{ $app->ai_analysis_note ?? $app->loanApplication?->ai_analysis_notes ?? 'No scan performed' }}
       </div>
-      <button class="btn-review" type="button" data-app-id="{{ $app->app_id }}" data-documents='@json($app->loanApplication?->documents ?? [])' data-ai-notes='@json($app->ai_analysis_note ?? $app->loanApplication?->ai_analysis_notes ?? null)' onclick="openAppDetail(event)">View</button>
+      <button class="btn-review" type="button" data-app-id="{{ $app->app_id }}" data-numeric-id="{{ $app->id }}" data-documents='@json($app->loanApplication?->documents ?? [])' data-ai-notes='@json($app->ai_analysis_note ?? $app->loanApplication?->ai_analysis_notes ?? null)' onclick="openAppDetail(event)">View</button>
     </td>
     <td>
       <div class="ai-note-tooltip" style="display:none; padding:0.5rem; background:#f8f9fa; border:1px solid #dee2e6; margin-top:0.5rem; font-size:0.85rem;">
@@ -143,7 +143,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!code) return;
     var btn = document.querySelector('button.btn-review[data-app-id="' + code.replace(/"/g, '') + '"]');
     if (btn) btn.click();
-    // remove ?open= so a refresh doesn't reopen the modal
     window.history.replaceState({}, '', window.location.pathname);
   } catch (e) { console.error(e); }
 });

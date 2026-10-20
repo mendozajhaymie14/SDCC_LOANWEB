@@ -104,19 +104,22 @@ window.renderApplicationModal = function (app) {
                           (typeof app.documents === 'string' && app.documents ? JSON.parse(app.documents) : []);
     const scanNote      = app.ai_analysis_note || app.ai_notes || app.ai_analysis_notes || null;
     const docStatus     = (app.document_processing_status || 'pending').toLowerCase();
-    const lastScan      = app.last_scan_at || app.scanned_at || null;
+    const lastScan      = app.last_scanned_at || app.last_scan_at || app.scanned_at || null;
     let docStatusLabel  = 'Pending scan';
-    if (docStatus === 'completed' && docs.length > 0) docStatusLabel = 'Verified';
-    else if (docStatus === 'flagged') docStatusLabel = 'Unverified';
+    if (docs.length === 0) docStatusLabel = 'No documents';
     else if (docStatus === 'completed') docStatusLabel = 'Verified';
-    else if (docStatus === 'unverified') docStatusLabel = 'Unverified';
+    else if (docStatus === 'flagged' || docStatus === 'unverified') docStatusLabel = 'Unverified';
     const scanNoteDisplay = scanNote && scanNote !== 'null' && String(scanNote).trim() !== ''
         ? scanNote : 'Pending AI Scan. Click "⚡ AI Scan" below to evaluate attached documents.';
     const scanTimeDisplay = lastScan ? new Date(lastScan).toLocaleString() : 'Never';
-    const appId         = String(app.app_id || app.id || '').replace(/^#?(?:APP-)?/i, '');
+    /* displayId is the "APP-0021" number shown to people; appId is the real database id used by the routes */
+    const displayId     = String(app.app_id || app.id || '').replace(/^#?(?:APP-)?/i, '');
+    const rawId         = String(app.id || '');
+    const appId         = /^\d+$/.test(rawId) ? rawId : displayId;
+    window._modalRecommended = Number(recommended) || 0;
 
     const titleEl = document.getElementById('appDetailTitle');
-    if (titleEl) titleEl.textContent = '#APP-' + appId + ' — ' + applicantName;
+    if (titleEl) titleEl.textContent = '#APP-' + displayId + ' — ' + applicantName;
 
     const bodyEl = document.getElementById('appDetailBody');
     if (!bodyEl) return;
@@ -126,11 +129,14 @@ window.renderApplicationModal = function (app) {
     if (!docs || docs.length === 0) {
         docsHtml = row('Uploaded Documents', '<span style="color:var(--muted);font-style:italic;">No attached documents found.</span>');
     } else {
-        var badges = docs.map(function (doc) {
-            var fileName = typeof doc === 'string' ? doc.split('/').pop() : (doc.name || doc.path?.split('/').pop() || 'document');
-            var docPath  = typeof doc === 'string' ? doc : (doc.path || '#');
+        var badges = docs.map(function (doc, i) {
+            var docPath = typeof doc === 'string' ? doc : (doc && doc.path ? doc.path : '');
+            if (!docPath) return '';
+            var cleanPath = String(docPath).replace(/^\/?(?:storage\/)?/, '');
+            var ext = (cleanPath.split('.').pop() || '').toUpperCase();
+            var label = 'Document ' + (i + 1) + (ext ? ' (' + ext + ')' : '');
             return '<span style="display:inline-flex;align-items:center;gap:0.2rem;background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;padding:0.35rem 0.65rem;font-size:0.75rem;margin:0.2rem;">' +
-                '📄 <a href="/storage/' + docPath + '" target="_blank" style="color:inherit;text-decoration:none;">' + fileName + '</a>' +
+                '📄 <a href="/storage/' + cleanPath + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">' + label + '</a>' +
                 '</span>';
         }).join('');
         docsHtml = '<div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">' +
@@ -144,7 +150,9 @@ window.renderApplicationModal = function (app) {
     let reasonsHtml = '';
     if (reasonsArr.length > 0) {
         reasonsHtml = reasonsArr.map(function (r) {
-            return '<li style="margin-bottom:0.2rem;font-size:0.85rem;color:#1e293b;">• ' + r + '</li>';
+            var text = (r && typeof r === 'object') ? (r.reason || r.message || '') : r;
+            if (!text) return '';
+            return '<li style="margin-bottom:0.2rem;font-size:0.85rem;color:#1e293b;">' + text + '</li>';
         }).join('');
         reasonsHtml = '<ul style="margin:0;padding-left:1.2rem;font-size:0.85rem;line-height:1.6;">' + reasonsHtml + '</ul>';
     } else {
@@ -260,25 +268,42 @@ window.openAppDetail = function (eventOrId) {
     if (typeof eventOrId === 'object' && eventOrId && eventOrId.currentTarget) {
         var btn = eventOrId.currentTarget;
         window._lastModalBtn = btn;
-        var appId = btn.dataset.appId;
-        /* Strip APP- prefix so numeric ID is sent to routes (->whereNumber) */
-        var numericId = appId.replace(/^APP-/, '');
-        /* Try in-memory lookup first, fall back to a fetch for the full app data */
+        var appId = btn.dataset.appId || '';
+        var numericId = btn.dataset.numericId || String(appId).replace(/^#?APP-/i, '');
+
         if (window.apps && window.apps[numericId]) {
             renderApplicationModal(window.apps[numericId]);
             openModal('applicationModal');
-        } else {
-            /* Fetch fresh data to make sure risk_level, risk_factors etc. are current */
-            fetch('/admin/applications/' + numericId + '/data')
-                .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-                .then(function (data) {
-                    if (data.success) {
-                        renderApplicationModal(data.application);
-                        openModal('applicationModal');
-                    }
-                })
-                .catch(function () { showToast('error', 'Could not load application #' + appId, '❌'); });
+            return;
         }
+
+        /* Open at once with a loading state so the popup is never empty */
+        var titleEl = document.getElementById('appDetailTitle');
+        var bodyEl  = document.getElementById('appDetailBody');
+        if (titleEl) titleEl.textContent = '#' + appId + ' — Loading…';
+        if (bodyEl)  bodyEl.innerHTML = '<div style="padding:2rem 0;text-align:center;color:var(--muted);">Loading application details…</div>';
+        openModal('applicationModal');
+
+        var token = String(Date.now());
+        window._appDetailToken = token;
+
+        fetch('/admin/applications/' + numericId + '/data', {
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        })
+            .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function (data) {
+                if (window._appDetailToken !== token) return;
+                if (!data || !data.success) throw new Error((data && data.message) || 'Application not found');
+                renderApplicationModal(data.application);
+                var m = document.getElementById('modal-applicationModal');
+                if (m && m.style.display === 'none') openModal('applicationModal');
+            })
+            .catch(function (err) {
+                if (window._appDetailToken !== token) return;
+                console.error('Load application failed:', err);
+                if (bodyEl) bodyEl.innerHTML = '<div style="padding:1.5rem 0;text-align:center;color:var(--red);">Could not load this application (' + (err && err.message ? err.message : 'error') + '). Close and try again.</div>';
+            });
     } else {
         openApplicationModal(eventOrId);
     }
@@ -311,11 +336,8 @@ window.confirmApprove = function (appId) {
     var approvedAmountStr = document.getElementById('approvedAmount').value;
     var reason = document.getElementById('approveReason').value.trim();
 
-    /* Look up recommended_amount from the in-memory apps object */
-    var recommended = 0;
-    if (window.apps && window.apps[appId] && window.apps[appId].recommended_amount != null) {
-        recommended = parseFloat(window.apps[appId].recommended_amount) || 0;
-    }
+    /* Recommended amount comes from the modal that is currently open */
+    var recommended = Number(window._modalRecommended) || 0;
     var approvedAmount = parseFloat(approvedAmountStr);
 
     if (approvedAmount > recommended && !reason) {

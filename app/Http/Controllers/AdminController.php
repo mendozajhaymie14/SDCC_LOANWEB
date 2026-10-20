@@ -1032,7 +1032,31 @@ class AdminController extends Controller
             ? LoanApplication::find($application->loan_application_id)
             : null;
 
-        $user = $loanApp?->user;
+        // Uploaded documents (stored as a list of public-disk paths)
+        $documents = [];
+        if ($loanApp && !empty($loanApp->documents)) {
+            $documents = is_array($loanApp->documents)
+                ? $loanApp->documents
+                : (json_decode($loanApp->documents, true) ?: []);
+        }
+        $documents = array_values(array_filter($documents));
+
+        // Risk factors may be a JSON string or an array; always return plain-text reasons too
+        $riskFactors = $application->risk_factors;
+        if (is_string($riskFactors)) {
+            $riskFactors = json_decode($riskFactors, true);
+        }
+        if (!is_array($riskFactors)) {
+            $riskFactors = [];
+        }
+        $reasons = collect($riskFactors)->map(function ($item) {
+            if (is_array($item)) {
+                return $item['reason'] ?? $item['message'] ?? null;
+            }
+            return is_string($item) ? $item : null;
+        })->filter()->values()->all();
+
+        $lastScanned = $application->last_scanned_at ?? null;
 
         return response()->json([
             'success' => true,
@@ -1047,12 +1071,14 @@ class AdminController extends Controller
                 'recommended_amount' => $application->recommended_amount ? (float) $application->recommended_amount : null,
                 'risk_level' => $application->risk_level ?? 'None',
                 'risk_score' => $application->risk_score ?? null,
-                'risk_factors' => $application->risk_factors ? json_decode($application->risk_factors, true) : [],
+                'risk_factors' => $riskFactors,
+                'reasons' => $reasons,
+                'documents' => $documents,
                 'ai_score' => $application->ai_score ?? null,
                 'ai_analysis_note' => $application->ai_analysis_note,
                 'has_risk_flags' => $application->has_risk_flags ?? false,
                 'document_processing_status' => $loanApp?->document_processing_status ?? 'pending',
-                'last_scanned_at' => $application->updated_at ? \Carbon\Carbon::parse($application->updated_at)->format('Y-m-d H:i:s') : null,
+                'last_scanned_at' => $lastScanned ? \Carbon\Carbon::parse($lastScanned)->toIso8601String() : null,
                 'full_name' => $loanApp?->fullName() ?? ($application->applicant ?? 'Applicant'),
                 'monthly_income' => $loanApp ? (float) $loanApp->monthly_income : 0,
                 'existing_monthly_obligations' => $loanApp ? (float) $loanApp->existing_monthly_obligations : 0,
@@ -1234,6 +1260,9 @@ class AdminController extends Controller
             $application->risk_score =$score;
             $application->risk_factors = json_encode($riskFactors);
             $application->recommended_amount =$recommendedAmount;
+            if (Schema::hasColumn('applications', 'last_scanned_at')) {
+                $application->last_scanned_at = now();
+            }
             if (Schema::hasColumn('applications', 'has_risk_flags')) {
                 $application->has_risk_flags =$hasRiskFlags;
             }
@@ -1299,6 +1328,9 @@ class AdminController extends Controller
             $application->risk_score = $fallbackScore;
             $application->risk_factors = json_encode($riskFactors);
             $application->recommended_amount = $recommendedAmount;
+            if (Schema::hasColumn('applications', 'last_scanned_at')) {
+                $application->last_scanned_at = now();
+            }
             $application->save();
 
             if ($loanApp) {
