@@ -25,8 +25,11 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 /storage/framework/views/
-/AI_DOCUMENT_ANALYSIS_RECOMMENDATIONS.md
 graphify-out/
 memory/
 *.sql
 /public/*.pdf
+.env.scratch
+/scripts/dev/
+/test-results/
+/register-*.png

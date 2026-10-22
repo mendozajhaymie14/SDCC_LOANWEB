@@ -26,8 +26,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('loan_applications', function (Blueprint $table) {
-            $table->dropColumn('last_scanned_at');
-        });
+        if (Schema::hasColumn('loan_applications', 'last_scanned_at')) {
+            Schema::table('loan_applications', function (Blueprint $table) {
+                $table->dropColumn('last_scanned_at');
+            });
+        }
     }
 };

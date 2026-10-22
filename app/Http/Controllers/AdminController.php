@@ -16,6 +16,7 @@ use App\Models\MemberApplication;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\LoanStatus;
+use App\Support\Permissions;
 use App\Services\AmortizationService;
 use App\Services\LoanEvaluationService;
 use App\Services\PaymentReminderService;
@@ -26,6 +27,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class AdminController extends Controller
 {
@@ -33,13 +35,14 @@ class AdminController extends Controller
     public function index()
     {
         if (Auth::check()) {
-            $usertype = Auth::user()->usertype;
-
-            if ($usertype === 'admin') {
+            // Staff panel: any role with VIEW_DASHBOARD that is not a portal member.
+            // (Members are redirected to their own portal at the route level.)
+            if (Permissions::has(Auth::user(), Permissions::VIEW_DASHBOARD)
+                && ! Permissions::has(Auth::user(), Permissions::OWN_PORTAL)) {
                 $applications = Application::with('loanApplication.user')->latest()->get();
 
                 $totalDisbursed = (float) LoanApplication::where('status', 'approved')->sum('amount');
-                $activeMembersCount = CoopMember::where('is_registered', true)->count();
+                $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count();
                 $activeBorrowersCount = $activeMembersCount;
 
                 $riskFlagsCount = Application::where('risk_level', 'High')->count();
@@ -238,7 +241,9 @@ class AdminController extends Controller
                     'email'           => $loanApp?->email ?? 'N/A',
                     'phone_number'    => $phone,
                     'monthly_income'  => $monthlyIncome,
-                    'ai_credit_score' => $aiCreditScore,
+                    // Column is NOT NULL with a 600 default; an explicit null
+                    // would violate the constraint when no scan has run yet.
+                    'ai_credit_score' => $aiCreditScore ?? 600,
                     'status'          => 'Active',
                     'address'         => $loanApp?->address ?? null,
                 ]);
@@ -393,8 +398,7 @@ class AdminController extends Controller
     public function borrowers()
     {
         $members = CoopMember::with('user')
-            ->whereNotIn('status', ['Pending', 'pending'])
-            ->whereIn('status', ['Approved', 'approved', 'Active', 'active'])
+            ->where('status', CoopMember::STATUS_ACTIVE)
             ->latest()
             ->get();
 
@@ -411,7 +415,7 @@ class AdminController extends Controller
             'phone'         => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|date',
             'is_registered' => 'boolean',
-            'status'        => 'required|string|in:active,inactive,suspended,approved,Approved',
+            'status'        => 'required|string|in:' . implode(',', CoopMember::STATUSES),
         ]);
 
         $lastId = CoopMember::withTrashed()->max('id') ?? 0;
@@ -422,9 +426,10 @@ class AdminController extends Controller
             'member_id'      => $coopMemberId,
             'full_name'      => $validated['full_name'],
             'email'          => $validated['email'],
+            'contact_number' => $validated['phone'] ?? null,
             'date_of_birth'  => $validated['date_of_birth'] ?? now(),
             'is_registered'  => $request->boolean('is_registered'),
-            'status'         => $validated['status'] ?? 'Approved',
+            'status'         => $validated['status'] ?? CoopMember::STATUS_ACTIVE,
         ]);
 
         return redirect()->route('active-members.index')->with('success', 'Member added successfully!');
@@ -434,10 +439,10 @@ class AdminController extends Controller
     public function approveBorrower($id)
     {
         $member = CoopMember::findOrFail($id);
-        $member->status = 'Approved';
+        $member->status = CoopMember::STATUS_ACTIVE;
         $member->save();
 
-        return redirect()->back()->with('success', 'Member status updated to Approved.');
+        return redirect()->back()->with('success', 'Member status updated to ' . CoopMember::STATUS_ACTIVE . '.');
     }
 
     // 13. Suspend Member
@@ -460,69 +465,121 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'id' => $id]);
     }
 
-    // 15. Admin Users Page
+    // 15. Staff Users Page — lists all four staff roles (admin, branch_manager,
+    //     loan_officer, credit_investigator). Rows with a NULL role are included
+    //     via the orWhereNull fallback so legacy users are still visible.
     public function adminUsers()
     {
-        $admins = User::where('usertype', 'admin')->latest()->get();
+        $admins = User::whereIn('role', Permissions::STAFF_ROLES)
+            ->orWhereNull('role')
+            ->latest()
+            ->get();
         return view('admin.admins', compact('admins'));
     }
 
-    // 16. Store a new admin account
+    // 16. Store a new staff account
     public function storeAdmin(Request $request)
     {
         $validated = $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|max:255|unique:users,email',
             'phone'    => 'nullable|string|max:20',
-            'password' => 'required|string|min:8',
+            'password' => 'nullable|string|min:8',
+            'role'     => 'required|string|in:' . implode(',', Permissions::STAFF_ROLES),
         ]);
+
+        // Password is optional — if the admin does not supply one, generate a
+        // random 16-char string. The generated password is returned ONCE in the
+        // JSON response so the admin can relay it to the new staff member.
+        $password = $validated['password'] ?? Str::password(16, true, true, false);
 
         $user = User::create([
             'name'     => $validated['name'],
             'email'    => $validated['email'],
             'phone'    => $validated['phone'] ?? null,
-            'password' => Hash::make($validated['password']),
+            'password' => Hash::make($password),
+            'usertype' => Permissions::ROLE_USER,
+            'role'     => $validated['role'],
         ]);
-        $user->usertype = 'admin';
-        $user->save();
 
-        return response()->json(['success' => true, 'id' => $user->id]);
+        AuditLog::log(
+            'Staff Account Created',
+            "Staff account created: {$user->name} ({$user->email}) as {$user->role}.",
+            $user->id
+        );
+
+        return response()->json([
+            'success' => true,
+            'id'    => $user->id,
+            'role'  => $user->role,
+            'password' => $validated['password'] ? null : $password,
+        ]);
     }
 
-    // 17. Update an admin account
+    // 17. Update a staff account
     public function updateAdmin(Request $request, $id)
     {
-        $admin = User::where('usertype', 'admin')->findOrFail($id);
+        $user = User::whereIn('role', Permissions::STAFF_ROLES)->findOrFail($id);
+
+        if ($user->id === Auth::id()) {
+            return response()->json(['success' => false, 'message' => 'You cannot edit your own account.'], 422);
+        }
 
         $validated = $request->validate([
-            'name'  => 'required|string|max:255',
-            'email' => 'required|email|max:255',
-            'phone' => 'nullable|string|max:20',
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|email|max:255',
+            'phone'    => 'nullable|string|max:20',
+            'password' => 'nullable|string|min:8',
+            'role'     => 'required|string|in:' . implode(',', Permissions::STAFF_ROLES),
         ]);
 
         Validator::make(
             ['email' => $validated['email']],
-            ['email' => 'required|email|max:255|unique:users,email,' . $admin->id]
+            ['email' => 'required|email|max:255|unique:users,email,' . $user->id]
         )->validated();
 
-        $admin->name  = $validated['name'];
-        $admin->email = $validated['email'];
-        $admin->phone = $validated['phone'] ?? null;
-        $admin->save();
+        $oldRole = $user->role;
+
+        $user->name  = $validated['name'];
+        $user->email = $validated['email'];
+        $user->phone = $validated['phone'] ?? null;
+        $user->role  = $validated['role'];
+        $user->usertype = Permissions::ROLE_USER;
+
+        if ($validated['password']) {
+            $user->password = Hash::make($validated['password']);
+        }
+
+        $user->save();
+
+        AuditLog::log(
+            'Staff Account Updated',
+            "Staff account updated: {$user->name} ({$user->email}).",
+            $user->id,
+            ['role' => $oldRole],
+            ['role' => $validated['role']]
+        );
 
         return response()->json(['success' => true, 'id' => $id]);
     }
 
-    // 18. Delete an admin account
+    // 18. Delete a staff account
     public function destroyAdmin($id)
     {
-        $admin = User::where('usertype', 'admin')->findOrFail($id);
+        $user = User::whereIn('role', Permissions::STAFF_ROLES)->findOrFail($id);
 
-        if ($admin->id === Auth::id()) {
+        if ($user->id === Auth::id()) {
             return response()->json(['success' => false, 'message' => 'You cannot delete your own account.'], 422);
         }
 
-        $admin->delete();
+        $roleBefore = $user->role;
+        $user->delete();
+
+        AuditLog::log(
+            'Staff Account Deleted',
+            "Staff account deleted: {$user->name} ({$user->email}) role={$roleBefore}.",
+            $user->id
+        );
 
         return response()->json(['success' => true, 'id' => $id]);
     }
@@ -535,70 +592,140 @@ class AdminController extends Controller
     }
 
     // 20. Approve a membership application
+    //
+    // One transaction, one outcome: the cooperative membership exists, the
+    // account is linked to it, the account's role becomes 'member', the
+    // membership status is the canonical 'active', the audit trail records
+    // it and the applicant is told in the app.
     public function approveMember($id)
     {
         $application = MemberApplication::findOrFail($id);
-        $existing = CoopMember::where('email', $application->email)->first();
 
-        $userId = $application->user_id;
-        if (!$userId) {
-            $existingUser = User::where('email', $application->email)->first();
-            if ($existingUser) {
-                $userId = $existingUser->id;
+        $member = DB::transaction(function () use ($application) {
+            $userId = $application->user_id;
+
+            if (! $userId) {
+                $existingUser = User::where('email', $application->email)->first();
+                $userId = $existingUser?->id;
             }
-        }
 
-        if (!$existing) {
-            $lastId = CoopMember::max('id') ?? 0;
-            $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+            $coopMember = CoopMember::where('email', $application->email)
+                ->lockForUpdate()
+                ->first();
 
-            $existing = CoopMember::create([
-                'member_id'     => $memberId,
-                'full_name'     => $application->fullName,
-                'date_of_birth' => $application->birthdate,
-                'email'         => $application->email,
-                'is_registered' => (bool) $userId,
-                'user_id'       => $userId,
-                'status'        => 'Approved',
-            ]);
-        } else {
-            $existing->status = 'Approved';
-            if ($application->user_id && !$existing->user_id) {
-                $existing->user_id = $application->user_id;
+            if (! $coopMember) {
+                $lastId = CoopMember::max('id') ?? 0;
+                $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+
+                $coopMember = CoopMember::create([
+                    'member_id'      => $memberId,
+                    'full_name'      => $application->fullName,
+                    'date_of_birth'  => $application->birthdate ?? now(),
+                    'email'          => $application->email,
+                    'contact_number' => $application->contact_number,
+                    'is_registered'  => (bool) $userId,
+                    'user_id'        => $userId,
+                    'status'         => CoopMember::STATUS_ACTIVE,
+                ]);
+            } else {
+                $coopMember->status = CoopMember::STATUS_ACTIVE;
+
+                if ($userId && ! $coopMember->user_id) {
+                    $coopMember->user_id = $userId;
+                }
+
+                $coopMember->save();
             }
-            $existing->save();
-        }
 
-        if ($userId) {
-            $existing->is_registered = true;
-            $existing->user_id = $userId;
-            $existing->save();
+            if ($userId) {
+                $coopMember->is_registered = true;
+                $coopMember->user_id = $userId;
+                $coopMember->save();
 
-            User::where('id', $userId)->update(['coop_member_id' => $existing->id]);
-        }
+                // The account and the membership must agree from now on:
+                // usertype 'member' means "linked to an active coop_members row".
+                $user = User::where('id', $userId)->lockForUpdate()->first();
 
-        $application->status             = 'approved';
-        $application->reviewed_at        = now();
-        $application->reviewed_by        = Auth::id();
-        $application->approved_member_id = $existing->id;
-        $application->save();
+                if ($user) {
+                    $user->coop_member_id = $coopMember->id;
+                    $user->usertype = Permissions::ROLE_MEMBER;
+                    $user->save();
+                }
+            }
+
+            $application->status             = 'approved';
+            $application->reviewed_at        = now();
+            $application->reviewed_by        = Auth::id();
+            $application->approved_member_id = $coopMember->id;
+            $application->save();
+
+            AuditLog::log(
+                'Membership Approved',
+                'Membership application #' . $application->id . ' approved. Cooperative member '
+                . $coopMember->member_id . ' (' . $coopMember->full_name . ') is now active.',
+                $userId
+            );
+
+            if ($userId) {
+                AppNotification::create([
+                    'user_id' => $userId,
+                    'title'   => 'Membership approved',
+                    'message' => 'Your cooperative membership application has been approved. You can now apply for a loan.',
+                    'type'    => AppNotification::TYPE_MEMBERSHIP_APPROVED,
+                ]);
+            }
+
+            return $coopMember;
+        });
 
         return response()->json([
             'success'   => true,
             'id'        => $id,
             'status'    => 'approved',
-            'member_id' => $existing->member_id,
+            'member_id' => $member->member_id,
         ]);
     }
 
     // 21. Reject a membership application
+    //
+    // The account stays a registered non-member ('user'), so the applicant can
+    // fix whatever was wrong and apply again.
     public function rejectMember($id)
     {
         $application = MemberApplication::findOrFail($id);
-        $application->status      = 'rejected';
-        $application->reviewed_at = now();
-        $application->reviewed_by = Auth::id();
-        $application->save();
+
+        DB::transaction(function () use ($application) {
+            $application->status      = 'rejected';
+            $application->reviewed_at = now();
+            $application->reviewed_by = Auth::id();
+            $application->save();
+
+            $userId = $application->user_id
+                ?: User::where('email', $application->email)->value('id');
+
+            if ($userId) {
+                // Not a member yet — keep the account as a registered non-member.
+                User::where('id', $userId)
+                    ->where(function ($query) {
+                        $query->whereNull('coop_member_id')
+                            ->orWhere('usertype', '!=', Permissions::ROLE_MEMBER);
+                    })
+                    ->update(['usertype' => Permissions::ROLE_USER]);
+
+                AppNotification::create([
+                    'user_id' => $userId,
+                    'title'   => 'Membership application declined',
+                    'message' => 'Your cooperative membership application was not approved. You may apply again once you have corrected the details.',
+                    'type'    => AppNotification::TYPE_MEMBERSHIP_REJECTED,
+                ]);
+            }
+
+            AuditLog::log(
+                'Membership Rejected',
+                'Membership application #' . $application->id . ' rejected. The account stays a registered non-member.',
+                $userId
+            );
+        });
 
         return response()->json(['success' => true, 'id' => $id, 'status' => 'rejected']);
     }
@@ -678,7 +805,21 @@ class AdminController extends Controller
         return view('admin.repayments', compact('repayments', 'totalRepayments'));
     }
 
-    public function creditAssessment() { return view('admin.index'); }
+    public function creditAssessment()
+    {
+        $applications = Application::with('loanApplication.user')->latest()->get();
+
+        $evaluated = $applications->filter(fn($a) => $a->risk_score !== null);
+        $totalEvaluated = $evaluated->count();
+        $highGradeCount = $evaluated->filter(fn($a) => ($a->risk_score ?? 0) >= 70)->count();
+        $highRiskCount = $evaluated->filter(fn($a) => ($a->risk_score ?? 0) < 50)->count();
+        $highGradePct = $totalEvaluated > 0 ? round(($highGradeCount / $totalEvaluated) * 100) : 0;
+        $highRiskPct = $totalEvaluated > 0 ? round(($highRiskCount / $totalEvaluated) * 100) : 0;
+
+        return view('admin.credit-assessment', compact(
+            'applications', 'totalEvaluated', 'highGradePct', 'highRiskPct'
+        ));
+    }
 
     public function riskFlags()
     {
@@ -731,7 +872,7 @@ class AdminController extends Controller
     {
         $totalDisbursed = LoanApplication::where('status', 'disbursed')->sum('amount') ?? 0;
         $totalRepayments = Payment::sum('amount_paid') ?? 0;
-        $activeMembersCount = CoopMember::whereNotIn('status', ['Pending', 'pending'])->count() ?? 0;
+        $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count() ?? 0;
         $pendingApplicationsCount = LoanApplication::where('status', 'pending')->count() ?? 0;
 
         return view('admin.reports', compact('totalDisbursed', 'totalRepayments', 'activeMembersCount', 'pendingApplicationsCount'));
@@ -1147,23 +1288,37 @@ class AdminController extends Controller
 
     public function backup()
     {
-        $tables = DB::select('SHOW TABLES');
+        $driver = DB::connection()->getDriverName();
+
+        // Table list: portable across MySQL and SQLite (the test DB is SQLite).
+        $tables = $driver === 'mysql'
+            ? collect(DB::select('SHOW TABLES'))->map(fn($r) => (string) reset($r))->all()
+            : collect(DB::select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))
+                ->map(fn($r) => (string) $r->name)->all();
+
         $dump = "-- San Dionisio Credit Cooperative Database Backup\n";
         $dump .= "-- Generated: " . now()->format('Y-m-d H:i:s') . "\n\n";
 
-        foreach ($tables as $table) {
-            $tableName = reset($table);
+        foreach ($tables as $tableName) {
             $dump .= "-- Table: {$tableName}\n";
             $dump .= "DROP TABLE IF EXISTS `{$tableName}`;\n";
 
-            $createTable = DB::select("SHOW CREATE TABLE `{$tableName}`")[0];
-            $dump .=$createTable->{'Create Table'} . ";\n\n";
+            $createTable = $driver === 'mysql'
+                ? DB::select("SHOW CREATE TABLE `{$tableName}`")[0]->{'Create Table'}
+                : (DB::select("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", [$tableName])[0]->sql ?? '');
+
+            if ($createTable !== '') {
+                $dump .= $createTable . ";\n\n";
+            }
 
             $rows = DB::select("SELECT * FROM `{$tableName}`");
-            if (!empty($rows)) {$dump .= "INSERT INTO `{$tableName}` VALUES\n";
+            if (!empty($rows)) {
+                $dump .= "INSERT INTO `{$tableName}` VALUES\n";
                 $values = [];
-                foreach ($rows as $row) {$rowValues = [];
-                    foreach ((array) $row as $value) {$rowValues[] = $value === null ? 'NULL' : "'" . str_replace("'", "\\'", $value) . "'";
+                foreach ($rows as $row) {
+                    $rowValues = [];
+                    foreach ((array) $row as $value) {
+                        $rowValues[] = $value === null ? 'NULL' : "'" . str_replace("'", "\\'", $value) . "'";
                     }
                     $values[] = '(' . implode(', ', $rowValues) . ')';
                 }
@@ -1382,5 +1537,62 @@ class AdminController extends Controller
         }
 
         return back()->with('success', $message);
+    }
+
+    /**
+     * Add a review note to an application (Credit Investigator).
+     */
+    public function addReviewNote(Request $request, $id)
+    {
+        $application = Application::where('app_id', $id)->first()
+            ?? Application::where('id', $id)->first();
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Application record not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'note' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $existing = $application->admin_remarks;
+        $entry = now()->format('Y-m-d H:i:s') . ' — ' . Auth::user()->name . ': ' . $validated['note'];
+        $application->admin_remarks = $existing ? $existing . "\n" . $entry : $entry;
+        $application->save();
+
+        return response()->json([
+            'success' => true,
+            'note' => $validated['note'],
+            'added_at' => now()->format('Y-m-d H:i:s'),
+        ]);
+    }
+
+    /**
+     * Validate the recommended amount for an application (Credit Investigator).
+     */
+    public function validateRecommendation(Request $request, $id)
+    {
+        $application = Application::where('app_id', $id)->first()
+            ?? Application::where('id', $id)->first();
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Application record not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'valid' => ['required', 'in:0,1'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $existing = $application->admin_remarks;
+        $entry = now()->format('Y-m-d H:i:s') . ' — Recommendation ' . ($validated['valid'] ? 'validated' : 'flagged for review') . ' by ' . Auth::user()->name . ': ' . ($validated['note'] ?? '');
+        $application->admin_remarks = $existing ? $existing . "\n" . $entry : $entry;
+        $application->save();
+
+        return response()->json([
+            'success' => true,
+            'valid' => (bool) $validated['valid'],
+            'note' => $validated['note'] ?? null,
+        ]);
     }
 }

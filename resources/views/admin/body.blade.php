@@ -11,6 +11,20 @@
     // Risk Flags (Phase 1)
     $riskFlagsCount = $riskFlagsCount ?? 0;
     $hasFlags = $riskFlagsCount > 0;
+
+    // KPI card gating: each card links to a route the viewing role may not own.
+    // Render as a real <a> only when the permission is held, else <div>.
+    $kpiPerms = [
+        'disbursements.index'  => \App\Support\Permissions::PROCESS_DISBURSEMENTS,
+        'repayments.index'     => \App\Support\Permissions::RECORD_PAYMENTS,
+        'active-members.index' => \App\Support\Permissions::VIEW_MEMBER_PROFILES,
+        'applications.index'   => \App\Support\Permissions::ENCODE_APPLICATIONS,
+        'memberships.index'    => \App\Support\Permissions::APPROVE_MEMBERSHIPS,
+    ];
+    $kpiTag = fn (string $route) =>
+        \App\Support\Permissions::has(auth()->user(), $kpiPerms[$route]) ? 'a' : 'div';
+    $kpiHref = fn (string $route) =>
+        \App\Support\Permissions::has(auth()->user(), $kpiPerms[$route]) ? route($route) : null;
 @endphp
 
 <div class="topbar">
@@ -18,20 +32,24 @@
 
   <!-- Topbar Settings Icon with Dropdown Trigger -->
   <div class="topbar-actions">
+    @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::STAFF_ACTIVITY))
     <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
       🔔<span class="notif-dot" id="notifDot"></span>
     </div>
+    @endif
     <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings">
       ⚙️
     </div>
   </div>
 
+  @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::STAFF_ACTIVITY))
   <div class="notif-dropdown" id="notifDropdown">
     <div class="notif-head">
       <div class="notif-head-title">Notifications</div>
       <div class="notif-mark-all" onclick="markAllRead()">Mark all read</div>
     </div>
   </div>
+  @endif
 </div>
 
 <div class="page active" id="page-dashboard">
@@ -40,18 +58,22 @@
   @if($hasFlags)
   <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
     <span style="color: #dc2626; font-weight: 600; font-size: 0.95rem;">⚠️ Attention Required • {{ $riskFlagsCount }} AI Risk Flag(s) Detected</span>
+    @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))
     <a href="{{ route('risk-flags.index') }}" style="background-color: #dc2626; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
+    @endif
   </div>
   @else
   <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
     <span style="color: #16a34a; font-weight: 600; font-size: 0.95rem;">🛡️ System Healthy • 0 AI Risk Flags Detected</span>
+    @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))
     <a href="{{ route('risk-flags.index') }}" style="background-color: #16a34a; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
+    @endif
   </div>
   @endif
 
   <!-- 2. Row 1: KPI Stat Cards -->
   <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.5rem; width: 100%;">
-    <a href="{{ route('disbursements.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+    <{{ $kpiTag('disbursements.index') }} @if($kpiHref('disbursements.index'))href="{{ $kpiHref('disbursements.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card blue" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Total Loan Disbursed</div>
@@ -59,8 +81,8 @@
         </div>
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
       </div>
-    </a>
-    <a href="{{ route('repayments.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+    </{{ $kpiTag('disbursements.index') }}>
+    <{{ $kpiTag('repayments.index') }} @if($kpiHref('repayments.index'))href="{{ $kpiHref('repayments.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card green" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Total Repayments</div>
@@ -68,8 +90,8 @@
         </div>
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalRepayments ?? 0, 2) }}</div>
       </div>
-    </a>
-    <a href="{{ route('active-members.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+    </{{ $kpiTag('repayments.index') }}>
+    <{{ $kpiTag('active-members.index') }} @if($kpiHref('active-members.index'))href="{{ $kpiHref('active-members.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card purple" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Active Members</div>
@@ -78,8 +100,8 @@
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $activeMembersCount ?? 0 }}</div>
         <div class="kpi-sub"><span class="kpi-delta up"></span></div>
       </div>
-    </a>
-    <a href="{{ route('applications.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+    </{{ $kpiTag('active-members.index') }}>
+    <{{ $kpiTag('applications.index') }} @if($kpiHref('applications.index'))href="{{ $kpiHref('applications.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card gold" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Loan Applications</div>
@@ -88,8 +110,8 @@
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $pendingApplicationsCount ?? 0 }}</div>
         <div class="kpi-sub"><span class="kpi-delta down"></span></div>
       </div>
-    </a>
-    <a href="{{ route('memberships.index') }}" style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+    </{{ $kpiTag('applications.index') }}>
+    <{{ $kpiTag('memberships.index') }} @if($kpiHref('memberships.index'))href="{{ $kpiHref('memberships.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card teal" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
           <div class="kpi-label" style="color: #374151 !important;">Membership Applications</div>
@@ -97,7 +119,7 @@
         </div>
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">{{ $membershipApplicationsCount ?? 0 }}</div>
       </div>
-    </a>
+    </{{ $kpiTag('memberships.index') }}>
   </div>
 
   <!-- 3. Row 2: Interactive Chart.js Grid (Phase 2) -->
@@ -136,7 +158,9 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
         <div>
           <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1.05rem;">Pending Loan Applications</div>
+          @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::ENCODE_APPLICATIONS))
           <a href="{{ route('applications.index') }}" style="font-size:0.8rem;color:var(--accent);cursor:pointer;margin-top:0.2rem;display:inline-block;text-decoration:none;">View All →</a>
+          @endif
         </div>
         <span class="badge badge-warning">{{ $pendingApplicationsCount ?? 0 }} Pending</span>
       </div>
@@ -283,6 +307,7 @@
   </div>
 
   <!-- 5. Row 4: Recent Audit Trail Table (Phase 3) -->
+@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VIEW_AUDIT_LOGS))
   <div class="panel" style="margin: 32px 0;">
     <div class="panel-head" style="padding: 1.25rem 1.5rem;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -323,6 +348,7 @@
       </div>
     </div>
   </div>
+  @endif
 
 </div>
 
@@ -407,12 +433,12 @@
   </div>
 </div>
 
-<div class="page" id="page-disbursements"><div class="page-header"><div class="page-heading">Disbursements</div><button class="btn-new" onclick="openModal('processPayout')">+ Process Payout</button></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">💰</div><div style="margin-top:.8rem;">3 disbursements pending. Connect to backend to view all.</div></div></div>
+<div class="page" id="page-disbursements"><div class="page-header"><div class="page-heading">Release Records</div>@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::PROCESS_DISBURSEMENTS))<button class="btn-new" onclick="openModal('processPayout')">+ Record Release</button>@endif</div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">💰</div><div style="margin-top:.8rem;">3 releases pending. Connect to backend to view all.</div></div></div>
 <div class="page" id="page-repayments"><div class="page-header"><div class="page-heading">Repayments</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔄</div><div style="margin-top:.8rem;">Repayment schedule and history. Connect to backend to populate.</div></div></div>
 <div class="page" id="page-credit"><div class="page-header"><div class="page-heading">Credit Assessment</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔍</div><div style="margin-top:.8rem;">AI-powered credit scoring engine. Connect to backend to view reports.</div></div></div>
-<div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ {{ $riskFlagsCount }} active risk flags require attention.</p><div class="feed"><a href="{{ route('risk-flags.index') }}" style="background:transparent;color:inherit;padding:0.2rem 0.5rem;border-radius:4px;text-decoration:none;font-weight:600;" onclick="event.stopPropagation()">View All Risk Flags</a></div></div></div>
+<div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ {{ $riskFlagsCount }} active risk flags require attention.</p><div class="feed">@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))<a href="{{ route('risk-flags.index') }}" style="background:transparent;color:inherit;padding:0.2rem 0.5rem;border-radius:4px;text-decoration:none;font-weight:600;" onclick="event.stopPropagation()">View All Risk Flags</a>@endif</div></div></div>
 <div class="page" id="page-settings"><div class="page-header"><div class="page-heading">Settings</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">General</div><div class="form-group"><label class="form-label">Organization Name</label><input class="form-input" value="San Dionisio Credit Cooperative"/></div><div class="form-group"><label class="form-label">Support Email</label><input class="form-input" value="support@scc.ai"/></div><div class="form-group"><label class="form-label">Default Currency</label><select class="form-select"><option>PHP (₱)</option><option>USD ($)</option></select></div><button class="btn-submit" onclick="showToast('success','Settings saved successfully','✅')">Save Settings</button></div><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">Loan Defaults</div><div class="form-group"><label class="form-label">Max Personal Loan</label><input class="form-input" value="500000"/></div><div class="form-group"><label class="form-label">Default Interest Rate (%)</label><input class="form-input" value="1.5"/></div><div class="form-group"><label class="form-label">AI Credit Threshold</label><input class="form-input" value="600"/></div><button class="btn-submit" onclick="showToast('success','Loan defaults updated','✅')">Save Defaults</button></div></div></div>
-<div class="page" id="page-reports"><div class="page-header"><div class="page-heading">Reports</div><button class="btn-new" onclick="openModal('generateReport')">Generate Report</button></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">📄</div><div style="margin-top:.8rem;">Download monthly, quarterly, and annual reports.</div></div></div>
+<div class="page" id="page-reports"><div class="page-header"><div class="page-heading">Reports</div>@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VIEW_REPORTS))<button class="btn-new" onclick="openModal('generateReport')">Generate Report</button>@endif</div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">📄</div><div style="margin-top:.8rem;">Download monthly, quarterly, and annual reports.</div></div></div>
 
 <!-- Chart.js CDN + Chart Rendering (Phase 2) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

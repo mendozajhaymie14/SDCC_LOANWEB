@@ -115,9 +115,15 @@
       <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem; margin-top: 1rem;">
         <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; font-weight: 600; color: #1e293b;">Quick Admin Tools</h4>
         <div style="display: space-between; gap: 0.5rem;">
+          @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VIEW_AUDIT_LOGS))
           <a href="{{ url('/admin/audit-logs') }}" style="color: #2b6cb0; font-size: 0.85rem; text-decoration:none;">Audit Logs</a>
+          @endif
+          @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VIEW_REPORTS))
           <a href="{{ url('/reports') }}" style="color: #2b6cb0; font-size: 0.85rem; text-decoration:none;">Reports</a>
+          @endif
+          @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::MANAGE_BACKUPS))
           <a href="{{ url('/admin/backup') }}" style="color: #2b6cb0; font-size: 0.85rem; text-decoration:none;">Database Backup</a>
+          @endif
         </div>
       </div>
     </form>

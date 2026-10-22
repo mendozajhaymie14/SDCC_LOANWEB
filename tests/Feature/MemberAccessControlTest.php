@@ -40,8 +40,10 @@ class MemberAccessControlTest extends TestCase
             'ai_score'   => null,
         ]);
 
+        // The approve route is ->whereNumber, so use the numeric id; otherwise
+        // the router 404s before the role middleware ever runs.
         $this->actingAs($member)
-            ->post('/applications/' . $application->app_id . '/approve')
+            ->post('/applications/' . $application->id . '/approve')
             ->assertForbidden();
     }
 
@@ -56,8 +58,9 @@ class MemberAccessControlTest extends TestCase
     /** @test */
     public function a_user_usertype_denied_on_admin_routes()
     {
-        // Real members are stored as usertype='user', not 'member'.
-        // Every usertype except 'admin' must be denied on admin-only routes.
+        // A registered non-member ('user') is a role in its own right: it owns
+        // the member portal and the membership form, and is denied on every
+        // staff route.
         $user = User::factory()->create(['usertype' => 'user']);
 
         $this->actingAs($user)->get('/admin/users')->assertForbidden();

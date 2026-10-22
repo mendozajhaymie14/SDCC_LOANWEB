@@ -50,6 +50,12 @@
                             </div>
                         @endsession
 
+                        @session('error')
+                            <div style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: #dc2626;">
+                                {{ $value }}
+                            </div>
+                        @endsession
+
                         <form method="POST" action="{{ route('login') }}" style="display: flex; flex-direction: column; gap: 18px; margin: 0;">
                             @csrf
 

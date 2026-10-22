@@ -95,18 +95,23 @@
     <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e2e8f0;">
         @if(in_array(strtolower($application->status), ['pending', 'flagged']))
             {{-- Approval button (only available while the application is still pending) --}}
+            @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::APPROVE_LOANS))
             <form method="POST" action="{{ route('applications.approve', ['appId' => $application->app_id]) }}" style="display: inline;">
                 @csrf
                 @method('POST')
                 <button type="submit" style="background-color: #10b981; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; text-decoration: none; margin-right: 0.5rem;">Approve</button>
             </form>
+            @endif
             {{-- Rejection button (only available while the application is still pending) --}}
+            @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::REJECT_LOANS))
             <form method="POST" action="{{ route('applications.reject', ['appId' => $application->app_id]) }}" style="display: inline;">
                 @csrf
                 @method('POST')
                 <button type="submit" style="background-color: #ef4444; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; text-decoration: none;">Reject</button>
             </form>
-        @else
+            @endif
+        @elseif(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::APPROVE_LOANS)
+            || \App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::REJECT_LOANS))
             <p style="color: var(--muted); font-size: 0.875rem; margin: 0;">
                 This application has already been <strong>{{ strtolower($application->status) }}</strong>.
                 Decision buttons are only available for pending applications.

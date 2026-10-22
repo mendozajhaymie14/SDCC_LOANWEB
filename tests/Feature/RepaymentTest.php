@@ -33,7 +33,7 @@ class RepaymentTest extends TestCase
             'remaining_balance' => 8800,
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'admin']));
+        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
 
         // Act: Make a payment
         $paymentAmount = 2000;
@@ -85,7 +85,7 @@ class RepaymentTest extends TestCase
             'remaining_balance' => 3000,
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'admin']));
+        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
 
         // Act: Try to pay more than balance
         $response = $this->postJson('/admin/repayments', [
@@ -135,7 +135,7 @@ class RepaymentTest extends TestCase
             'remaining_balance' => 1500,
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'admin']));
+        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
 
         // Act: Pay remaining balance
         $response = $this->postJson('/admin/repayments', [
@@ -187,7 +187,7 @@ class RepaymentTest extends TestCase
             'next_due_date' => now()->endOfMonth(),
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'admin']));
+        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
 
         // Act: Make partial payment
         $originalDue = $application->next_due_date;
@@ -238,7 +238,7 @@ class RepaymentTest extends TestCase
             'reference_no' => 'DUP-REF',
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'admin']));
+        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
 
         // Act: Try to use same reference
         $response = $this->postJson('/admin/repayments', [

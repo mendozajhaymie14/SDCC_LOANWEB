@@ -46,7 +46,9 @@
           <h2 class="panel-title">Active Members</h2>
           <span class="records-count">Approved Members: {{ $members->where('is_registered', true)->count() }}</span>
         </div>
+        @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::EDIT_MEMBER_PROFILES))
         <button class="btn-new" type="button" onclick="openModal('addMember')">+ Add Member</button>
+        @endif
       </div>
 
       <div class="table-wrap">
@@ -84,8 +86,10 @@
                 </td>
                 <td>
                   <button class="btn-review" type="button" onclick="openActiveMemberDetail('{{ $member->id }}')">View</button>
+                  @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::EDIT_MEMBER_PROFILES))
                   <button class="btn-review" type="button" style="margin-left:0.4rem;" onclick="editMember('{{ $member->id }}')">Edit</button>
                   <button class="btn-review" type="button" style="margin-left:0.4rem;color:var(--red);border-color:var(--red);" onclick="deleteMember('{{ $member->id }}')">Delete</button>
+                  @endif
                 </td>
               </tr>
             @empty

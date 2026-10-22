@@ -1,7 +1,23 @@
+@php
+    // Shared admin chrome. Every modal below posts to a route the viewing role
+    // may not own, so each one is rendered only when its permission is held.
+    $perm = fn (string $p) => \App\Support\Permissions::has(auth()->user(), $p);
+@endphp
+
+<script>
+    // Client-side flags for the JS-built modals. The server enforces the same
+    // permissions; these only stop a role from being shown a button that 403s.
+    window.__memberPermissions = {
+        edit: {{ $perm(\App\Support\Permissions::EDIT_MEMBER_PROFILES) ? 'true' : 'false' }},
+    };
+</script>
+
 <!-- PROFILE & SETTINGS DROPDOWN -->
 <div class="profile-dropdown" id="profileDropdown">
-    <a href="{{ route('admins.index') }}" class="pd-item">👥 Admin Users</a>
+    @if($perm(\App\Support\Permissions::MANAGE_USERS))
+    <a href="{{ route('admins.index') }}" class="pd-item">👥 Staff Users</a>
     <div class="pd-divider"></div>
+    @endif
     <div class="pd-item danger" onclick="confirmLogout()">🚪 Log Out</div>
 
     <!-- Hidden form for Laravel authentication -->
@@ -19,6 +35,7 @@
   @include('admin.partials.application-modal')
 
   <!-- New Loan Application Modal -->
+  @if($perm(\App\Support\Permissions::ENCODE_APPLICATIONS))
   <div class="modal" id="modal-newApp" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">📋 New Loan Application</div>
@@ -50,6 +67,7 @@
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
+  @endif
 
   <!-- Active Member Detail / Activate-Suspend-Delete Modal -->
   <div class="modal" id="modal-activeMemberDetail" onclick="event.stopPropagation()">
@@ -61,6 +79,7 @@
   </div>
 
   <!-- 2. Add Active Member Modal -->
+  @if($perm(\App\Support\Permissions::EDIT_MEMBER_PROFILES))
   <div class="modal" id="modal-addActiveMember" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">👤 Add New Member</div>
@@ -117,11 +136,13 @@
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
+  @endif
 
-  <!-- 2d. Add Admin Modal -->
+  <!-- 2d. Add Staff Modal -->
+  @if($perm(\App\Support\Permissions::MANAGE_USERS))
   <div class="modal" id="modal-addAdmin" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">👤 Add Admin User</div>
+      <div class="modal-title">👤 Add Staff User</div>
       <div class="modal-close" onclick="closeAllModals()">✕</div>
     </div>
     <form id="addAdminForm" action="/admin/users" method="POST">
@@ -142,19 +163,33 @@
           <input type="text" name="phone" id="addAdminPhone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
         </div>
         <div class="form-group">
-          <label class="form-label">Password</label>
-          <input type="password" name="password" id="addAdminPassword" class="form-input" placeholder="Min. 6 characters" required/>
+          <label class="form-label">Role</label>
+          <select name="role" id="addAdminRole" class="form-select" required>
+            @foreach(\App\Support\Permissions::STAFF_ROLES as $staffRole)
+              <option value="{{ $staffRole }}">{{ \App\Support\Permissions::label($staffRole) }}</option>
+            @endforeach
+          </select>
         </div>
       </div>
-      <button class="btn-submit" type="button" onclick="submitAddAdmin()">Create Admin Account</button>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" id="addAdminPassword" class="form-input" placeholder="Leave blank to generate one"/>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;margin-top:.35rem;flex-wrap:wrap;">
+          <span style="font-size:.75rem;color:var(--muted);">Min. 8 characters. Leave blank and the system generates one.</span>
+          <button class="btn-review" type="button" onclick="generatePasswordForMe()">Generate for me</button>
+        </div>
+      </div>
+      <button class="btn-submit" type="button" onclick="submitAddAdmin()">Create Staff Account</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
+  @endif
 
-  <!-- 2e. Edit Admin Modal -->
+  <!-- 2e. Edit Staff Modal -->
+  @if($perm(\App\Support\Permissions::MANAGE_USERS))
   <div class="modal" id="modal-editAdmin" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">✏️ Edit Admin User</div>
+      <div class="modal-title">✏️ Edit Staff User</div>
       <div class="modal-close" onclick="closeAllModals()">✕</div>
     </div>
     <form id="editAdminForm" method="POST" action="">
@@ -172,26 +207,44 @@
           <input type="email" id="editAdminEmail" name="email" class="form-input" required/>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Phone Number</label>
+          <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role</label>
+          <select name="role" id="editAdminRole" class="form-select" required>
+            @foreach(\App\Support\Permissions::STAFF_ROLES as $staffRole)
+              <option value="{{ $staffRole }}">{{ \App\Support\Permissions::label($staffRole) }}</option>
+            @endforeach
+          </select>
+        </div>
+      </div>
       <div class="form-group">
-        <label class="form-label">Phone Number</label>
-        <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+        <label class="form-label">New Password</label>
+        <input type="password" name="password" id="editAdminPassword" class="form-input" placeholder="Leave blank to keep current password"/>
       </div>
 
       <button class="btn-submit" type="button" onclick="submitEditAdmin()">Save Changes</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
+  @endif
 
-  <!-- 2f. Admin Detail Modal -->
+  <!-- 2f. Staff Detail Modal -->
+  @if($perm(\App\Support\Permissions::MANAGE_USERS))
   <div class="modal" id="modal-adminDetail" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title" id="adminDetailTitle">Admin Detail</div>
+      <div class="modal-title" id="adminDetailTitle">Staff Detail</div>
       <div class="modal-close" onclick="closeAllModals()">✕</div>
     </div>
     <div id="adminDetailBody"></div>
   </div>
+  @endif
 
   <!-- 2c2. Member Detail Modal -->
+  @if($perm(\App\Support\Permissions::APPROVE_MEMBERSHIPS))
   <div class="modal" id="modal-memberDetail" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title" id="memberDetailTitle">Membership Application Detail</div>
@@ -199,8 +252,10 @@
     </div>
     <div id="memberDetailBody"></div>
   </div>
+  @endif
 
   <!-- 2c. Edit Membership Application Modal -->
+  @if($perm(\App\Support\Permissions::APPROVE_MEMBERSHIPS))
   <div class="modal" id="modal-editMember" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">✏️ Edit Membership Application</div>
@@ -333,8 +388,10 @@
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
+  @endif
 
   <!-- 2b. Add Membership Application Modal -->
+  @if($perm(\App\Support\Permissions::APPROVE_MEMBERSHIPS))
   <div class="modal" id="modal-addMember" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">📋 Add Membership Application</div>
@@ -384,33 +441,27 @@
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
+  @endif
 
-  <!-- 3. Process Payout Modal -->
+  <!-- 3. Record Release Modal (release record only — no money moves) -->
+  @if($perm(\App\Support\Permissions::PROCESS_DISBURSEMENTS))
   <div class="modal" id="modal-processPayout" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">💸 Process Payout</div>
+      <div class="modal-title">📋 Record Release</div>
       <div class="modal-close" onclick="closeAllModals()">✕</div>
     </div>
     <div class="form-group"><label class="form-label">Application ID</label><input class="form-input" placeholder="#SCC-XXXXX"/></div>
     <div class="form-group"><label class="form-label">Borrower Name</label><input class="form-input" placeholder="Full name"/></div>
-    <div class="form-group"><label class="form-label">Payout Amount (₱)</label><input class="form-input" placeholder="150000" type="number"/></div>
-    <div class="form-group">
-      <label class="form-label">Disbursement Channel</label>
-      <select class="form-select">
-        <option>BPI Bank Transfer</option>
-        <option>BDO Bank Transfer</option>
-        <option>GCash</option>
-        <option>Maya</option>
-        <option>UnionBank</option>
-      </select>
-    </div>
-    <div class="form-group"><label class="form-label">Account Number</label><input class="form-input" placeholder="XXXX-XXXX-XXXX"/></div>
+    <div class="form-group"><label class="form-label">Release Amount (₱)</label><input class="form-input" placeholder="150000" type="number"/></div>
+    <div class="form-group"><label class="form-label">Release Date</label><input class="form-input" placeholder="YYYY-MM-DD" type="date"/></div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" placeholder="Optional notes…"></textarea></div>
-    <button class="btn-submit" type="button" onclick="submitPayout()">Confirm & Disburse</button>
+    <button class="btn-submit" type="button" onclick="submitPayout()">Record Release</button>
     <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
   </div>
+  @endif
 
   <!-- 4. Generate Report Modal -->
+  @if($perm(\App\Support\Permissions::VIEW_REPORTS))
   <div class="modal" id="modal-generateReport" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">📊 Generate Report</div>
@@ -442,6 +493,7 @@
     <button class="btn-submit" type="button" onclick="submitReport()">Generate & Download</button>
     <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
   </div>
+  @endif
 
 </div>
 
@@ -587,6 +639,7 @@
   // ─── ACTIVE MEMBER DETAIL MODAL ───
   function openActiveMemberDetail(id) {
     closeAllDropdowns();
+    const mp = window.__memberPermissions || { edit: false };
     const m = activeMembersData[id];
     if (!m) {
       showToast('error', 'Member record not found', '❌');
@@ -678,7 +731,7 @@
         </div>
 
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
-          ${(m.status === 'inactive' || m.status === 'suspended') ? `
+          ${(mp.edit && (m.status === 'inactive' || m.status === 'suspended')) ? `
             <form id="activate-form-${m.id}" action="/active-members/${m.id}/approve" method="POST" style="display:none;">
               <input type="hidden" name="_token" value="${csrfToken}">
             </form>
@@ -690,7 +743,7 @@
               <button class="btn-submit" type="button" style="width:auto;flex:1;" onclick="document.getElementById('activate-form-${m.id}').submit()">✓ Activate</button>
             </div>` : ''
           }
-          <button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteActiveMember('${m.id}')">🗑️ Delete Member</button>
+          ${mp.edit ? `<button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteActiveMember('${m.id}')">🗑️ Delete Member</button>` : ''}
         </div>
       `;
     }

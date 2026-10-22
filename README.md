@@ -1,59 +1,141 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SDCC LoanWEB
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+**San Dionisio Credit Cooperative — Loan Origination, Evaluation & Administration Web Application**
 
-## About Laravel
+A Laravel 12.x application that digitizes the cooperative's loan application workflow:
+member submission → credit evaluation → approval/rejection → repayment tracking → reminders.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+Single source of truth for **rule-based loan evaluation** (`LoanEvaluationService`) plus an explicit
+flat permission matrix consumed by both middleware and sidebar UI.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+---
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Tech Stack (dev environment)
 
-## Learning Laravel
+| Concern | Choice |
+|---------|--------|
+| Framework | Laravel 12.x (PHP ^8.2) |
+| Database | MySQL 10.4+ (prod) or SQLite :memory: (phpunit) |
+| Auth | Laravel Fortify + Jetstream + Tailwind; explicit permission middleware (`app/Http/Middleware/RoleMiddleware.php`) |
+| Frontend | Blade, Tailwind CSS, Alpine.js, Vite build into `public/build/` |
+| PDF | `barryvdh/laravel-dompdf` |
+| AI document analysis | Google Gemini API (optional; advisory-only when `GEMINI_API_KEY` absent) |
+| Testing | PHPUnit 11, SQLite in-memory, `RefreshDatabase` |
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+**Dev server:** `php artisan serve` on the configured port (`APP_PORT=8000`). Start Apache/MySQL if you use
+XAMPP rather than the PHP CLI embedded server. For the build, Vite bundles the JS/CSS into
+`public/build/` and the production manifest is served by the PHP server.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## Setup
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```bash
+# 1. Configure environment
+cp .env.example .env
+# Edit .env: DB_CONNECTION (mysql or sqlite), DB_DATABASE, GEMINI_API_KEY (optional),
+#            PASSWORD hashing rounds, session lifetime, mail driver.
+# NOTE: never commit .env. A scratch copy (.env.scratch) mirrors local setup; see README setup below.
 
-### Premium Partners
+# 2. Install dependencies
+composer install
+npm install && npm run build       # bundles frontend into public/build/
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+# 3. Scratch database setup (NEVER touch the production 'sdcc' database)
+APP_ENV=scratch php artisan key:generate
+APP_ENV=scratch php artisan storage:link            # symlink local storage -> public/storage (dev only)
+APP_ENV=scratch php artisan migrate --seed          # seeds the RoleDemo users
+echo "Scratch server:"
+APP_ENV=scratch php artisan serve --port=8000
 
-## Contributing
+# 4. Background workers (production-style)
+APP_ENV=local php artisan queue:work         # runs pending jobs from the database queue
+APP_ENV=local php artisan schedule:run        # one-pass of the scheduler; usually triggered by cron
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+**Test suite:**
 
-## Code of Conduct
+```bash
+php vendor/bin/phpunit --config phpunit.xml
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+The suite asserts every row of the permission matrix (110 data-provider cases), the
+registration-form fixes, session expiry, and loan-evaluation scoring. 7 tests are
+skipped (expected skipped suites); 0 failures.
 
-## Security Vulnerabilities
+### Scratch workflow shortcut
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+When using the embedded PHP server against `.env.scratch` directly (as in browser
+tests), `php artisan serve` inherits `APP_ENV` from the parent process, so ALWAYS start
+it with the env var explicit:
 
-## License
+```bash
+APP_ENV=scratch LOG_LEVEL=debug php artisan serve --port=8000
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+---
+
+## Seeded Demo Accounts (per role — credentials live in `.env`, never printed here)
+
+| Role | `usertype` | Login | Email |
+|------|-----------|-------|-------|
+| System Administrator | `admin` | admin@sdcc.coop | admin@sdcc.coop |
+| Branch Manager | `branch_manager` | branchmgr@sdcc.coop | branchmgr@sdcc.coop |
+| Loan Officer | `loan_officer` | loanofficer@sdcc.coop | loanofficer@sdcc.coop |
+| Credit Investigator | `credit_investigator` | creditinv@sdcc.coop | creditinv@sdcc.coop |
+| Cooperative Member | `member` | member@sdcc.coop | member@sdcc.coop |
+| Registered User | `user` | user@sdcc.coop | user@sdcc.coop |
+
+Credentials come from the env vars `ADMIN_DEMO_PASSWORD`,
+`BRANCH_MANAGER_DEMO_PASSWORD`, `LOAN_OFFICER_DEMO_PASSWORD`,
+`CREDIT_INVESTIGATOR_DEMO_PASSWORD`, `MEMBER_DEMO_PASSWORD`, `USER_DEMO_PASSWORD`
+(`ADMIN_SEED_PASSWORD` also accepted). The seeders **throw** if any value is blank, and
+skip in production unless `SEED_DEMO_USERS=true`. See `database/seeders/RoleDemoSeeder.php`.
+
+---
+
+## Known Limitations (from the design paper, §1; plus scope conflicts noted during this pass)
+
+1. **Single cooperative scope** — multi-tenancy is not supported; `coop_members` assumes one SDCC instance.
+2. **Rule weights hard-coded** in `LoanEvaluationService` (DTI 40 / History 30 / Docs 15 / Capital 15). Configurable weights land in `config/loan_evaluation.php` (Task E); otherwise changing them requires a code deploy.
+3. **No disbursement processing** — the disbursements page records release events only (date, reference); it never moves money and there is no payment gateway. Paper C1 explicitly forbids payout logic.
+4. **AI is advisory only** — the Gemini integration documents each application (document check) but must never change the recommended amount or risk score. Label it "Document check (assistive)"; the app works fully with `GEMINI_API_KEY` empty (paper C2).
+5. **Member-only reminders; staff encoding TBD** — members may self-submit applications; staff encoding of applications and member profiles (FR-05–09) is still being built (Task D). Both paths feed the same tables.
+6. **Reminder channel** — the `mail` log driver is delivered in local dev; SMS is not implemented unless added. Duplicate-send guards and post-payment silence are covered by tests (Task E).
+7. **Tech-stack deviation** — the paper describes Bootstrap / HTML-CSS-JS; the implementation uses Laravel, Livewire-adjacent views, Tailwind CSS and Jetstream (paper C5 listed this as an accepted deviation). It was not rewritten.
+8. **Daily automated backup not yet scheduled** — the manual backup route exists but a daily `schedule:run` job writing to a non-public folder with a 14-day retention cap lands in Task G.
+9. **CSV-import-from-Google-Sheets helper not yet added** — `import:members` / `import:loans` commands (Task H) are next to come.
+10. **Index review not yet run** — NFR-02/NFR-01 structural review of slow queries is deferred to Task G; 500-member/1000-loan load test is pending verification.
+11. **No REST/GraphQL layer** — all endpoints are Blade-rendered. Paper limitation (under §1).
+12. **Local file storage only** — `public/storage` symlinked; no S3/cloud driver configured (paper §1.9).
+13. **Demo accounts never created in production** — seeders skip unless `SEED_DEMO_USERS=true`; operator supplies the real `.env` and seeds manually (same rule as Team B §5).
+
+---
+
+## Project Structure (Key Paths)
+
+```
+app/
+├── Actions/Fortify/CreateNewUser.php     # memberships via usertype='member'
+├── Http/Controllers/AdminController.php  # all admin routes
+├── Http/Middleware/RoleMiddleware.php    # deny-by-default group + route guard
+├── Models/{Application,LoanApplication,Borrowers,CoopMember,User}.php
+├── Support/Permissions.php               # the single permission matrix (one place)
+├── Services/LoanEvaluationService.php    # rule engine
+└── Jobs/ProcessLoanDocuments.php         # async Gemini OCR + analysis
+database/migrations/                       # last_scanned_at guarded (idempotent)
+tests/                                   # Feature suite; Browser suite (Playwright)
+scripts/dev/                              # scratch scripts (gitignored)
+docs/dev-notes/                           # internal audit/analysis docs (gitignored)
+```
+
+The four `last_scanned_at` migrations use `Schema::hasColumn('table', 'col')` guards so a
+repeat `migrate:fresh` is safe (verified on `sdcc_scratch`).
+
+---
+
+## Quick Test
+
+```bash
+php vendor/bin/phpunit --config phpunit.xml --testdox
+```

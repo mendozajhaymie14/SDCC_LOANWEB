@@ -2,14 +2,10 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
     /**
      * Seed the application's database.
      */
@@ -19,5 +15,10 @@ class DatabaseSeeder extends Seeder
             AdminSeeder::class,
             CoopMemberSeeder::class,
         ]);
+
+        // Demo users only in local/testing or when explicitly opted in
+        if (app()->environment(['local', 'testing']) || config('sdcc.seed_demo_users') === true) {
+            $this->call(RoleDemoSeeder::class);
+        }
     }
 }

@@ -46,7 +46,9 @@
           <h2 class="panel-title">Membership Applications</h2>
           <span class="records-count">Total Records: {{ $applications->count() }}</span>
         </div>
+        @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::APPROVE_MEMBERSHIPS))
         <button class="btn-new" type="button" onclick="openModal('addMember')">+ Add Membership Application</button>
+        @endif
       </div>
 
       <div class="filter-row">

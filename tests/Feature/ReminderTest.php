@@ -25,7 +25,7 @@ class ReminderTest extends TestCase
     private function makeAdmin(): User
     {
         return User::factory()->create([
-            'usertype' => 'admin',
+            'usertype' => 'branch_manager',
             'email'    => 'admin@example.com',
         ]);
     }

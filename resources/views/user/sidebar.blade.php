@@ -25,7 +25,14 @@
 
   <ul class="sidebar-nav">
     <li><a href="{{ route('user.dashboard') }}"><i class="fa-solid fa-gauge"></i> My account</a></li>
-    <li><a href="{{ route('user.loans.create') }}"><i class="fa-solid fa-hand-holding-dollar"></i> Apply for a loan</a></li>
+
+    @if (\App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::APPLY_LOAN))
+      <li><a href="{{ route('user.loans.create') }}"><i class="fa-solid fa-hand-holding-dollar"></i> Apply for a loan</a></li>
+    @endif
+
+    @if (\App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::APPLY_MEMBERSHIP))
+      <li><a href="{{ route('user.membership') }}"><i class="fa-solid fa-id-card"></i> Become a member</a></li>
+    @endif
 
     <li class="sidebar-divider"></li>
 

@@ -12,16 +12,22 @@ return new class extends Migration
     public function up(): void
     {
         if (Schema::hasTable('sessions')) {
-            return;
+            // A pre-existing sessions table without the `id` primary key is
+            // broken for the database session handler. Drop and rebuild
+            // idempotently so the driver never crashes on login.
+            if (Schema::hasColumn('sessions', 'id')) {
+                return;
+            }
+            Schema::drop('sessions');
         }
 
         Schema::create('sessions', function (Blueprint $table) {
-            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
             $table->string('ip_address', 45)->nullable();
             $table->text('user_agent')->nullable();
             $table->longText('payload');
-            $table->integer('last_activity')->unsigned();
-            $table->primary('last_activity', 'sessions_last_activity_index');
+            $table->integer('last_activity')->unsigned()->index();
         });
     }
 

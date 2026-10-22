@@ -17,7 +17,7 @@ class AdminApplicationViewTest extends TestCase
     private function makeAdmin(array $attributes = []): User
     {
         return User::factory()->create(array_merge([
-            'usertype' => 'admin',
+            'usertype' => 'branch_manager',
             'email'    => 'admin@example.com',
         ], $attributes));
     }
@@ -206,8 +206,10 @@ class AdminApplicationViewTest extends TestCase
         $member = $this->makeMember();
         $application = $this->createTestApplicationWithLoan($member);
 
+        // The detail route is ->whereNumber; the list view links to it with the
+        // numeric applications.id (data-numeric-id), not the APP-XXXX code.
         $response = $this->actingAs($admin)
-            ->get(route('admin.applications.show', $application->app_id));
+            ->get(route('admin.applications.show', $application->id));
 
         $response->assertSuccessful();
         $response->assertSee($application->risk_level);

@@ -71,7 +71,7 @@
                             {{ \Carbon\Carbon::parse($flag->created_at)->format('M d, Y') }}
                         </td>
                         <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem; color: #344054;">
-                            <a href="{{ url('/applications') }}?open={{ urlencode($flag->app_id) }}" style="background-color: #2563eb; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none; display: inline-block;">Review &rarr;</a>
+                            <a href="{{ \App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::ENCODE_APPLICATIONS) ? url('/applications').'?open='.urlencode($flag->app_id) : route('admin.applications.show', ['id' => $flag->id]) }}" style="background-color: #2563eb; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none; display: inline-block;">Review &rarr;</a>
                         </td>
                     </tr>
                 @empty

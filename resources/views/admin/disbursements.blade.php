@@ -17,7 +17,7 @@
 <!-- MAIN WRAPPER -->
 <div class="main">
   <div class="topbar">
-    <div class="topbar-title" id="topbarTitle">Disbursement Management <span>/ Loan Management</span></div>
+    <div class="topbar-title" id="topbarTitle">Loan Release Records <span>/ Loan Management</span></div>
     <div class="search-wrap">
       <div class="search-box">
         <span class="search-icon">🔍</span>
@@ -38,15 +38,15 @@
     <div class="panel app-panel">
       <div class="page-header">
         <div>
-          <h2 class="panel-title">Approved Loans Awaiting Payout</h2>
-          <span class="records-count">Total Approved: {{ $disbursements->count() }}</span>
+          <h2 class="panel-title">Loan Release Records</h2>
+          <span class="records-count">Total Records: {{ $disbursements->count() }}</span>
         </div>
       </div>
 
       <div class="filter-row">
         <button class="filter-btn active" onclick="filterDisbursements('all',this)">All ({{ $disbursements->count() }})</button>
         <button class="filter-btn" onclick="filterDisbursements('approved',this)">Approved</button>
-        <button class="filter-btn" onclick="filterDisbursements('disbursed',this)">Disbursed</button>
+        <button class="filter-btn" onclick="filterDisbursements('recorded',this)">Recorded</button>
       </div>
 
       <div class="table-wrap">
@@ -57,7 +57,7 @@
               <th>Borrower Name</th>
               <th>Loan Type</th>
               <th>Amount</th>
-              <th>Disbursement Status</th>
+              <th>Record Status</th>
               <th>Release Date</th>
               <th>Action</th>
             </tr>
@@ -68,7 +68,7 @@
     <td class="td-mono">#{{ $disb->app_id ?? $disb->application_id ?? $disb->id }}</td>
     <td class="applicant-name">{{ $disb->applicant_name ?? $disb->applicant ?? $disb->borrower_name ?? 'N/A' }}</td>
     <td><span class="loan-type-tag">{{ $disb->loan_type ?? 'Personal Loan' }}</span></td>
-    <td>₱{{ number_format($disb->amount, 2) }}</td>
+    <td>₦{{ number_format($disb->amount, 2) }}</td>
     <td>
       <span class="status-pill {{ strtolower($disb->status) }}">
         {{ ucfirst($disb->status) }}
@@ -76,7 +76,7 @@
     </td>
     <td class="td-date">{{ \Carbon\Carbon::parse($disb->created_at)->format('M d, Y') }}</td>
     <td>
-      <button class="btn-review" type="button" onclick="openPayoutModal('{{ $disb->app_id ?? $disb->application_id ?? $disb->id }}')">Process Payout</button>
+      <button class="btn-review" type="button" onclick="openReleaseRecordModal('{{ $disb->app_id ?? $disb->application_id ?? $disb->id }}')">Record Release</button>
     </td>
   </tr>
 @empty
@@ -89,35 +89,23 @@
       </div>
     </div>
   </div>
-</div>
 
-<!-- Process Payout Modal -->
-<div class="modal" id="modal-processPayout" onclick="event.stopPropagation()">
+<!-- Record Release Modal -->
+<div class="modal" id="modal-recordRelease" onclick="event.stopPropagation()">
   <div class="modal-header">
-    <div class="modal-title">💸 Process Payout</div>
+    <div class="modal-title">📋 Record Release</div>
     <div class="modal-close" onclick="closeAllModals()">✕</div>
   </div>
-  <form id="processPayoutForm" action="{{ route('disbursements.process') }}" method="POST">
+  <form id="recordReleaseForm" action="{{ route('disbursements.process') }}" method="POST">
     @csrf
-    <input type="hidden" name="app_id" id="payoutAppId"/>
-    <input type="hidden" name="loan_application_id" id="payoutLoanApplicationId"/>
-    <div class="form-group"><label class="form-label">Application ID</label><input class="form-input" id="payoutAppIdDisplay" placeholder="#SCC-XXXXX" readonly/></div>
-    <div class="form-group"><label class="form-label">Borrower Name</label><input class="form-input" id="payoutBorrowerName" placeholder="Full name" readonly/></div>
-    <div class="form-group"><label class="form-label">Payout Amount (₱)</label><input class="form-input" id="payoutAmountDisplay" placeholder="0.00" readonly/></div>
-    <div class="form-group">
-      <label class="form-label">Disbursement Channel</label>
-      <select name="channel" class="form-select">
-        <option>BPI Bank Transfer</option>
-        <option>BDO Bank Transfer</option>
-        <option>GCash</option>
-        <option>Maya</option>
-        <option>UnionBank</option>
-      </select>
-    </div>
-    <div class="form-group"><label class="form-label">Account Number</label><input name="account_number" class="form-input" placeholder="XXXX-XXXX-XXXX"/></div>
-    <div class="form-group"><label class="form-label">Notes</label><textarea name="notes" class="form-textarea" placeholder="Optional notes…"></textarea></div>
+    <input type="hidden" name="app_id" id="releaseAppId"/>
+    <input type="hidden" name="loan_application_id" id="releaseLoanApplicationId"/>
+    <div class="form-group"><label class="form-label">Application ID</label><input class="form-input" id="releaseAppIdDisplay" placeholder="#SCC-XXXXX" readonly/></div>
+    <div class="form-group"><label class="form-label">Borrower Name</label><input class="form-input" id="releaseBorrowerName" placeholder="Full name" readonly/></div>
+    <div class="form-group"><label class="form-label">Release Amount (₦)</label><input class="form-input" id="releaseAmountDisplay" placeholder="0.00" readonly/></div>
+    <div class="form-group"><label class="form-label">Release Date</label><input name="release_date" class="form-input" placeholder="YYYY-MM-DD" required/></div>
     <div style="display:flex;gap:1rem;margin-top:1.5rem;">
-      <button class="btn-submit" type="submit">Confirm & Disburse</button>
+      <button class="btn-submit" type="submit">Record Release</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </div>
   </form>

@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('applications', function (Blueprint $table) {
-            $table->timestamp('last_scanned_at')->nullable()->after('document_processing_status');
-        });
+        if (!Schema::hasColumn('applications', 'last_scanned_at')) {
+            Schema::table('applications', function (Blueprint $table) {
+                $table->timestamp('last_scanned_at')->nullable();
+            });
+        }
     }
 
     /**
@@ -21,8 +23,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('applications', function (Blueprint $table) {
-            $table->dropColumn('last_scanned_at');
-        });
+        if (Schema::hasColumn('applications', 'last_scanned_at')) {
+            Schema::table('applications', function (Blueprint $table) {
+                $table->dropColumn('last_scanned_at');
+            });
+        }
     }
 };

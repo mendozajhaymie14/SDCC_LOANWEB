@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessLoanDocuments;
+use App\Models\AppNotification;
 use App\Models\Application;
 use App\Models\LoanApplication;
+use App\Models\MemberApplication;
 use App\Models\Payment;
 use App\Services\AmortizationService;
 use App\Services\LoanEvaluationService;
@@ -17,7 +19,7 @@ use Illuminate\Support\Facades\Queue;
 class UserController extends Controller
 {
     /**
-     * Member landing page after logging in.
+     * The member portal dashboard.
      */
     public function dashboard()
     {
@@ -38,18 +40,35 @@ class UserController extends Controller
     }
 
     /**
+     * The applicant's own membership status.
+     *
+     * A registered non-member sees the state of their membership application
+     * and the link to the form. One pending application at a time.
+     */
+    public function membership()
+    {
+        $user = Auth::user();
+
+        $application = MemberApplication::where('user_id', $user->id)
+            ->latest('id')
+            ->first();
+
+        return view('user.membership', compact('user', 'application'));
+    }
+
+    /**
      * Show the loan application form.
      */
     public function createApplication()
     {
         $user = Auth::user();
 
-        // Non-members must complete the membership application before they
-        // can borrow. Send them back with a clear, actionable message.
-        if (!$user->coopMember) {
+        // Only an active cooperative member may borrow. A registered
+        // non-member is sent to the membership page with a clear message.
+        if (! $user->isActiveCoopMember()) {
             return redirect()
-                ->route('user.dashboard')
-                ->with('error', 'You must become a cooperative member first before you can apply for a loan. Click “Become a member” to start your membership application.');
+                ->route('user.membership')
+                ->with('error', 'You must become an active cooperative member first before you can apply for a loan. Click “Become a member” to start your membership application.');
         }
 
         return view('user.loan', [
@@ -77,12 +96,13 @@ class UserController extends Controller
      */
     public function storeApplication(Request $request)
     {
-        // Defense-in-depth: never accept a loan submission from a non-member,
-        // even if the form page is bypassed by a direct POST.
-        if (!Auth::user()->coopMember) {
-            return back()
-                ->withInput()
-                ->with('error', 'You must become a cooperative member first before you can apply for a loan.');
+        // Defense-in-depth: never accept a loan submission from somebody who
+        // is not an active cooperative member, even if the form page is
+        // bypassed by a direct POST.
+        if (! Auth::user()->isActiveCoopMember()) {
+            return redirect()
+                ->route('user.membership')
+                ->with('error', 'You must become an active cooperative member first before you can apply for a loan.');
         }
 
         $loanType = $request->input('loan_type');
@@ -270,12 +290,41 @@ class UserController extends Controller
      */
     public function memberNotifications()
     {
-        $notifications = Auth::user()->notifications()
+        $notifications = AppNotification::where('user_id', Auth::id())
             ->latest()
             ->take(10)
             ->get();
 
         return response()->json($notifications);
+    }
+
+    /**
+     * List every reminder addressed to the signed-in member.
+     */
+    public function notifications()
+    {
+        $notifications = AppNotification::where('user_id', Auth::id())
+            ->latest()
+            ->get();
+
+        return view('user.notifications', compact('notifications'));
+    }
+
+    /**
+     * Mark one of the signed-in member's own reminders as read.
+     * Notifications belonging to somebody else are refused.
+     */
+    public function markNotificationRead($notification)
+    {
+        $own = AppNotification::where('user_id', Auth::id())
+            ->whereKey($notification)
+            ->first();
+
+        abort_if($own === null, 403, 'Unauthorized action.');
+
+        $own->markAsRead();
+
+        return response()->json(['success' => true]);
     }
 
     /**

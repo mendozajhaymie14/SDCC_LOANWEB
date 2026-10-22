@@ -26,6 +26,24 @@
 </div>
 
 <script>
+<?php
+    $user = auth()->user();
+    $perms = [
+        'approve' => \App\Support\Permissions::has($user, \App\Support\Permissions::APPROVE_LOANS),
+        'reject'  => \App\Support\Permissions::has($user, \App\Support\Permissions::REJECT_LOANS),
+        'scan'    => \App\Support\Permissions::has($user, \App\Support\Permissions::VERIFY_DOCUMENTS),
+        'delete'  => \App\Support\Permissions::has($user, \App\Support\Permissions::ENCODE_APPLICATIONS),
+    ];
+?>
+/* Permission flags computed server-side so role checks cannot be bypassed
+   client-side. Missing permission ⇒ button never rendered. */
+window.__modalPermissions = {
+    approve: <?php echo json_encode($perms['approve']); ?>,
+    reject:  <?php echo json_encode($perms['reject']); ?>,
+    scan:    <?php echo json_encode($perms['scan']); ?>,
+    delete:  <?php echo json_encode($perms['delete']); ?>,
+};
+
 /* ── Shared modal helpers ── */
 
 window.closeAllModals = function () {
@@ -192,17 +210,22 @@ window.renderApplicationModal = function (app) {
 
 /* Action buttons + Approve Amount / reject reason form */
 function modalActionSection(appId, recommendedAmount) {
+    /* Permission flags computed server-side (see window.__modalPermissions).
+       A role without the permission never sees the button. */
+    const p = window.__modalPermissions || { approve: false, reject: false, scan: false, delete: false };
+    if (! p.approve && ! p.reject && ! p.scan && ! p.delete) return '';
+
     return '' +
         '<div style="display:flex;flex-direction:column;gap:0.5rem;width:100%;margin-top:1.2rem;">' +
             /* Row 1: Primary Decision */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
-                '<button type="button" id="btn-reject" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:transparent;cursor:pointer;" onclick="openRejectModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')">✗ Reject</button>' +
-                '<button type="button" id="btn-approve" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="openApproveModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')">✓ Approve</button>' +
+                (p.reject ? '<button type="button" id="btn-reject" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:transparent;cursor:pointer;" onclick="openRejectModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')">✗ Reject</button>' : '') +
+                (p.approve ? '<button type="button" id="btn-approve" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="openApproveModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')">✓ Approve</button>' : '') +
             '</div>' +
             /* Row 2: Tools & Cleanup */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
-                '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:#4f46e5;border:2px solid #4f46e5;background:rgba(79,70,229,0.08);cursor:pointer;" onclick="triggerAiScan(\'' + appId + '\')">⚡ AI Scan</button>' +
-                '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:rgba(239,68,68,0.05);cursor:pointer;" onclick="deleteApp(\'' + appId + '\')">🗑 Delete Application</button>' +
+                (p.scan ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:#4f46e5;border:2px solid #4f46e5;background:rgba(79,70,229,0.08);cursor:pointer;" onclick="triggerAiScan(\'' + appId + '\')">⚡ AI Scan</button>' : '') +
+                (p.delete ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:rgba(239,68,68,0.05);cursor:pointer;" onclick="deleteApp(\'' + appId + '\')">🗑 Delete Application</button>' : '') +
             '</div>' +
         '</div>' +
         /* Approve modal (inline, hidden until needed) */

@@ -15,7 +15,7 @@ class AdminActionsTest extends TestCase
 
     private function makeAdmin(): User
     {
-        return User::factory()->create(['usertype' => 'admin', 'email' => 'admin@example.com']);
+        return User::factory()->create(['usertype' => 'branch_manager', 'email' => 'admin@example.com']);
     }
 
     private function createPendingTestApplication(): Application
@@ -89,7 +89,9 @@ class AdminActionsTest extends TestCase
 
         $response->assertOk();
         $response->assertJson(['success' => true]);
-        $response->assertSee(route('applications.approve', $app->id));
+        // JSON response carries status, not a redirect URL — assert by path.
+        $response->assertJsonPath('status', 'Approved');
+        $response->assertJsonPath('app_id', $app->app_id);
     }
 
     /** @test */
@@ -120,7 +122,9 @@ class AdminActionsTest extends TestCase
 
         $response->assertOk();
         $response->assertJson(['success' => true]);
-        $this->assertDatabaseMissing($app);
+        // Application uses SoftDeletes on purpose (approve/reject read trashed
+        // rows), so a deleted application is soft-deleted, not removed.
+        $this->assertSoftDeleted($app);
     }
 
     /** @test */
@@ -129,8 +133,11 @@ class AdminActionsTest extends TestCase
         $admin = $this->makeAdmin();
         $app = $this->createPendingTestApplication();
 
+        // The scan endpoint is POST-only and returns JSON only when the modal
+        // signals it (Accept: application/json), matching the blade caller.
         $response = $this->actingAs($admin)
-            ->get(route('admin.applications.scan', $app->id));
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('admin.applications.scan', $app->id));
 
         $response->assertOk();
         $response->assertJson(['success' => true]);
@@ -142,9 +149,11 @@ class AdminActionsTest extends TestCase
         $admin = $this->makeAdmin();
         $app = $this->createPendingTestApplication();
 
-        // app_id format like "APP-0014" should NOT match ->whereNumber route
-        $this->expectException(\InvalidArgumentException::class);
-        $this->actingAs($admin)
-            ->get(route('admin.applications.show', 'APP-' . str_pad($app->id, 4, '0', STR_PAD_LEFT)));
+        // app_id format like "APP-0014" must NOT match the ->whereNumber route.
+        // route() itself still generates the URL; the 404 comes from the router.
+        $response = $this->actingAs($admin)
+            ->get('/admin/applications/APP-' . str_pad($app->id, 4, '0', STR_PAD_LEFT));
+
+        $response->assertNotFound();
     }
 }

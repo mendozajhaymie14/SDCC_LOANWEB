@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\MemberApplication;
+use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -17,6 +18,12 @@ class MemberApplicationController extends Controller
     {
         $user = Auth::user();              // Single query; null when not logged in
         $isAuth = $user !== null;
+
+        // Only registered non-members (and unregistered guests) may apply.
+        if ($isAuth && ! Permissions::has($user, Permissions::APPLY_MEMBERSHIP)) {
+            abort(403, 'Unauthorized action.');
+        }
+
         $authEmail = $user?->email ?? '';
 
         return view('auth.member-application', compact('isAuth', 'authEmail'));
@@ -28,6 +35,32 @@ class MemberApplicationController extends Controller
     public function store(Request $request)
     {
         $data = $request->all();
+
+        if (Auth::check() && ! Permissions::has(Auth::user(), Permissions::APPLY_MEMBERSHIP)) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        // One application at a time, and an approved one is final.
+        //
+        // This is checked before validation on purpose: an applicant who is
+        // already approved (or already pending) must be told THAT, not the
+        // generic "this e-mail belongs to a cooperative member" message that
+        // the coop_members rule below would produce.
+        $email = strtolower(trim((string) $request->input('email')));
+
+        if ($email !== '') {
+            $existing = MemberApplication::withTrashed()->where('email', $email)->first();
+
+            if ($existing?->status === 'approved') {
+                return back()->withInput()
+                    ->withErrors(['email' => 'Your membership application has already been approved.']);
+            }
+
+            if ($existing?->status === 'pending') {
+                return back()->withInput()
+                    ->withErrors(['email' => 'You already have a membership application under review. Please wait for the result.']);
+            }
+        }
 
         Validator::make($data, [
             // Identity
@@ -178,15 +211,23 @@ class MemberApplicationController extends Controller
         $application = MemberApplication::withTrashed()->where('email', $email)->first();
 
         if ($application) {
+            // A rejected application may be submitted again; the approved and
+            // pending cases were already handled before validation.
+
             // If it was soft-deleted, restore it first
             if ($application->trashed()) {
                 $application->restore();
             }
-            // Update the existing record
-            $application->update($data);
+
+            // Update the existing record and put it back in the queue.
+            $application->update($data + [
+                'status'      => 'pending',
+                'reviewed_at' => null,
+                'reviewed_by' => null,
+            ]);
         } else {
             // Create new record only if no record exists at all
-            $application = MemberApplication::create($data);
+            $application = MemberApplication::create($data + ['status' => 'pending']);
         }
 
         // Link the application to the submitting user account so the

@@ -36,6 +36,8 @@ class User extends Authenticatable
         'password',
         'phone',
         'coop_member_id',
+        'usertype',
+        'role',
     ];
 
     /**
@@ -89,6 +91,18 @@ class User extends Authenticatable
     public function memberApplication()
     {
         return $this->hasOne(MemberApplication::class);
+    }
+
+    /**
+     * Does this user hold a live cooperative membership?
+     *
+     * A member is a user linked to a coop_members row whose status is the
+     * canonical active value. A registered non-member ('user') has no such
+     * link, so this is false for them.
+     */
+    public function isActiveCoopMember(): bool
+    {
+        return $this->coopMember?->isActiveMember() === true;
     }
 
     /**

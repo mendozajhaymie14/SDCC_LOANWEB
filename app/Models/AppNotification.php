@@ -46,11 +46,21 @@ class AppNotification extends Model
     public const TYPE_APPROVED = 'approved';
     public const TYPE_REJECTED = 'rejected';
 
+    /**
+     * Membership lifecycle notifications.
+     */
+    public const TYPE_MEMBERSHIP_APPROVED = 'membership_approved';
+    public const TYPE_MEMBERSHIP_REJECTED = 'membership_rejected';
+    public const TYPE_WELCOME = 'welcome';
+
     public static function getTypes(): array
     {
         return [
             self::TYPE_APPROVED,
             self::TYPE_REJECTED,
+            self::TYPE_MEMBERSHIP_APPROVED,
+            self::TYPE_MEMBERSHIP_REJECTED,
+            self::TYPE_WELCOME,
             self::TYPE_DUE_SOON,
             self::TYPE_DUE_TODAY,
             self::TYPE_OVERDUE,

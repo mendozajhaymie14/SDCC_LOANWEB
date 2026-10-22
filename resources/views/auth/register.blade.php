@@ -42,45 +42,97 @@
                 <div class="register-form-side" style="padding: 40px; display: flex; align-items: center; justify-content: center; background-color: #ffffff; border-top-right-radius: 46px; border-bottom-right-radius: 46px;">
                     <div style="width: 100%; box-sizing: border-box;" x-data="{
                         isExistingMember: {{ old('is_existing_member') == '1' ? '1' : '0' }},
-                        memberStatus: '',
-                        first_name: {{ json_encode(old('first_name')) }},
-                        middle_name: {{ json_encode(old('middle_name')) }},
-                        last_name: {{ json_encode(old('last_name')) }},
-                        lookupError: '',
-                        lookupSuccess: '',
-                        lookupMember() {
-                            this.lookupError = '';
-                            this.lookupSuccess = '';
-                            const id = (this.$refs.member_id.value || '').trim();
-                            if (!id) {
-                                this.first_name = '';
-                                this.last_name = '';
-                                this.middle_name = '';
-                                return;
-                            }
-                            fetch('{{ route('member.lookup', ['memberId' => '__MEMBER_ID__']) }}'.replace('__MEMBER_ID__', encodeURIComponent(id)), { headers: { Accept: 'application/json' } })
-                                .then(r => r.json())
-                                .then(data => {
-                                    if (data.ok) {
-                                        this.first_name = data.member.first_name;
-                                        this.middle_name = data.member.middle_name;
-                                        this.last_name = data.member.last_name;
-                                        this.lookupSuccess = 'Member details loaded from our records.';
-                                        this.lookupError = '';
-                                    } else {
-                                        this.first_name = '';
-                                        this.last_name = '';
-                                        this.middle_name = '';
-                                        this.lookupError = data.message || 'Member ID not found. Please check and try again.';
-                                    }
-                                })
-                                .catch(() => {
-                                    this.first_name = '';
-                                    this.last_name = '';
-                                    this.middle_name = '';
-                                    this.lookupError = 'Could not look up that Member ID right now.';
+                        memberId: @js(old('member_id', '')),
+                        code: '',
+                        sending: false,
+                        verifying: false,
+                        codeSent: false,
+                        verified: false,
+                        message: '',
+                        error: '',
+                        maskedEmail: '',
+                        first_name: @js(old('first_name', '')),
+                        middle_name: @js(old('middle_name', '')),
+                        last_name: @js(old('last_name', '')),
+                        email: @js(old('email', '')),
+                        contact_number: @js(old('contact_number', '')),
+
+                        async sendCode() {
+                            this.error = '';
+                            this.message = '';
+                            this.sending = true;
+
+                            try {
+                                const response = await fetch(@js(route('register.existing-member.send-code')), {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Accept': 'application/json',
+                                        'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').getAttribute('content'),
+                                    },
+                                    body: JSON.stringify({ member_id: this.memberId }),
                                 });
-                        }
+
+                                const data = await response.json();
+
+                                if (response.status === 429) {
+                                    this.error = 'Too many requests. Please wait a minute and try again.';
+                                    return;
+                                }
+
+                                this.message = data.message || '';
+                                this.maskedEmail = data.email_masked || '';
+                                this.codeSent = true;
+                            } catch (e) {
+                                this.error = 'Could not send a code right now. Please try again.';
+                            } finally {
+                                this.sending = false;
+                            }
+                        },
+
+                        async verifyCode() {
+                            this.error = '';
+                            this.message = '';
+                            this.verifying = true;
+
+                            try {
+                                const response = await fetch(@js(route('register.existing-member.verify')), {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Accept': 'application/json',
+                                        'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').getAttribute('content'),
+                                    },
+                                    body: JSON.stringify({ member_id: this.memberId, code: this.code }),
+                                });
+
+                                const data = await response.json();
+
+                                if (response.status === 429) {
+                                    this.error = data.message || 'This member ID is locked for a few minutes.';
+                                    return;
+                                }
+
+                                if (!data.ok) {
+                                    this.error = data.message || 'That code could not be verified.';
+                                    return;
+                                }
+
+                                this.verified = true;
+                                this.message = data.message || '';
+
+                                const member = data.member || {};
+                                this.first_name = member.first_name || '';
+                                this.middle_name = member.middle_name || '';
+                                this.last_name = member.last_name || '';
+                                this.email = member.email || '';
+                                this.contact_number = member.contact_number || '';
+                            } catch (e) {
+                                this.error = 'Could not verify that code right now. Please try again.';
+                            } finally {
+                                this.verifying = false;
+                            }
+                        },
                     }">
 
                         <x-validation-errors class="mb-4" />
@@ -107,31 +159,61 @@
                                 </p>
                             </div>
 
-                            <!-- Existing Member Verification Fields (Shows ONLY when 'Yes' is selected) -->
+                            <!-- Existing Member Verification (Shows ONLY when 'Yes' is selected) -->
                             <div x-show="isExistingMember === 1" x-cloak style="display: flex; flex-direction: column; gap: 10px; background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="member_id" value="{{ __('Member ID') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
-                                    <x-input id="member_id" x-ref="member_id" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="member_id" :value="old('member_id')" placeholder="e.g. SDCC-2023-0001" x-bind:required="isExistingMember === 1" @input.debounce.500ms="lookupMember" />
-                                </div>
-                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-                                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                                        <x-label for="first_name" value="{{ __('First Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
-                                        <x-input id="first_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="first_name" x-bind:value="first_name" placeholder="Auto-filled from member record" x-bind:readonly="lookupSuccess !== ''" x-bind:required="isExistingMember === 1" autocomplete="given-name" />
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                                        <x-label for="middle_name" value="{{ __('Middle Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
-                                        <x-input id="middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="middle_name" x-bind:value="middle_name" placeholder="Optional" x-bind:readonly="lookupSuccess !== ''" autocomplete="additional-name" />
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                                        <x-label for="last_name" value="{{ __('Last Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
-                                        <x-input id="last_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="last_name" x-bind:value="last_name" placeholder="Auto-filled from member record" x-bind:readonly="lookupSuccess !== ''" x-bind:required="isExistingMember === 1" autocomplete="family-name" />
+                                    <div style="display: flex; gap: 8px;">
+                                        <x-input id="member_id" x-model="memberId" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="member_id" :value="old('member_id')" placeholder="e.g. SDCC-2023-0001" x-bind:readonly="verified" />
+                                        <button type="button" @click="sendCode()" x-bind:disabled="sending || verified" style="background-color: #16a34a; color: #ffffff; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; white-space: nowrap;">
+                                            <span x-text="sending ? 'Sending…' : 'Send code'"></span>
+                                        </button>
                                     </div>
                                 </div>
-                                <div x-show="lookupError" x-cloak style="font-size: 12px; color: #dc2626; font-weight: 600;">
-                                    <span x-text="lookupError"></span>
+
+                                <div x-show="codeSent" x-cloak style="display: flex; flex-direction: column; gap: 4px;">
+                                    <x-label for="member_code" value="{{ __('Verification Code') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                    <div style="display: flex; gap: 8px;">
+                                        <x-input id="member_code" x-model="code" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="code" maxlength="6" inputmode="numeric" placeholder="6-digit code" x-bind:disabled="verified" />
+                                        <button type="button" @click="verifyCode()" x-bind:disabled="verifying || verified" style="background-color: #1C2536; color: #ffffff; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; white-space: nowrap;">
+                                            <span x-text="verifying ? 'Checking…' : 'Verify code'"></span>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div x-show="lookupSuccess" x-cloak style="font-size: 12px; color: #166534; font-weight: 600;">
-                                    <span x-text="lookupSuccess"></span>
+
+                                <!-- Autofilled member details (read-only once verified) -->
+                                <div x-show="verified" x-cloak style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="existing_first_name" value="{{ __('First Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="existing_first_name" class="block w-full border-gray-200 rounded-lg shadow-sm text-sm py-2 px-3 bg-gray-50" type="text" name="first_name" x-bind:value="first_name" x-bind:disabled="isExistingMember !== 1 || !verified" readonly />
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="existing_middle_name" value="{{ __('Middle Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="existing_middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm text-sm py-2 px-3 bg-gray-50" type="text" name="middle_name" x-bind:value="middle_name" x-bind:disabled="isExistingMember !== 1 || !verified" readonly />
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="existing_last_name" value="{{ __('Last Name') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="existing_last_name" class="block w-full border-gray-200 rounded-lg shadow-sm text-sm py-2 px-3 bg-gray-50" type="text" name="last_name" x-bind:value="last_name" x-bind:disabled="isExistingMember !== 1 || !verified" readonly />
+                                    </div>
+                                </div>
+
+                                <div x-show="verified" x-cloak style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px;">
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="existing_email" value="{{ __('Email') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="existing_email" class="block w-full border-gray-200 rounded-lg shadow-sm text-sm py-2 px-3 bg-gray-50" type="email" name="email" x-bind:value="email" x-bind:disabled="isExistingMember !== 1 || !verified" readonly />
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <x-label for="existing_contact_number" value="{{ __('Contact Number') }}" style="font-size: 13px; font-weight: 700; color: #166534;" />
+                                        <x-input id="existing_contact_number" class="block w-full border-gray-200 rounded-lg shadow-sm text-sm py-2 px-3 bg-gray-50" type="text" name="contact_number" x-bind:value="contact_number" x-bind:disabled="isExistingMember !== 1 || !verified" readonly />
+                                    </div>
+                                </div>
+
+                                <div x-show="message" x-cloak style="font-size: 12px; color: #166534; font-weight: 600;">
+                                    <span x-text="message"></span>
+                                    <span x-show="maskedEmail" x-cloak x-text="maskedEmail ? '(' + maskedEmail + ')' : ''"></span>
+                                </div>
+                                <div x-show="error" x-cloak style="font-size: 12px; color: #dc2626; font-weight: 600;">
+                                    <span x-text="error"></span>
                                 </div>
                             </div>
 
@@ -139,22 +221,22 @@
                             <div x-show="isExistingMember === 0" x-cloak style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="first_name" value="{{ __('First Name') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                    <x-input id="first_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="first_name" x-bind:value="first_name" x-bind:required="isExistingMember === 0" autocomplete="given-name" />
+                                    <x-input id="first_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="first_name" :value="old('first_name')" x-bind:disabled="isExistingMember === 1" required autocomplete="given-name" />
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="middle_name" value="{{ __('Middle Name') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                    <x-input id="middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="middle_name" x-bind:value="middle_name" autocomplete="additional-name" />
+                                    <x-input id="middle_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="middle_name" :value="old('middle_name')" x-bind:disabled="isExistingMember === 1" autocomplete="additional-name" />
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <x-label for="last_name" value="{{ __('Last Name') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                    <x-input id="last_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="last_name" x-bind:value="last_name" x-bind:required="isExistingMember === 0" autocomplete="family-name" />
+                                    <x-input id="last_name" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="text" name="last_name" :value="old('last_name')" x-bind:disabled="isExistingMember === 1" required autocomplete="family-name" />
                                 </div>
                             </div>
 
-                            <!-- Email -->
-                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <!-- Email (new accounts only — an existing member keeps the address on file) -->
+                            <div x-show="isExistingMember === 0" x-cloak style="display: flex; flex-direction: column; gap: 4px;">
                                 <x-label for="email" value="{{ __('Email') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />
-                                <x-input id="email" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="email" name="email" :value="old('email')" required autocomplete="username" pattern=".+@gmail\.com" title="Only @gmail.com email addresses are allowed" />
+                                <x-input id="email" class="block w-full border-gray-200 rounded-lg shadow-sm focus:border-green-500 focus:ring-green-500 text-sm py-2 px-3 bg-white" type="email" name="email" :value="old('email')" x-bind:disabled="isExistingMember === 1" required autocomplete="username" :pattern="config('sdcc.gmail_only_email') ? '.+@gmail\.com' : null" :title="config('sdcc.gmail_only_email') ? 'Only @gmail.com email addresses are allowed' : null" />
                             </div>
 
                             <!-- Password with Eye Toggle -->
@@ -168,7 +250,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                         </svg>
                                         <svg x-show="show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;" x-cloak>
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a4 4 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
                                         </svg>
                                     </button>
                                 </div>
@@ -185,7 +267,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                         </svg>
                                         <svg x-show="show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;" x-cloak>
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a4 4 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
                                         </svg>
                                     </button>
                                 </div>
@@ -214,7 +296,7 @@
                                     {{ __('Already registered?') }}
                                 </a>
 
-                                <button type="submit" style="background-color: #1C2536; color: #ffffff; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 22px; border-radius: 8px; border: none; cursor: pointer;">
+                                <button type="submit" x-bind:disabled="isExistingMember === 1 && !verified" style="background-color: #1C2536; color: #ffffff; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 22px; border-radius: 8px; border: none; cursor: pointer;">
                                     {{ __('REGISTER') }}
                                 </button>
                             </div>

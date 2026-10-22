@@ -13,9 +13,11 @@
     @endif
 
     <div class="passbook-actions">
-      <a href="{{ route('user.loans.create') }}" class="btn-primary">Apply for a loan</a>
+      @if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_LOAN))
+        <a href="{{ route('user.loans.create') }}" class="btn-primary">Apply for a loan</a>
+      @endif
       @if (!$user->coopMember)
-        <a href="{{ route('member.applications.create') }}" class="btn-solid">Become a member</a>
+        <a href="{{ route('user.membership') }}" class="btn-solid">Become a member</a>
       @endif
     </div>
   </div>
@@ -117,7 +119,9 @@
   <div class="empty-state">
     <p>You haven't applied for a loan yet.<br>
        Pick a loan product, fill in the form, and we'll review it within 48 hours.</p>
-    <a href="{{ route('user.loans.create') }}" class="btn-solid">Apply for a loan</a>
+    @if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_LOAN))
+      <a href="{{ route('user.loans.create') }}" class="btn-solid">Apply for a loan</a>
+    @endif
   </div>
 
 @else

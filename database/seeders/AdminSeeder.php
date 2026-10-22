@@ -14,12 +14,20 @@ class AdminSeeder extends Seeder
 
     /**
      * Seed the application's database.
+     * Only runs in local/testing environments or when explicitly opted in.
+     * Admin credentials are set via ADMIN_SEED_PASSWORD environment variable.
      */
     public function run(): void
     {
+        // Never seed the demo admin in production
+        if (! app()->environment(['local', 'testing']) && config('sdcc.seed_demo_users') !== true) {
+            $this->command?->info('Admin demo user seeding skipped (run in local/testing or set SEED_DEMO_USERS=true).');
+            return;
+        }
+
         $password = env('ADMIN_SEED_PASSWORD');
 
-        if ($password === null) {
+        if ($password === null || $password === '') {
             throw new RuntimeException('ADMIN_SEED_PASSWORD environment variable is not set. Please set it in your .env file.');
         }
 
