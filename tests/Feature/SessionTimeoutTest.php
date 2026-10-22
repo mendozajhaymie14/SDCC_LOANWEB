@@ -187,4 +187,51 @@ class SessionTimeoutTest extends TestCase
 
         Log::shouldNotHaveReceived('warning');
     }
+
+    /**
+     * An expired session shows the expiry message and after re-login returns
+     * the user to the page they were trying to reach.
+     *
+     * @dataProvider roleProvider
+     */
+    public function test_expired_session_shows_message_and_returns_to_intended_page(string $role): void
+    {
+        $user = User::factory()->create([
+            'usertype' => $role,
+            'password' => bcrypt('password123'),
+        ]);
+
+        $cookie = $this->loginAndGetSessionCookie($user);
+
+        // Idle for 16 minutes → expired.
+        DB::table('sessions')->update([
+            'last_activity' => Carbon::now()->subMinutes(16)->getTimestamp(),
+        ]);
+
+        $this->resetInMemoryAuthState();
+
+        $intended = $this->protectedRouteFor($role);
+
+        // The request hits an expired session → redirect to login with flash.
+        $bounced = $this->withUnencryptedCookie($cookie->getName(), $cookie->getValue())
+            ->get($intended);
+
+        $bounced->assertRedirect(url('/login'));
+
+        // The login page shows the expiry message.
+        $login = $this->withUnencryptedCookie($cookie->getName(), $cookie->getValue())
+            ->get('/login');
+
+        $login->assertOk();
+        $login->assertSee('Your session has expired. Please sign in again.');
+
+        // Re-signing in returns the user to the intended page.
+        $relogin = $this->withUnencryptedCookie($cookie->getName(), $cookie->getValue())
+            ->post('/login', [
+                'email' => $user->email,
+                'password' => 'password123',
+            ]);
+
+        $relogin->assertRedirect(url($intended));
+    }
 }

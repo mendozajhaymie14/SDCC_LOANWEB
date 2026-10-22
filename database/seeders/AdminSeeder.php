@@ -39,12 +39,16 @@ class AdminSeeder extends Seeder
                 'email' => 'admin@sdcc.com',
                 'password' => Hash::make($password),
                 'usertype' => 'admin',
+                // Model events are disabled for seeding, so the model hook that
+                // keeps the two columns in step never runs here.
+                'role' => 'admin',
             ]);
         }
 
         // Ensure usertype is set to admin (in case it changed)
-        if ($admin->usertype !== 'admin') {
+        if ($admin->usertype !== 'admin' || $admin->role !== 'admin') {
             $admin->usertype = 'admin';
+            $admin->role = 'admin';
             $admin->save();
         }
     }

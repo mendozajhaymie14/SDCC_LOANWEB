@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Permissions;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Model;
@@ -24,9 +25,15 @@ class AuditLog extends Model
      */
     protected $fillable = [
         'user_id',
+        'actor_id',
+        'actor_role',
         'admin_name',
         'action',
         'details',
+        'target_type',
+        'target_id',
+        'old_values',
+        'new_values',
         'ip_address',
     ];
 

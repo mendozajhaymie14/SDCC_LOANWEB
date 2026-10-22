@@ -597,7 +597,7 @@
     const titles = {
       dashboard:'Dashboard', analytics:'Analytics', applications:'All Applications',
       pending:'Pending Review', approved:'Approved Loans', rejected:'Rejected',
-      disbursements:'Disbursements', repayments:'Repayments', members:'Active Members',
+      disbursements:'Release Records', repayments:'Repayments', members:'Active Members',
       credit:'Credit Assessment', risk:'Risk Flags', settings:'Settings',
       reports:'Reports'
     };
@@ -1027,11 +1027,11 @@
 
   // ─── FORM SUBMISSIONS ───
   function submitPayout() {
-    showToast('success', 'Payout processed and disbursed!', '💸');
+    showToast('success', 'Release recorded successfully', '✅');
     closeAllModals();
   }
 
-  // ─── DISBURSEMENTS: open the payout modal for a specific loan ───
+  // ─── DISBURSEMENTS / RELEASE RECORDS: open the record-release modal for a specific loan ───
   function openPayoutModal(loanId) {
     const form = document.getElementById('processPayoutForm');
     if (form) {

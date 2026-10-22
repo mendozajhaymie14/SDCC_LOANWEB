@@ -58,6 +58,9 @@ class RoleDemoSeeder extends Seeder
                     'name' => $u['name'],
                     'password' => Hash::make($u['password']),
                     'usertype' => $u['role'],
+                    // Model events are disabled for seeding, so the model hook
+                    // that keeps the two columns in step never runs here.
+                    'role' => $u['role'],
                 ]
             );
 

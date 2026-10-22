@@ -39,7 +39,8 @@
             <thead>
               <tr>
                 <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b font-mono">Date</th>
-                <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">User</th>
+                <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">Actor</th>
+                <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">Target</th>
                 <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">Action</th>
                 <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">Details</th>
                 <th class="py-3 px-4 text-gray-600 text-sm font-semibold border-b">IP Address</th>
@@ -49,7 +50,14 @@
               @forelse($auditLogs as $log)
                   <tr class="hover:bg-gray-50 transition-colors {{ $loop->odd ? 'bg-white' : 'bg-gray-50' }}">
                     <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ \Carbon\Carbon::parse($log->created_at)->format('M d, Y H:i') }}</td>
-                    <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->admin_name ?? 'System' }}</td>
+                    <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->actor_role ?? 'System' }}</td>
+                    <td class="py-3 px-4 font-medium text-gray-600 text-sm">
+                        @if($log->target_type)
+                            {{ Str::limit($log->target_type, 30) }}${{ $log->target_id ?? '' }}
+                        @else
+                            -
+                        @endif
+                    </td>
                     <td class="py-3 px-4 font-medium text-gray-600 text-sm">
                         @php
                             $badgeStyle = 'background-color: #f3f4f6; color: #374151;';
@@ -70,7 +78,7 @@
                   </tr>
               @empty
                 <tr>
-                  <td colspan="5" class="py-6 text-center text-gray-400">No activity logs found.</td>
+                  <td colspan="6" class="py-6 text-center text-gray-400">No activity logs found.</td>
                 </tr>
               @endforelse
             </tbody>

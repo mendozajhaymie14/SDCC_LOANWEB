@@ -87,6 +87,7 @@ class CreateNewUser implements CreatesNewUsers
             'email'    => strtolower(trim($input['email'])),
             'password' => Hash::make($input['password']),
             'usertype' => Permissions::ROLE_USER,
+            'role'     => Permissions::ROLE_USER,
         ]);
 
         return $user;
@@ -178,6 +179,7 @@ class CreateNewUser implements CreatesNewUsers
                 'password'       => Hash::make($input['password']),
                 'coop_member_id' => $locked->id,
                 'usertype'       => Permissions::ROLE_MEMBER,
+                'role'           => Permissions::ROLE_MEMBER,
             ]);
 
             // The code already proved the address, so no second verification

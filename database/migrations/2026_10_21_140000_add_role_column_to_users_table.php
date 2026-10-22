@@ -49,6 +49,9 @@ return new class extends Migration {
 
     private function needsBackfill(): bool
     {
-        return DB::select("SELECT COUNT(*) AS count FROM \`users\` WHERE \`role\` IS NULL")[0]->count > 0;
+        // The query builder, not raw SQL: the previous version quoted the
+        // identifiers with backslashes, which only MySQL accepts — the SQLite
+        // databases used by the test suite rejected it.
+        return DB::table('users')->whereNull('role')->exists();
     }
 };

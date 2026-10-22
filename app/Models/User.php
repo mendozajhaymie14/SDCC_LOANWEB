@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\Permissions;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -75,6 +76,50 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * `role` and `usertype` are the same field stored twice: `role` is the
+     * paper-facing name the permission matrix reads, `usertype` the legacy
+     * one. They are kept in lockstep here, so no write path can leave a row
+     * claiming two different roles — a stale `usertype` would otherwise
+     * grant (or deny) the wrong permissions, because Permissions::role()
+     * reads `role` first.
+     *
+     * `role` wins when the two disagree; a row that only carries the legacy
+     * column inherits it.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $user) {
+            $role = trim((string) $user->role);
+
+            if ($role === '') {
+                $role = trim((string) $user->usertype) ?: Permissions::ROLE_USER;
+            }
+
+            $user->role = $role;
+            $user->usertype = $role;
+        });
+    }
+
+    /**
+     * Staff accounts: the four roles an administrator may hand out.
+     *
+     * The second branch catches rows written before the `role` column
+     * existed, which are still identified by their legacy `usertype`.
+     */
+    public function scopeStaff($query)
+    {
+        // The whole thing is one group, so a further where() on the query
+        // (findOrFail($id), for instance) applies to both branches.
+        return $query->where(function ($query) {
+            $query->whereIn('role', Permissions::STAFF_ROLES)
+                ->orWhere(function ($query) {
+                    $query->whereNull('role')
+                        ->whereIn('usertype', Permissions::STAFF_ROLES);
+                });
+        });
     }
 
     /**

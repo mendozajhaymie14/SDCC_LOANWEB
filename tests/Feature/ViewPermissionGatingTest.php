@@ -277,7 +277,7 @@ class ViewPermissionGatingTest extends TestCase
     }
 
     /**
-     * "Add Admin" is manage_users; "Add Membership Application" is approve_memberships.
+     * "Add Staff" is manage_users; "Add Membership Application" is approve_memberships.
      * Both pages are only reachable by the role that owns them, so this asserts
      * the button and the page permission agree rather than 403-ing.
      *
@@ -290,7 +290,7 @@ class ViewPermissionGatingTest extends TestCase
         $admins = $this->actingAs($user)->get('/admin/users');
         if (Permissions::has($user, Permissions::MANAGE_USERS)) {
             $admins->assertOk();
-            $this->assertStringContainsString('+ Add Admin', $admins->getContent());
+            $this->assertStringContainsString('+ Add Staff', $admins->getContent());
         } else {
             $admins->assertForbidden();
         }

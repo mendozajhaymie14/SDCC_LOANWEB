@@ -378,7 +378,8 @@ class AdminController extends Controller
             $search = $request->input('search');
             $query->where(function($q) use ($search) {
                 $q->where('action', 'like', "%{$search}%")
-                  ->orWhere('user_name', 'like', "%{$search}%")
+                  ->orWhere('admin_name', 'like', "%{$search}%")
+                  ->orWhere('actor_role', 'like', "%{$search}%")
                   ->orWhere('details', 'like', "%{$search}%");
             });
         }
@@ -470,8 +471,7 @@ class AdminController extends Controller
     //     via the orWhereNull fallback so legacy users are still visible.
     public function adminUsers()
     {
-        $admins = User::whereIn('role', Permissions::STAFF_ROLES)
-            ->orWhereNull('role')
+        $admins = User::staff()
             ->latest()
             ->get();
         return view('admin.admins', compact('admins'));
@@ -498,7 +498,7 @@ class AdminController extends Controller
             'email'    => $validated['email'],
             'phone'    => $validated['phone'] ?? null,
             'password' => Hash::make($password),
-            'usertype' => Permissions::ROLE_USER,
+            'usertype' => $validated['role'],
             'role'     => $validated['role'],
         ]);
 
@@ -512,14 +512,14 @@ class AdminController extends Controller
             'success' => true,
             'id'    => $user->id,
             'role'  => $user->role,
-            'password' => $validated['password'] ? null : $password,
+            'password' => ($validated['password'] ?? null) ? null : $password,
         ]);
     }
 
     // 17. Update a staff account
     public function updateAdmin(Request $request, $id)
     {
-        $user = User::whereIn('role', Permissions::STAFF_ROLES)->findOrFail($id);
+        $user = User::staff()->findOrFail($id);
 
         if ($user->id === Auth::id()) {
             return response()->json(['success' => false, 'message' => 'You cannot edit your own account.'], 422);
@@ -543,10 +543,12 @@ class AdminController extends Controller
         $user->name  = $validated['name'];
         $user->email = $validated['email'];
         $user->phone = $validated['phone'] ?? null;
-        $user->role  = $validated['role'];
-        $user->usertype = Permissions::ROLE_USER;
+        // Both columns move together: a staff account is never a registered
+        // non-member in either column.
+        $user->role     = $validated['role'];
+        $user->usertype = $validated['role'];
 
-        if ($validated['password']) {
+        if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
         }
 
@@ -566,7 +568,7 @@ class AdminController extends Controller
     // 18. Delete a staff account
     public function destroyAdmin($id)
     {
-        $user = User::whereIn('role', Permissions::STAFF_ROLES)->findOrFail($id);
+        $user = User::staff()->findOrFail($id);
 
         if ($user->id === Auth::id()) {
             return response()->json(['success' => false, 'message' => 'You cannot delete your own account.'], 422);
@@ -648,6 +650,10 @@ class AdminController extends Controller
 
                 if ($user) {
                     $user->coop_member_id = $coopMember->id;
+                    // Both columns agree: a member has the 'member' role AND an
+                    // active cooperative membership, the only way the portal can
+                    // distinguish "linked member" from "registered non-member".
+                    $user->role     = Permissions::ROLE_MEMBER;
                     $user->usertype = Permissions::ROLE_MEMBER;
                     $user->save();
                 }
@@ -710,7 +716,10 @@ class AdminController extends Controller
                         $query->whereNull('coop_member_id')
                             ->orWhere('usertype', '!=', Permissions::ROLE_MEMBER);
                     })
-                    ->update(['usertype' => Permissions::ROLE_USER]);
+                    ->update([
+                        'usertype' => Permissions::ROLE_USER,
+                        'role'     => Permissions::ROLE_USER,
+                    ]);
 
                 AppNotification::create([
                     'user_id' => $userId,
@@ -889,9 +898,6 @@ class AdminController extends Controller
                 'applicant_name' => $app->applicant ?? $app->full_name ?? 'Applicant',
                 'loan_type'      => $app->loan_type ?? 'Personal Loan',
                 'amount'         => $app->amount ?? 0,
-                'channel'        => 'Bank Transfer',
-                'account_number' => '—',
-                'notes'          => 'Approved loan application payout.',
                 'status'         => 'Disbursed',
                 'created_at'     => $app->created_at ?? now(),
             ];

@@ -1,7 +1,7 @@
 @php
     $applications = $applications ?? collect();
 
-    // Chart data: Monthly Disbursements vs Repayments (Phase 2)
+    // Chart data: Monthly Releases vs Repayments (Phase 2)
     $monthlyDisbursements = $monthlyDisbursements ?? [0, 0, 0, 0, 0, 0];
     $monthlyRepayments = $monthlyRepayments ?? [0, 0, 0, 0, 0, 0];
 
@@ -76,7 +76,7 @@
     <{{ $kpiTag('disbursements.index') }} @if($kpiHref('disbursements.index'))href="{{ $kpiHref('disbursements.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card blue" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
-          <div class="kpi-label" style="color: #374151 !important;">Total Loan Disbursed</div>
+          <div class="kpi-label" style="color: #374151 !important;">Total Loan Released</div>
           <div class="kpi-icon blue"></div>
         </div>
         <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
@@ -128,7 +128,7 @@
     <!-- LEFT: Monthly Disbursements vs Repayments Bar Chart -->
     <div style="flex: 1 1 calc(50% - 0.75rem); min-width: 320px; background: #fff; padding: 1.25rem; border-radius: 12px; border: 1px solid #eaecf0;">
       <div class="panel-head">
-        <h2 class="panel-title">Monthly Disbursements vs Repayments</h2>
+        <h2 class="panel-title">Monthly Releases vs Repayments</h2>
       </div>
       <div class="panel-body h-full flex flex-col">
         <div style="position: relative; height: 260px; width: 100%; overflow: hidden;">
@@ -448,7 +448,7 @@
     labels: {!! json_encode($monthLabels) !!},
     datasets: [
       {
-        label: 'Disbursements',
+        label: 'Releases',
         data: {{ json_encode($monthlyDisbursements) }},
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
         borderColor: 'rgba(59, 130, 246, 1)',
