@@ -92,8 +92,10 @@
           </thead>
           <tbody id="notifLogsTable">
             @if($logs->isNotEmpty())
+              @php $rowIndex = 0; @endphp
               @foreach($logs as $log)
-                <tr class="hover:bg-gray-50 transition-colors @if($loop->isOdd) bg-white @else bg-gray-50 @endif">
+                @php $rowIndex++; @endphp
+                <tr class="hover:bg-gray-50 transition-colors @if($rowIndex % 2 === 1) bg-white @else bg-gray-50 @endif">
                   <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->created_at->format('M d, Y H:i') }}</td>
                   <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->recipient_email }}</td>
                   <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->subject }}</td>

@@ -247,6 +247,10 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('repayments.index');
         Route::post('/admin/repayments', [AdminController::class, 'storeRepayment'])
             ->name('repayments.store');
+        Route::put('/repayments/{id}', [AdminController::class, 'updateRepayment'])
+            ->name('repayments.update');
+        Route::delete('/repayments/{id}', [AdminController::class, 'destroyRepayment'])
+            ->name('repayments.destroy');
     });
 
     // ------------------------------------------------------------------

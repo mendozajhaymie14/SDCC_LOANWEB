@@ -55,10 +55,15 @@
                                 {{ $value }}
                             </div>
                         @endsession
+                        
 
                         <form method="POST" action="{{ route('login') }}" style="display: flex; flex-direction: column; gap: 18px; margin: 0;">
                             @csrf
-
+                            @if ($errors->any())
+    <div role="alert" style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:14px;">
+        {{ $errors->first() }}
+    </div>
+@endif
                             <!-- Email / Username -->
 <div style="display: flex; flex-direction: column; gap: 6px;">
     <x-label for="email" value="{{ __('Email / Username') }}" style="font-size: 14px; font-weight: 700; color: #4b5563;" />

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="csrf-token" content="{{ csrf_token() }}"/>
   <title>San Dionisio Credit Cooperative — Repayments</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
@@ -39,7 +40,9 @@
       <div class="page-header">
         <div>
           <h2 class="panel-title">Repayments</h2>
+          <div style="font-size:0.875rem;color:#64748b;margin-top:0.25rem;">Total Payment Records: {{ $repayments->count() }}</div>
         </div>
+        <button class="btn-new" onclick="recordNewRepayment()">+ Record Payment</button>
       </div>
 
       <!-- Summary Panel -->
@@ -73,17 +76,31 @@
           <tbody>
             @forelse($repayments as $repayment)
               <tr>
-                <td class="font-semibold text-gray-700">#{{ $repayment->reference_number ?? 'N/A' }}</td>
-                <td>{{ $repayment->borrower_name ?? 'N/A' }}</td>
-                <td><span class="loan-type-tag">{{ $repayment->loan_application_id ?? 'N/A' }}</span></td>
+                <td class="font-semibold text-gray-700">#{{ $repayment->reference_no ?? 'N/A' }}</td>
+                <td>{{ $repayment->loanApplication?->user?->name ?? $repayment->loanApplication?->full_name ?? 'N/A' }}</td>
+                <td><span class="loan-type-tag">#{{ $repayment->loanApplication?->app_id ?? $repayment->loan_application_id ?? 'N/A' }}</span></td>
                 <td>₱{{ number_format($repayment->amount_paid ?? 0, 2) }}</td>
                 <td><span class="status-pill {{ strtolower($repayment->payment_method ?? 'cash') }}">{{ ucfirst($repayment->payment_method ?? 'cash') }}</span></td>
                 <td>{{ \Carbon\Carbon::parse($repayment->payment_date ?? now())->format('M d, Y') }}</td>
                 <td>
                   <button class="btn btn-sm btn-outline-primary"
                           style="border: 1px solid #cbd5e1; background-color: #ffffff; color: #1e293b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; cursor: pointer;"
-                          onclick="recordNewRepayment()">
-                    Record Repayment
+                          onclick="viewRepayment({{ $repayment->id }})">
+                    View
+                  </button>
+                  <button class="btn btn-sm btn-outline-primary"
+                          style="border: 1px solid #cbd5e1; background-color: #ffffff; color: #1e293b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; cursor: pointer;"
+                          onclick="editRepayment({{ $repayment->id }})"
+                          data-repayment-id="{{ $repayment->id }}"
+                          data-amount="{{ $repayment->amount_paid ?? 0 }}"
+                          data-method="{{ $repayment->payment_method ?? 'Cash' }}"
+                          data-reference="{{ $repayment->reference_no ?? '' }}"
+                          data-date="{{ $repayment->payment_date ? \Carbon\Carbon::parse($repayment->payment_date)->format('Y-m-d') : '' }}"
+                          data-notes="{{ $repayment->notes ?? '' }}">Edit</button>
+                  <button class="btn btn-sm btn-outline-danger"
+                          style="border: 1px solid #cbd5e1; background-color: #ffffff; color: #1e293b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; cursor: pointer;"
+                          onclick="deleteRepayment({{ $repayment->id }}, '{{ $repayment->loanApplication?->user?->name ?? 'Unknown' }}')">
+                    Delete
                   </button>
                 </td>
               </tr>
@@ -99,15 +116,41 @@
   </div>
 
   <!-- RECORD REPAYMENT MODAL -->
-  <div class="modal" id="recordRepaymentModal" onclick="event.stopPropagation()">
+  <div class="modal"
+       id="modal-recordRepaymentModal"
+       onclick="event.stopPropagation()"
+       style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important;">
     <div class="modal-header">
       <div class="modal-title">💰 Record New Repayment</div>
-      <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
+      <div class="modal-close" type="button" onclick="closeRepaymentModal()">✕</div>
     </div>
     <form action="{{ route('repayments.store') }}" method="POST">
       @csrf
 
       <input type="hidden" name="application_id" id="repayAppId" value="">
+      <input type="hidden" id="repaymentId" name="repayment_id" value="">
+
+      <div class="form-group">
+        <label class="form-label">Select Loan</label>
+        <select name="loan_select" id="loanSelect" class="form-select" onchange="populateLoanFields(this)">
+          <option value="">-- Select a loan --</option>
+          @foreach($approvedLoans as $loan)
+            @php
+              $borrowerName = $loan->loanApplication?->user?->name ?? $loan->loanApplication?->full_name ?? $loan->applicant ?? 'Unknown';
+              $appId = $loan->app_id ?? $loan->id;
+              $remainingBalance = $loan->remaining_balance ?? $loan->loanApplication?->remaining_balance ?? 0;
+              $loanType = $loan->loan_type ?? $loan->loanApplication?->loan_type ?? 'N/A';
+            @endphp
+            <option value="{{ $loan->id }}"
+                    data-app-id="{{ $appId }}"
+                    data-borrower="{{ $borrowerName }}"
+                    data-amount="{{ $remainingBalance }}"
+                    data-loan-type="{{ $loanType }}">
+              #{{ $appId }} — {{ $borrowerName }} (₱{{ number_format($remainingBalance, 2) }} remaining)
+            </option>
+          @endforeach
+        </select>
+      </div>
 
       <div class="form-row">
         <div class="form-group">
@@ -116,14 +159,14 @@
         </div>
         <div class="form-group">
           <label class="form-label">Borrower Name</label>
-          <input type="text" name="borrower_name" class="form-input" placeholder="Full name" required/>
+          <input type="text" name="borrower_name" id="borrower_name" class="form-input" placeholder="Full name" required/>
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Amount Paid (₱)</label>
-          <input type="number" step="0.01" name="amount_paid" class="form-input" placeholder="0.00" required/>
+          <input type="number" step="0.01" name="amount" class="form-input" placeholder="0.00" required/>
         </div>
         <div class="form-group">
           <label class="form-label">Payment Method</label>
@@ -157,7 +200,7 @@
         </button>
         <button type="button" class="btn-cancel"
           style="background: transparent; color: var(--muted); border: 1px solid var(--muted); border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.875rem; font-weight: 500; width: 100%; cursor: pointer;"
-          onclick="closeAllModals()">Cancel</button>
+          onclick="closeRepaymentModal()">Cancel</button>
       </div>
     </form>
   </div>
@@ -165,33 +208,160 @@
 </div>
 
 <!-- GLOBAL OVERLAY FOR MODALS -->
-<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
+<div class="overlay" id="overlay" onclick="closeRepaymentModal()"></div>
 
 <script>
-  // ─── RECORD REPAYMENT MODAL LOGIC ───
-  function recordNewRepayment() {
-    // Show the modal with the first application pre-filled (or you could implement a selector)
-    const modal = document.getElementById('recordRepaymentModal');
+  // ─── Self-contained modal open/close (footer.blade.php is not loaded on this standalone page) ───
+  function openRepaymentModal() {
+    const modal = document.getElementById('modal-recordRepaymentModal');
     if (!modal) return;
+    modal.classList.add('open');
+  }
 
-    // Optionally pre-fill with a default app ID - you can customize this
+  function closeRepaymentModal() {
+    const modal = document.getElementById('modal-recordRepaymentModal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  // ─── Record a NEW repayment (clear form, POST to store) ───
+  function recordNewRepayment() {
+    const modal = document.getElementById('modal-recordRepaymentModal');
+    const title = modal.querySelector('.modal-title');
+    const form = modal.querySelector('form');
     const appIdInput = document.getElementById('repayAppIdInput');
-    if (appIdInput) {
-      // Default to first pending application or leave empty for selector
-      appIdInput.value = '#APP-0001';
-    }
-
-    // Pre-fill borrower name from the app if available
     const borrowerInput = modal.querySelector('input[name="borrower_name"]');
-    if (borrowerInput) {
-      borrowerInput.value = '';
-    }
+    const amountInput = modal.querySelector('input[name="amount"]');
+    const select = document.getElementById('loanSelect');
+    const hiddenAppId = document.getElementById('repayAppId');
+    const repaymentIdInput = document.getElementById('repaymentId');
 
-    openModal('recordRepaymentModal');
+    if (!modal || !title || !form) return;
+
+    title.textContent = '💰 Record New Repayment';
+    form.action = '{{ route('repayments.store') }}';
+    form.method = 'POST';
+    if (hiddenAppId) hiddenAppId.value = '';
+    if (borrowerInput) borrowerInput.value = '';
+    if (amountInput) amountInput.value = '';
+    if (select) select.selectedIndex = 0;
+    if (repaymentIdInput) repaymentIdInput.value = '';
+
+    // Reset payment method / date / reference / notes if present
+    const methodSelect = modal.querySelector('select[name="payment_method"]');
+    if (methodSelect) methodSelect.selectedIndex = 0;
+    const refInput = modal.querySelector('input[name="reference_no"]');
+    if (refInput) refInput.value = '';
+    const dateInput = modal.querySelector('input[name="payment_date"]');
+    if (dateInput) dateInput.value = '';
+    const notesInput = modal.querySelector('textarea[name="notes"], input[name="notes"]');
+    if (notesInput) notesInput.value = '';
+
+    openRepaymentModal();
+  }
+
+  // ─── Edit an EXISTING repayment (prefill form, PUT to update) ───
+  function editRepayment(id) {
+    const modal = document.getElementById('modal-recordRepaymentModal');
+    const title = modal.querySelector('.modal-title');
+    const form = modal.querySelector('form');
+    const btn = document.querySelector(`button[onclick="editRepayment(${id})"]`);
+    const amountInput = modal.querySelector('input[name="amount"]');
+    const methodSelect = modal.querySelector('select[name="payment_method"]');
+    const refInput = modal.querySelector('input[name="reference_no"]');
+    const dateInput = modal.querySelector('input[name="payment_date"]');
+    const notesInput = modal.querySelector('textarea[name="notes"], input[name="notes"]');
+    const repaymentIdInput = document.getElementById('repaymentId');
+
+    if (!modal || !title || !form || !btn) return;
+
+    title.textContent = '✏️ Edit Repayment';
+    form.action = '/repayments/' + id;
+    form.method = 'POST';
+
+    // Laravel method spoofing for PUT
+    let methodInput = modal.querySelector('input[name="_method"]');
+    if (!methodInput) {
+      methodInput = document.createElement('input');
+      methodInput.type = 'hidden';
+      methodInput.name = '_method';
+      form.appendChild(methodInput);
+    }
+    methodInput.value = 'PUT';
+
+    if (repaymentIdInput) repaymentIdInput.value = id;
+
+    // Prefill from data attributes
+    if (amountInput) amountInput.value = btn.dataset.amount ?? '';
+    if (methodSelect) {
+      for (let i = 0; i < methodSelect.options.length; i++) {
+        if (methodSelect.options[i].value === (btn.dataset.method ?? '')) {
+          methodSelect.selectedIndex = i;
+          break;
+        }
+      }
+    }
+    if (refInput) refInput.value = btn.dataset.reference ?? '';
+    if (dateInput) dateInput.value = btn.dataset.date ?? '';
+    if (notesInput) notesInput.value = btn.dataset.notes ?? '';
+
+    openRepaymentModal();
+  }
+
+  // ─── View repayment details ───
+  function viewRepayment(id) {
+    const btn = document.querySelector(`button[onclick="editRepayment(${id})"]`);
+    const amount = btn?.dataset.amount ?? 'N/A';
+    const method = btn?.dataset.method ?? 'N/A';
+    const reference = btn?.dataset.reference ?? 'N/A';
+    const date = btn?.dataset.date ?? 'N/A';
+    const notes = btn?.dataset.notes ?? '—';
+
+    const msg = `Repayment #${id}\n` +
+                `Amount Paid: ₱${parseFloat(amount || 0).toFixed(2)}\n` +
+                `Payment Method: ${method}\n` +
+                `Reference Number: ${reference}\n` +
+                `Payment Date: ${date}\n` +
+                `Notes: ${notes}`;
+    alert(msg);
+  }
+
+  // ─── Delete an existing repayment record ───
+  function deleteRepayment(id, borrowerName) {
+    if (!confirm(`Delete repayment for "${borrowerName}"? This cannot be undone.`)) return;
+
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const headers = {
+      'Accept': 'application/json',
+    };
+    if (token) headers['X-CSRF-TOKEN'] = token.content;
+
+    fetch('/repayments/' + id, {
+      method: 'DELETE',
+      headers: headers,
+    })
+    .then(response => {
+      if (response.ok) location.reload();
+      else alert('Failed to delete repayment.');
+    })
+    .catch(() => alert('Failed to delete repayment.'));
   }
 
   function closeRecordRepaymentModal() {
-    closeAllModals();
+    closeRepaymentModal();
+  }
+
+  // ─── Populate form fields when a loan is selected from the dropdown ───
+  function populateLoanFields(select) {
+    const opt = select.options[select.selectedIndex];
+    if (!opt || !opt.value) return;
+
+    const appIdInput = document.getElementById('repayAppIdInput');
+    const borrowerInput = document.getElementById('borrower_name');
+    const hiddenAppId = document.getElementById('repayAppId');
+
+    if (appIdInput) appIdInput.value = opt.dataset.appId || '';
+    if (borrowerInput) borrowerInput.value = opt.dataset.borrower || '';
+    if (hiddenAppId) hiddenAppId.value = opt.value;
   }
 </script>
 

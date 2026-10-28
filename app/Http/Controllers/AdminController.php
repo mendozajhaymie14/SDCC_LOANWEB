@@ -15,6 +15,7 @@ use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\Format;
 use App\Support\LoanStatus;
 use App\Support\Permissions;
 use App\Services\AmortizationService;
@@ -41,7 +42,7 @@ class AdminController extends Controller
                 && ! Permissions::has(Auth::user(), Permissions::OWN_PORTAL)) {
                 $applications = Application::with('loanApplication.user')->latest()->get();
 
-                $totalDisbursed = (float) LoanApplication::where('status', 'approved')->sum('amount');
+                $totalDisbursed = (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount');
                 $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count();
                 $activeBorrowersCount = $activeMembersCount;
 
@@ -49,7 +50,7 @@ class AdminController extends Controller
                 $flaggedApplications = Application::where('risk_level', 'High')->with('loanApplication.user')->latest()->get();
 
                 $notifications = AppNotification::latest()->take(5)->get();
-                $pendingApplicationsCount = Application::where('status', 'pending')->count();
+                $pendingApplicationsCount = Application::where('status', 'Pending')->count();
 
                 $pendingApplications = Application::with('loanApplication.user')
                     ->where('status', 'Pending')
@@ -74,7 +75,7 @@ class AdminController extends Controller
                     $monthStart = now()->subMonths($i)->startOfMonth();
                     $monthEnd = now()->subMonths($i)->endOfMonth(); $monthLabels[] = now()->subMonths($i)->format('M');
 
-                    $disbursed = Application::whereIn('status', ['Approved', 'Disbursed'])
+                    $disbursed = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])
                         ->whereBetween('created_at', [$monthStart, $monthEnd])
                         ->sum('amount');
 
@@ -281,7 +282,7 @@ class AdminController extends Controller
             'success'        => true,
             'app_id'         => $application->app_id,
             'status'         => $application->status,
-            'total_disbursed' => (float) Application::where('status', 'Approved')->sum('amount'),
+            'total_disbursed' => (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount'),
         ]);
     }
 
@@ -328,7 +329,7 @@ class AdminController extends Controller
             'success'        => true,
             'app_id'         => $application->app_id,
             'status'         => $application->status,
-            'total_disbursed' => (float) Application::where('status', 'Approved')->sum('amount'),
+            'total_disbursed' => (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount'),
         ]);
     }
 
@@ -809,9 +810,14 @@ class AdminController extends Controller
     // 24. Navigation Routes
     public function repayments()
     {
-        $repayments = Payment::latest()->get();
+        $repayments = Payment::with('loanApplication.user')->latest()->get();
         $totalRepayments = Payment::sum('amount_paid');
-        return view('admin.repayments', compact('repayments', 'totalRepayments'));
+        $approvedLoans = Application::with('loanApplication.user')
+            ->whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])
+            ->where('remaining_balance', '>', 0)
+            ->latest()
+            ->get();
+        return view('admin.repayments', compact('repayments', 'totalRepayments', 'approvedLoans'));
     }
 
     public function creditAssessment()
@@ -877,14 +883,261 @@ class AdminController extends Controller
         return view('admin.settings', compact('settings', 'recentAuditLogs'));
     }
 
-    public function reports()
+    public function reports(Request $request)
     {
-        $totalDisbursed = LoanApplication::where('status', 'disbursed')->sum('amount') ?? 0;
+        view()->share('format', new \App\Support\Format());
+        $filters = $this->buildReportFilters($request);
+
+        // KPI cards (always show these, unaffected by report-type filters for now)
+        $totalDisbursed = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount') ?? 0;
         $totalRepayments = Payment::sum('amount_paid') ?? 0;
         $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count() ?? 0;
-        $pendingApplicationsCount = LoanApplication::where('status', 'pending')->count() ?? 0;
+        $pendingApplicationsCount = Application::where('status', 'Pending')->count() ?? 0;
 
-        return view('admin.reports', compact('totalDisbursed', 'totalRepayments', 'activeMembersCount', 'pendingApplicationsCount'));
+        // Build the three report sections
+        $loanSummary   = $this->loanSummaryData($filters);
+        $approvedRecs  = $this->approvedLoanRecordsData($filters);
+        $borrowerPerf  = $this->borrowerPerformanceData($filters);
+
+        return view('admin.reports', compact(
+            'totalDisbursed', 'totalRepayments', 'activeMembersCount', 'pendingApplicationsCount',
+            'loanSummary', 'approvedRecs', 'borrowerPerf', 'filters'
+        ));
+    }
+
+    // -----------------------------------------------------------------
+    // Internal helpers for the three report types used by the page + exports
+    // -----------------------------------------------------------------
+
+    private function buildReportFilters(Request $request): array
+    {
+        $type       = $request->query('report_type', 'loan_summary');
+        $startDate  = $request->query('start_date');
+        $endDate    = $request->query('end_date');
+        $status     = $request->query('status');
+
+        $statusWhere = null;
+        if ($status !== null && $status !== '') {
+            $statusWhere = fn ($q) => $q->where('status', $status);
+        }
+
+        $dateWhere = null;
+        if ($startDate && $endDate) {
+            $dateWhere = fn ($q) => $q->whereBetween('created_at', [$startDate, $endDate]);
+        } elseif ($startDate) {
+            $dateWhere = fn ($q) => $q->whereDate('created_at', '>=', $startDate);
+        } elseif ($endDate) {
+            $dateWhere = fn ($q) => $q->whereDate('created_at', '<=', $endDate);
+        }
+
+        return [
+            'report_type' => $type,
+            'start_date'  => $startDate,
+            'end_date'    => $endDate,
+            'status'      => $status,
+            'status_closures' => ['status' => $statusWhere, 'date' => $dateWhere],
+        ];
+    }
+
+    private function applyReportFilters($query, array $filters): mixed
+    {
+        $closures = $filters['status_closures'] ?? [];
+        if ($closures['status'] !== null) {
+            $query = $closures['status']($query);
+        }
+        if ($closures['date'] !== null) {
+            $query = $closures['date']($query);
+        }
+        return $query;
+    }
+
+    /** ==================================================================
+     *  Loan Summary report:
+     *  counts and total amounts by status and by loan type, plus risk-level
+     *  distribution (Low/Medium/High).
+     *  ================================================================== */
+    private function loanSummaryData(array $filters): array
+    {
+        $query = LoanApplication::query();
+
+        $query = $this->applyReportFilters($query, $filters);
+
+        $countByStatus = $query->selectRaw('status, count(*) as cnt')
+            ->groupBy('status')
+            ->get()
+            ->keyBy('status')
+            ->toArray();
+
+        $countByType = $query->selectRaw('loan_type, count(*) as cnt')
+            ->groupBy('loan_type')
+            ->get()
+            ->keyBy('loan_type')
+            ->toArray();
+
+        $byStatus = $query->selectRaw('status, sum(amount) as total')
+            ->groupBy('status')
+            ->get()
+            ->keyBy('status')
+            ->toArray();
+
+        $byType = $query->selectRaw('loan_type, sum(amount) as total')
+            ->groupBy('loan_type')
+            ->get()
+            ->keyBy('loan_type')
+            ->toArray();
+
+        // Normalise
+        $statusTotalMap = ['pending' => 0, 'approved' => 0, 'disbursed' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
+        $countStatusMap = ['pending' => 0, 'approved' => 0, 'disbursed' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
+
+        foreach ($byStatus as $row) {
+            $statusTotalMap[$row['status']] = (float) ($row['total'] ?? 0);
+        }
+        foreach ($countByStatus as $row) {
+            $countStatusMap[$row['status']] = (int) ($row['cnt'] ?? 0);
+        }
+
+        $typeTotalMap = [];
+        $countTypeMap = [];
+        foreach ($byType as $row) {
+            $typeTotalMap[$row['loan_type']] = (float) ($row['total'] ?? 0);
+        }
+        foreach ($countByType as $row) {
+            $countTypeMap[$row['loan_type']] = (int) ($row['cnt'] ?? 0);
+        }
+
+        // Risk-level distribution
+        $riskDist = $query->selectRaw('risk_level, count(*) as cnt')
+            ->groupBy('risk_level')
+            ->get()
+            ->keyBy('risk_level')
+            ->toArray();
+
+        $riskMap = [];
+        foreach ($riskDist as $row) {
+            $riskMap[$row['risk_level']] = (int) ($row['cnt'] ?? 0);
+        }
+
+        return [
+            'type'           => $filters['report_type'],
+            'status_totals'  => $statusTotalMap,
+            'by_status_counts' => $countStatusMap,
+            'by_type'        => $typeTotalMap,
+            'by_type_counts' => $countTypeMap,
+            'risk_distribution' => $riskMap,
+            'total_count'    => $query->count(),
+            'total_amount'   => (float) $query->sum('amount'),
+        ];
+    }
+
+    /** ==================================================================
+     *  Approved Loan Records report:
+     *  approved/disbursed loans with member, loan type, approved amount,
+     *  term, risk level, recommended amount, approval date, and approver.
+     *  ================================================================== */
+    private function approvedLoanRecordsData(array $filters): \Illuminate\Support\Collection
+    {
+        $query = LoanApplication::whereIn('status', ['approved', 'disbursed'])
+            ->with(['user.coopMember']);
+
+        $query = $this->applyReportFilters($query, $filters);
+
+        return $query->latest('reviewed_at')
+            ->get()
+            ->map(function ($app) {
+                $member = $app->user?->coopMember;
+                $approvedAmt = $app->approved_amount ?? $app->amount;
+
+                return (object)[
+                    'member_name'     => $member?->full_name ?? 'Applicant',
+                    'member_id'       => $member?->id ?? null,
+                    'loan_type'       => $app->loan_type,
+                    'loan_type_label' => $app->getLoanTypeLabelAttribute(),
+                    'approved_amount' => Format::money($approvedAmt),
+                    'term_months'     => $app->term_months,
+                    'risk_level'      => $app->risk_level,
+                    'recommended_amt' => Format::money($app->recommended_amount ?? 0),
+                    'approved_date'   => $app->reviewed_at ? $app->reviewed_at->format('M d, Y') : 'N/A',
+                    'approved_by'     => $app->admin_remarks ?? 'N/A',
+                    'app_id'          => $app->app_id,
+                ];
+            });
+    }
+
+    /** ==================================================================
+     *  Borrower Performance report:
+     *  per borrower: total loans, total paid, outstanding balance, on-time vs
+     *  late payments, overdue count, and a simple performance label.
+     *  ================================================================== */
+    private function borrowerPerformanceData(array $filters): \Illuminate\Support\Collection
+    {
+        $query = LoanApplication::query();
+        $query = $this->applyReportFilters($query, $filters);
+
+        $memberIds = $query->pluck('user_id')->unique()->filter()->values();
+
+        $members = CoopMember::whereIn('user_id', $memberIds)->get();
+
+        return $members->map(function ($member) use ($filters) {
+            $loanAppsQuery = LoanApplication::where('user_id', $member->user_id);
+            $loanAppsQuery = $this->applyReportFilters($loanAppsQuery, $filters);
+            $loanApps = $loanAppsQuery->get();
+
+            $totalPaid = 0;
+            $totalLoanAmount = 0;
+            $onTime = 0;
+            $late = 0;
+            $overdue = 0;
+
+            foreach ($loanApps as $la) {
+                $totalLoanAmount += (float) ($la->amount ?? 0);
+
+                $payments = Payment::where('loan_application_id', $la->id)
+                    ->when($filters['start_date'] && $filters['end_date'], fn ($q) =>
+                        $q->whereBetween('payment_date', [$filters['start_date'], $filters['end_date']])
+                    )
+                    ->get();
+
+                foreach ($payments as $p) {
+                    $totalPaid += (float) ($p->amount_paid ?? 0);
+                    $dueDate = $la->next_due_date ?? null;
+                    if ($dueDate && $p->payment_date) {
+                        $diffDays = (int) $p->payment_date->diff($dueDate)->days;
+                        if ($diffDays <= 0) {
+                            $onTime++;
+                        } else {
+                            $late++;
+                            if ($diffDays > 30) {
+                                $overdue++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            $outstanding = (float) $totalLoanAmount - (float) $totalPaid;
+
+            $label = 'Good';
+            if ($overdue > 0) {
+                $label = 'Poor';
+            } elseif ($late > $onTime && ($onTime + $late) > 0) {
+                $label = 'Fair';
+            } elseif ($late > 0) {
+                $label = 'Fair';
+            }
+
+            return (object)[
+                'member_name'   => $member->full_name ?? 'Unknown',
+                'member_id'     => $member->id,
+                'total_loans'   => $loanApps->count(),
+                'total_paid'    => Format::money($totalPaid),
+                'outstanding'   => Format::money($outstanding),
+                'on_time_count' => $onTime,
+                'late_count'    => $late,
+                'overdue_count' => $overdue,
+                'performance_label' => $label,
+            ];
+        });
     }
 
     public function disbursements()
@@ -1065,14 +1318,51 @@ class AdminController extends Controller
             });
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Repayment recorded successfully.',
-            'remaining_balance' => (float) ($application->remaining_balance ?? 0),
-        ]);
+        return $request->expectsJson()
+            ? response()->json([
+                'success' => true,
+                'message' => 'Repayment recorded successfully.',
+                'remaining_balance' => (float) ($application->remaining_balance ?? 0),
+            ])
+            : redirect()->route('repayments.index')->with('success', 'Repayment recorded successfully.');
     }
 
-    // 27. Update application settings
+    // 27. Delete a repayment record
+    public function destroyRepayment(int $id)
+    {
+        $repayment = Payment::findOrFail($id);
+        $repayment->delete();
+
+        return response()->json(['success' => true]);
+    }
+
+    // 28. Update an existing repayment record
+    public function updateRepayment(Request $request, int $id)
+    {
+        $repayment = Payment::findOrFail($id);
+
+        $validated = $request->validate([
+            'amount'           => 'required|numeric|min:0.01',
+            'payment_method'   => 'nullable|string|max:100',
+            'reference_no'    => 'nullable|string|max:255',
+            'payment_date'    => 'nullable|date',
+            'notes'           => 'nullable|string|max:500',
+        ]);
+
+        $repayment->update([
+            'amount_paid'      => (float) $validated['amount'],
+            'payment_method'   => $validated['payment_method'] ?? null,
+            'reference_no'    => $validated['reference_no'] ?? null,
+            'payment_date'    => $validated['payment_date'] ?? null,
+            'notes'           => $validated['notes'] ?? null,
+        ]);
+
+        return $request->expectsJson()
+            ? response()->json(['success' => true, 'message' => 'Repayment updated successfully.'])
+            : redirect()->route('repayments.index')->with('success', 'Repayment updated successfully.');
+    }
+
+    // 28. Update application settings
     public function updateSettings(Request $request)
     {
         $validated = $request->validate([
@@ -1095,44 +1385,143 @@ class AdminController extends Controller
     // 28. Export reports to PDF
     public function exportPdf(Request $request)
     {
-        $type = $request->query('type', 'applications');
-        $applications = Application::latest()->get();
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.report-pdf', compact('applications', 'type'));
+        $filters = $this->buildReportFilters($request);
+        $type = $filters['report_type'];
+
+        $data = match ($type) {
+            'loan_summary'         => $this->loanSummaryData($filters),
+            'approved_records'     => $this->approvedLoanRecordsData($filters),
+            'borrower_performance' => $this->borrowerPerformanceData($filters),
+            default                => ['type' => $type, 'data' => Application::latest()->get()],
+        };
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.report-pdf', [
+            'data'      => $data,
+            'type'      => $type,
+            'filters'   => $filters,
+            'generatedAt' => now(),
+        ]);
 
         return $pdf->download("report_{$type}_" . now()->format('Y-m-d') . '.pdf');
     }
 
-    // 29. Export reports to Excel
+    // 29. Export reports to Excel (real .xlsx via phpoffice/phpspreadsheet)
     public function exportExcel(Request $request)
     {
-        $type = $request->query('type', 'applications');
-        $applications = Application::latest()->get();
-        $filename = 'report_' . $type . '_' . now()->format('Y-m-d') . '.csv';
+        $filters = $this->buildReportFilters($request);
+        $type = $filters['report_type'];
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-        ];
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
 
-        $callback = function () use ($applications) {
-            $file = fopen('php://output', 'w');
-            fputcsv($file, ['Application ID', 'Applicant', 'Loan Type', 'Amount', 'Status', 'AI Score']);
+        if ($type === 'loan_summary') {
+            $data = $this->loanSummaryData($filters);
 
-            foreach ($applications as $app) {
-                fputcsv($file, [
-                    $app->app_id,
-                    $app->applicant,
-                    $app->loan_type,
-                    $app->amount,
-                    $app->status,
-                    $app->ai_score,
-                ]);
+            $sheet->setCellValue('A1', 'Loan Summary Report');
+            $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
+
+            $sheet->setCellValue('A4', 'By Status');
+            $sheet->setCellValue('A5', 'Status');
+            $sheet->setCellValue('B5', 'Count');
+            $sheet->setCellValue('C5', 'Total Amount');
+            $row = 6;
+            foreach ($data['status_totals'] as $status => $total) {
+                $sheet->setCellValue('A' . $row, ucfirst($status));
+                $sheet->setCellValue('B' . $row, $data['by_status_counts'][$status] ?? 0);
+                $sheet->setCellValue('C' . $row, (float) $total);
+                $row++;
+            }
+            $sheet->setCellValue('A' . $row, 'Total');
+            $sheet->setCellValue('B' . $row, $data['total_count']);
+            $sheet->setCellValue('C' . $row, (float) $data['total_amount']);
+            $row += 2;
+
+            $sheet->setCellValue('A' . $row, 'By Loan Type');
+            $row++;
+            $sheet->setCellValue('A' . $row, 'Loan Type');
+            $sheet->setCellValue('B' . $row, 'Count');
+            $sheet->setCellValue('C' . $row, 'Total Amount');
+            $row++;
+            foreach ($data['by_type'] as $loanType => $total) {
+                $sheet->setCellValue('A' . $row, ucfirst($loanType));
+                $sheet->setCellValue('B' . $row, $data['by_type_counts'][$loanType] ?? 0);
+                $sheet->setCellValue('C' . $row, (float) $total);
+                $row++;
+            }
+            $row++;
+
+            $sheet->setCellValue('A' . $row, 'Risk Distribution');
+            $row++;
+            $sheet->setCellValue('A' . $row, 'Risk Level');
+            $sheet->setCellValue('B' . $row, 'Count');
+            $sheet->setCellValue('C' . $row, 'Percentage');
+            $row++;
+            foreach (['Low', 'Medium', 'High'] as $level) {
+                $count = $data['risk_distribution'][$level] ?? 0;
+                $pct = $data['total_count'] > 0 ? round($count / $data['total_count'] * 100, 1) : 0;
+                $sheet->setCellValue('A' . $row, $level);
+                $sheet->setCellValue('B' . $row, $count);
+                $sheet->setCellValue('C' . $row, $pct . '%');
+                $row++;
+            }
+        } elseif ($type === 'approved_records') {
+            $rows = $this->approvedLoanRecordsData($filters);
+
+            $sheet->setCellValue('A1', 'Approved Loan Records');
+            $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
+
+            $headers = ['App ID', 'Member', 'Loan Type', 'Approved Amount', 'Term (mo)', 'Risk Level', 'Recommended Amount', 'Approved Date', 'Approved By'];
+            foreach ($headers as $i => $h) {
+                $sheet->setCellValue(chr(65 + $i) . '4', $h);
             }
 
-            fclose($file);
-        };
+            $row = 5;
+            foreach ($rows as $app) {
+                $sheet->setCellValue('A' . $row, $app->app_id ?? '');
+                $sheet->setCellValue('B' . $row, $app->member_name ?? 'N/A');
+                $sheet->setCellValue('C' . $row, $app->loan_type_label ?? 'N/A');
+                $sheet->setCellValue('D' . $row, $app->approved_amount ?? '0');
+                $sheet->setCellValue('E' . $row, $app->term_months ?? 0);
+                $sheet->setCellValue('F' . $row, $app->risk_level ?? 'N/A');
+                $sheet->setCellValue('G' . $row, $app->recommended_amt ?? '0');
+                $sheet->setCellValue('H' . $row, $app->approved_date ?? 'N/A');
+                $sheet->setCellValue('I' . $row, $app->approved_by ?? 'N/A');
+                $row++;
+            }
+        } elseif ($type === 'borrower_performance') {
+            $rows = $this->borrowerPerformanceData($filters);
 
-        return response()->stream($callback, 200, $headers);
+            $sheet->setCellValue('A1', 'Borrower Performance Report');
+            $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
+
+            $headers = ['Member', 'Total Loans', 'Total Paid', 'Outstanding', 'On-time', 'Late', 'Overdue', 'Performance'];
+            foreach ($headers as $i => $h) {
+                $sheet->setCellValue(chr(65 + $i) . '4', $h);
+            }
+
+            $row = 5;
+            foreach ($rows as $app) {
+                $sheet->setCellValue('A' . $row, $app->member_name ?? 'N/A');
+                $sheet->setCellValue('B' . $row, $app->total_loans ?? 0);
+                $sheet->setCellValue('C' . $row, $app->total_paid ?? '0');
+                $sheet->setCellValue('D' . $row, $app->outstanding ?? '0');
+                $sheet->setCellValue('E' . $row, $app->on_time_count ?? 0);
+                $sheet->setCellValue('F' . $row, $app->late_count ?? 0);
+                $sheet->setCellValue('G' . $row, $app->overdue_count ?? 0);
+                $sheet->setCellValue('H' . $row, $app->performance_label ?? 'N/A');
+                $row++;
+            }
+        } else {
+            $sheet->setCellValue('A1', 'Report: ' . $type);
+        }
+
+        $filename = 'report_' . $type . '_' . now()->format('Y-m-d') . '.xlsx';
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        return response($writer->save('php://output'), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
     }
 
     public function notificationLogs()

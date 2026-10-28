@@ -68,7 +68,7 @@
     <td class="td-mono">#{{ $disb->app_id ?? $disb->application_id ?? $disb->id }}</td>
     <td class="applicant-name">{{ $disb->applicant_name ?? $disb->applicant ?? $disb->borrower_name ?? 'N/A' }}</td>
     <td><span class="loan-type-tag">{{ $disb->loan_type ?? 'Personal Loan' }}</span></td>
-    <td>₦{{ number_format($disb->amount, 2) }}</td>
+    <td>₱{{ number_format($disb->amount, 2) }}</td>
     <td>
       <span class="status-pill {{ strtolower($disb->status) }}">
         {{ ucfirst($disb->status) }}
@@ -102,7 +102,7 @@
     <input type="hidden" name="loan_application_id" id="releaseLoanApplicationId"/>
     <div class="form-group"><label class="form-label">Application ID</label><input class="form-input" id="releaseAppIdDisplay" placeholder="#SCC-XXXXX" readonly/></div>
     <div class="form-group"><label class="form-label">Borrower Name</label><input class="form-input" id="releaseBorrowerName" placeholder="Full name" readonly/></div>
-    <div class="form-group"><label class="form-label">Release Amount (₦)</label><input class="form-input" id="releaseAmountDisplay" placeholder="0.00" readonly/></div>
+    <div class="form-group"><label class="form-label">Release Amount (₱)</label><input class="form-input" id="releaseAmountDisplay" placeholder="0.00" readonly/></div>
     <div class="form-group"><label class="form-label">Release Date</label><input name="release_date" class="form-input" placeholder="YYYY-MM-DD" required/></div>
     <div style="display:flex;gap:1rem;margin-top:1.5rem;">
       <button class="btn-submit" type="submit">Record Release</button>
