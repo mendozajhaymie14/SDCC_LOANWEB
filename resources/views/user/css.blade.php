@@ -413,6 +413,20 @@
     .app-actions { grid-column: 1 / -1; text-align: right; }
     .passbook-actions { flex-direction: column; align-items: stretch; }
     .passbook-actions a { text-align: center; }
+    .checkbox-field input[type="checkbox"],
+  .field input[type="checkbox"],
+  .field input[type="radio"] {
+    width: 18px !important;
+    max-width: 18px !important;
+    height: 18px;
+    flex: 0 0 18px;
+    padding: 0;
+  }
+  .checkbox-field label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   }
 
   @media (max-width: 640px) {
@@ -803,4 +817,51 @@
     border-radius: 50%;
     background: currentColor;
   }
+  .form-error-summary {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-left: 4px solid #dc2626;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.form-error-summary ul { margin: 6px 0 0 18px; padding: 0; }
+.form-error-summary a { color: #991b1b; text-decoration: none; }
+
+/* ─── MOBILE FIX: stop the loan form from overflowing ─── */
+@media (max-width: 900px) {
+  html, body { max-width: 100%; overflow-x: hidden; }
+
+  .form-shell,
+  .form-shell > *,
+  .form-card,
+  .form-main,
+  .fieldset,
+  .grid-2,
+  .grid-2 > *,
+  .field {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .fieldset { width: 100%; }
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 640px) {
+  /* compact stepper: numbers for all steps, label only for the current one */
+  .form-stepper { gap: 4px; font-size: 12px; }
+  .form-stepper .step { gap: 4px; }
+  .form-stepper .step > span:not(.step-num) { display: none; }
+  .form-stepper .step.active > span:not(.step-num) { display: inline; }
+  .form-stepper .step-sep { min-width: 8px; }
+}
 </style>

@@ -47,10 +47,55 @@ class Payment extends Model
     }
 
     /**
-     * The admin who encoded the payment, if any.
+     * The borrower's full name, resolved from the loan application's user
+     * (formatted "Last, First Middle"), falling back to the loan's own
+     * full_name column, then to N/A.
      */
-    public function encoder(): BelongsTo
+    public function borrowerName(): string
     {
-        return $this->belongsTo(User::class, 'encoded_by');
+        $loan = $this->loanApplication;
+        if ($loan) {
+            return $loan->fullName() ?? $loan->full_name ?? 'N/A';
+        }
+        return 'N/A';
+    }
+
+    /**
+     * Borrower-facing loan application reference, prefixed with #.
+     */
+    public function borrowerRef(): string
+    {
+        $loan = $this->loanApplication;
+        if ($loan) {
+            return '#' . ($loan->app_id ?? $loan->id ?? 'N/A');
+        }
+        return '#N/A';
+    }
+
+    /**
+     * Display reference: stored reference_no when present, otherwise #REP-<id>.
+     */
+    public function refLabel(): string
+    {
+        return $this->reference_no ? $this->reference_no : '#REP-' . $this->id;
+    }
+
+    /**
+     * The Application (admin-side) row for this payment's loan, if any.
+     */
+    public function application(): BelongsTo
+    {
+        return $this->belongsTo(Application::class, 'loan_application_id', 'loan_application_id');
+    }
+
+    /**
+     * Borrower-facing app ID: from the Application row's app_id, or fallback.
+     */
+    public function appId(): string
+    {
+        if ($this->application?->app_id) {
+            return $this->application->app_id;
+        }
+        return $this->loanApplication?->reference ?? $this->loan_application_id ?? 'N/A';
     }
 }

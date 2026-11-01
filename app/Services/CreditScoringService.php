@@ -85,7 +85,7 @@ class CreditScoringService
         if (empty($documents)) {
             $score = $eval['risk_score'];
             $note = 'AI Scan: No supporting documents uploaded. Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
-            $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+            $riskLevel = $eval['risk_level'] ?? 'Medium';
             $riskFactors = $eval['reasons'] ?? [];
             $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
@@ -104,7 +104,7 @@ class CreditScoringService
         if (!$firstDoc) {
             $score = $eval['risk_score'];
             $note = 'AI Scan: No supporting documents uploaded. Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
-            $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+            $riskLevel = $eval['risk_level'] ?? 'Medium';
             $riskFactors = $eval['reasons'] ?? [];
             $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
@@ -132,7 +132,31 @@ class CreditScoringService
         }
 
         // Analyze the document using DocumentScannerService (Gemini Vision / OCR)
-        $scanResult = $scanner->analyzeDocument($filePath ?? '');
+        $scanResult = $scanner->analyzeDocument($filePath ?? '', $loanType);
+
+        // Document check is advisory only. When the scanner returned
+        // unavailable (file missing / AI error) or manual_review (PDF / unsupported
+        // type), the score stays rule-based and we do NOT write a mismatch note.
+        $documentCheck = $scanResult['document_check'] ?? 'unavailable';
+        if (in_array($documentCheck, ['unavailable', 'manual_review'])) {
+            $score       = $eval['risk_score'];
+            $riskLevel   = $eval['risk_level'] ?? 'Medium';
+            $riskFactors = $eval['reasons'] ?? [];
+            $note        = 'Document check unavailable, manual review required. '
+                           . 'Rule-based score computed from declared data only.';
+
+            $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors, $documentCheck);
+
+            return [
+                'score'            => $score,
+                'analysis_note'    => $note,
+                'document_check'   => $documentCheck,
+                'has_risk_flags'   => ($score < 50) || ($documentCheck === 'needs_review'),
+                'risk_level'       => $riskLevel,
+                'risk_factors'     => $riskFactors,
+                'recommended_amount' => $eval['recommended_amount'] ?? 0.0,
+            ];
+        }
 
         // Extract OCR text and validation data from the scan result
         $ocrText = $scanResult['raw_text'] ?? '';
@@ -205,31 +229,29 @@ class CreditScoringService
             $nameMatch = $isValidDocument;
         }
 
-        // SCENARIO B: Matched Documents
+        // SCENARIO B: Matched Documents — document check is ADVISORY only.
+        // Recommended_amount, risk_level and risk_score come solely from
+        // LoanEvaluationService (rule-based). The scanner result is stored
+        // as advisory fields, never used to shift the score.
         if ($hasPrimaryProof && $hasSecondaryProof) {
-            if ($nameMatch) {
-                $score = min(100, $eval['risk_score'] + 15);
-                $note = 'AI Scan: ' . $docSummary . ' for ' . ($applicantName ?: 'the applicant') . '. Document verification adds 15 pts to the rule-based score.';
-                $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
-                $riskFactors = $eval['reasons'] ?? [];
-                $riskFactors[] = 'Documents verified';
-                $has_risk_flags = false;
-            } else {
-                $score = $eval['risk_score'];
-                $note = '❌ CRITICAL RISK: Document name mismatch. Uploaded document does not match applicant name (' . ucwords($applicantName) . '). Documents not verified automatically; manual review required.';
-                $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
-                $riskFactors = $eval['reasons'] ?? [];
-                $riskFactors[] = 'Document name mismatch';
-                $has_risk_flags = true;
-            }
+            $score = $eval['risk_score'];
+            $riskLevel = $eval['risk_level'] ?? 'Medium';
+            $riskFactors = $eval['reasons'] ?? [];
+            $riskFactors[] = 'Document check: passed';
+            $has_risk_flags = ($score < 50);
 
-            $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
+            $note = 'Document check: passed — ' . $docSummary . ' for '
+                . ($applicantName ?: 'the applicant') . '. Advisory only; '
+                . 'recommended amount and risk level are rule-based and unchanged.';
+
+            $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors, 'passed');
             return [
-                'score' => $score,
-                'analysis_note' => $note,
-                'has_risk_flags' => $has_risk_flags,
-                'risk_level' => $riskLevel,
-                'risk_factors' => $riskFactors,
+                'score'           => $score,
+                'analysis_note'   => $note,
+                'document_check'  => 'passed',
+                'has_risk_flags'  => $has_risk_flags,
+                'risk_level'      => $riskLevel,
+                'risk_factors'    => $riskFactors,
                 'recommended_amount' => $eval['recommended_amount'] ?? 0.0
             ];
         }
@@ -241,19 +263,20 @@ class CreditScoringService
         } else {
             $note = 'AI Scan Alert: Document mismatch detected. Uploaded document does not satisfy Proof of Purpose requirements (Missing Certificate of Enrollment or Statement of Account/Tuition Fee). Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
         }
-        $riskLevel = $score >= 70 ? 'Low' : ($score >= 50 ? 'Medium' : 'High');
+        $riskLevel = $eval['risk_level'] ?? 'Medium';
         $riskFactors = $eval['reasons'] ?? [];
-        $riskFactors[] = 'Document does not satisfy Proof of Purpose';
+        $riskFactors[] = 'Document check: needs review';
         $has_risk_flags = true;
 
         $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
 
         return [
-            'score' => $score,
-            'analysis_note' => $note,
-            'has_risk_flags' => true,
-            'risk_level' => $riskLevel,
-            'risk_factors' => $riskFactors,
+            'score'            => $score,
+            'analysis_note'    => $note,
+            'document_check'   => 'needs_review',
+            'has_risk_flags'   => true,
+            'risk_level'       => $riskLevel,
+            'risk_factors'     => $riskFactors,
             'recommended_amount' => $eval['recommended_amount'] ?? 0.0
         ];
     }
@@ -261,7 +284,7 @@ class CreditScoringService
     /**
      * Safely persist AI scan results to both Application and LoanApplication records.
      */
-    protected function persistScore(?Application $application, $loanApp, int $score, string $note, string $riskLevel, array $riskFactors): void
+    protected function persistScore(?Application $application, $loanApp, int $score, string $note, string $riskLevel, array $riskFactors, string $documentCheck = 'unavailable'): void
     {
         if ($application) {
             $application->ai_score = $score;
@@ -269,8 +292,9 @@ class CreditScoringService
             $application->risk_level = $riskLevel;
             $application->risk_score = $score;
             $application->risk_factors = json_encode($riskFactors);
+            $application->document_check = $documentCheck;
             if (Schema::hasColumn('applications', 'has_risk_flags')) {
-                $application->has_risk_flags = ($score < 50);
+                $application->has_risk_flags = ($score < 50) || ($documentCheck === 'needs_review');
             }
             $application->save();
         }
@@ -278,7 +302,13 @@ class CreditScoringService
         if ($loanApp && $loanApp instanceof LoanApplication) {
             $loanApp->ai_score = $score;
             $loanApp->ai_analysis_notes = $note;
-            $loanApp->document_processing_status = ($score < 50) ? 'flagged' : 'completed';
+            $loanApp->document_check = $documentCheck;
+            $loanApp->document_processing_status = match ($documentCheck) {
+                'passed' => 'completed',
+                'needs_review' => 'flagged',
+                'manual_review', 'unavailable' => 'pending',
+                default => 'pending',
+            };
             $loanApp->risk_level = $riskLevel;
             $loanApp->risk_score = $score;
             $loanApp->risk_factors = json_encode($riskFactors);
@@ -314,81 +344,26 @@ class CreditScoringService
     }
 
     /**
-     * Compute the base rule-based score (0-100) from LoanEvaluationService.
-     * This is the "declared data only" score before any document adjustment.
-     * Used when documents are missing/unverified to ensure ai_score always equals
-     * the LoanEvaluationService rule-based score.
+     * Calculate credit capacity score (0-100) from declared financial data only.
+     * Document extraction is advisory; it never shifts the score.
      */
-    private function computeBaseScore($loanApp): int
+    public function evaluateCapacity(float $requestedAmount, float $declaredIncome): array
     {
-        try {
-            $eval = app(LoanEvaluationService::class)->evaluate($loanApp);
-            return (int) $eval['risk_score'];
-        } catch (\Throwable $e) {
-            // Fallback if evaluation fails
-            Log::warning('Failed to compute base score from LoanEvaluationService', [
-                'loan_app_id' => $loanApp?->id,
-                'error'       => $e->getMessage(),
-            ]);
-            return 50; // Medium risk fallback
-        }
-    }
-
-    /**
-     * Calculates credit score (Range: 0 - 100) based on AI extraction and declared financial data.
-     */
-    public function evaluateCapacity(float $requestedAmount, float $declaredIncome, array $extraction, int $documentScore = null): array
-    {
-        if ($documentScore !== null) {
-            $rawScore = 300 + (($documentScore - 30) * (550 / 55));
-        } else {
-            $rawScore = 600;
-        }
-
-        if ($documentScore === 30) {
-            $rawScore = 350;
-        } elseif ($documentScore === 40) {
-            $rawScore = 400;
-        } elseif ($documentScore === 85) {
-            $rawScore = 600;
-        } elseif ($documentScore === 25) {
-            $rawScore = 300;
-        }
         $reasons = [];
+        $rawScore = 600;
 
-        if (!($extraction['is_legible'] ?? true)) {
-            $rawScore = 350;
-            $reasons[] = 'Uploaded document was unreadable or poor quality.';
-        } else {
-            $verifiedIncome = $extraction['monthly_net_income'] ?? null;
-            if ($verifiedIncome && $declaredIncome > 0) {
-                $variance = abs($verifiedIncome - $declaredIncome) / $declaredIncome;
-                if ($variance > 0.25) {
-                    $rawScore -= 50;
-                    $reasons[] = 'Declared income differs significantly from scanned document.';
-                } else {
-                    $rawScore += 50;
-                    $reasons[] = 'Declared income verified by document scan.';
-                }
-            }
-
-            if ($verifiedIncome && $verifiedIncome > 0) {
-                $loanToIncomeRatio = $requestedAmount / $verifiedIncome;
-                if ($loanToIncomeRatio <= 3.0) {
-                    $rawScore += 120;
-                    $reasons[] = 'Low debt ratio relative to monthly income.';
-                } elseif ($loanToIncomeRatio <= 6.0) {
-                    $rawScore += 80;
-                    $reasons[] = 'Moderate debt ratio relative to monthly income.';
-                } else {
-                    $rawScore -= 100;
-                    $reasons[] = 'Requested loan exceeds safe monthly income capacity.';
-                }
-            }
-
-            if (!empty($extraction['fraud_flags'])) {
-                $rawScore -= 150;
-                $reasons[] = 'Risk flags detected on submitted document.';
+        // Declared-income sanity vs requested amount
+        if ($declaredIncome > 0) {
+            $loanToIncomeRatio = $requestedAmount / $declaredIncome;
+            if ($loanToIncomeRatio <= 3.0) {
+                $rawScore += 120;
+                $reasons[] = 'Low debt ratio relative to declared monthly income.';
+            } elseif ($loanToIncomeRatio <= 6.0) {
+                $rawScore += 80;
+                $reasons[] = 'Moderate debt ratio relative to declared monthly income.';
+            } else {
+                $rawScore -= 100;
+                $reasons[] = 'Requested loan exceeds safe monthly income capacity.';
             }
         }
 

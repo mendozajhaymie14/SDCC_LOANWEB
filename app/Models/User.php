@@ -241,4 +241,12 @@ class User extends Authenticatable
             }
         );
     }
+
+    /**
+     * Full name as stored on the account.
+     */
+    public function fullName(): string
+    {
+        return $this->name ?? '';
+    }
 }

@@ -6,6 +6,7 @@ use App\Models\AppNotification;
 use App\Models\AppNotificationLog;
 use App\Models\LoanApplication;
 use App\Mail\PaymentReminderMail;
+use App\Models\Setting;
 use Carbon\Carbon;
 use Carbon\Exceptions\InvalidTimeZoneException;
 use Illuminate\Support\Facades\Log;
@@ -42,9 +43,9 @@ class PaymentReminderService
             $today,
             AppNotification::TYPE_DUE_SOON,
             'Upcoming Payment Due Soon',
-            fn(LoanApplication $loan) => "Your payment of ₱" . number_format((float) $loan->monthly_payment, 2)
-                . " is due on {$loan->next_due_date->format('M d, Y')} (in 3 days). "
-                . "Please ensure sufficient funds are available.",
+            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_due_soon', "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
+                . " is due on {$loan->next_due_date->format('M d, Y')} ({$loan->next_due_date->diffInDays($today)} day(s) from today). "
+                . "Please ensure sufficient funds are available."),
             $totals
         );
 
@@ -53,9 +54,9 @@ class PaymentReminderService
             $today,
             AppNotification::TYPE_DUE_TODAY,
             'Payment Due Today',
-            fn(LoanApplication $loan) => "Your payment of ₱" . number_format((float) $loan->monthly_payment, 2)
+            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_due_today', "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
                 . " is due today ({$today->format('M d, Y')}). "
-                . "Please process your payment to avoid late fees.",
+                . "Please process your payment to avoid late fees."),
             $totals
         );
 
@@ -64,14 +65,32 @@ class PaymentReminderService
             $today,
             AppNotification::TYPE_OVERDUE,
             'Overdue Payment Reminder',
-            fn(LoanApplication $loan) => "Your payment of ₱" . number_format((float) $loan->monthly_payment, 2)
-                . " was due {$loan->next_due_date->diffInDays($today)} day(s) ago ({$loan->next_due_date->format('M d, Y')}). "
-                . "Outstanding balance: ₱" . number_format((float) $loan->remaining_balance, 2)
-                . ". Please remit payment immediately to avoid further penalties.",
+            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_overdue', "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
+                . " was due " . intval(abs($loan->next_due_date->diffInDays($today))) . " day(s) ago ({$loan->next_due_date->format('M d, Y')}). "
+                . "Outstanding balance: " . \App\Support\Format::money((float) $loan->remaining_balance)
+                . ". Please remit payment immediately to avoid further penalties."),
             $totals
         );
 
         return ['sent' => $totals['sent'], 'skipped' => $totals['skipped'], 'errors' => $totals['errors'], 'details' => $details];
+    }
+
+    /**
+     * Build the notification message using the Setting template if available,
+     * falling back to the default message.
+     */
+    private function buildMessage(LoanApplication $loan, string $templateKey, string $fallback): string
+    {
+        $template = Setting::get($templateKey, '');
+        if ($template !== null && $template !== '') {
+            return Setting::render($templateKey, $fallback, [
+                'member_name' => $loan->user?->name ?? 'Borrower',
+                'amount'      => \App\Support\Format::money((float) $loan->monthly_payment),
+                'due_date'    => $loan->next_due_date?->format('M d, Y') ?? 'N/A',
+                'balance'     => \App\Support\Format::money((float) $loan->remaining_balance),
+            ]);
+        }
+        return $fallback;
     }
 
     /**
@@ -89,15 +108,16 @@ class PaymentReminderService
         array &$totals
     ): int {
         $query = LoanApplication::query()
-            ->whereIn('status', ['approved', 'disbursed'])
+            ->whereIn('status', ['approved'])
             ->whereNotNull('next_due_date')
             ->where('remaining_balance', '>', 0)
             ->with('user');
 
         if ($type === AppNotification::TYPE_DUE_SOON) {
-            // Due soon: within the next 3 days (excluding today)
+            // Due soon: within the next N days (excluding today), N from config
+            $windowDays = (int) config('loan_matrix.reminders.due_soon_window_days', self::DUE_SOON_WINDOW_DAYS);
             $query->whereDate('next_due_date', '>', $today)
-                ->whereDate('next_due_date', '<=', $today->copy()->addDays(self::DUE_SOON_WINDOW_DAYS));
+                ->whereDate('next_due_date', '<=', $today->copy()->addDays($windowDays));
         } elseif ($type === AppNotification::TYPE_DUE_TODAY) {
             // Due today: exactly today
             $query->whereDate('next_due_date', '=', $today);
@@ -134,7 +154,7 @@ class PaymentReminderService
                 $this->sendEmail($loan, $title, $message);
 
                 // Only log Sent AFTER a successful send attempt
-                AppNotificationLog::log((string) ($loan->user?->email ?? config('mail.from.address')), $title, $type, 'Sent');
+                AppNotificationLog::log((string) ($loan->user?->email ?? config('mail.from.address')), $title, $type, 'Sent', 'email', $loan->user_id, $loan->id);
 
                 $sent++;
                 $totals['sent']++;
@@ -147,7 +167,7 @@ class PaymentReminderService
                 ]);
 
                 // Log email failure with the error message
-                AppNotificationLog::logFailed((string) ($loan->user?->email ?? config('mail.from.address')), $title, $type, $e->getMessage());
+                AppNotificationLog::logFailed((string) ($loan->user?->email ?? config('mail.from.address')), $title, $type, $e->getMessage(), 'email', $loan->user_id, $loan->id);
 
                 $totals['errors']++;
             }

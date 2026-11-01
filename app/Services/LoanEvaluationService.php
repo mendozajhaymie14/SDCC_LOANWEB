@@ -31,6 +31,9 @@ class LoanEvaluationService
     /** Minimum share capital for Share Capital Loan. */
     public const SHARE_CAPITAL_MIN = 15000;
 
+    /** Income warning threshold: warn when requested amount exceeds this fraction of monthly income. */
+    public const INCOME_WARNING_THRESHOLD = 0.70;
+
     /** Risk-level score thresholds. */
     public const RISK_LOW = 70;
     public const RISK_MEDIUM = 50;
@@ -138,6 +141,16 @@ class LoanEvaluationService
 
         if ($loanType === 'share_cap' && !$loanApp->user) {
             $reasons[] = 'Share Capital Loan requires an active member account.';
+        }
+
+        // ── 70% income threshold warning (non-blocking) ──────────────────
+        // Warn when the requested amount exceeds 70% of monthly income.
+        if ($monthlyIncome > 0 && $amount > $monthlyIncome * self::INCOME_WARNING_THRESHOLD) {
+            $reasons[] = sprintf(
+                'Requested amount exceeds 70%% of monthly income (₱%.0f vs ₱%.0f).',
+                $amount,
+                $monthlyIncome * self::INCOME_WARNING_THRESHOLD
+            );
         }
 
         // ── Step 3: risk scoring ─────────────────────────────────────────

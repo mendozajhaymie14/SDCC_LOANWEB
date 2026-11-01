@@ -51,9 +51,12 @@
           </label>
 
           <label style="font-size:0.75rem;">Amount (₱)
-            <input class="form-input" type="number" step="0.01" min="1" name="amount" value="{{ old('amount') }}" required />
+            <input class="form-input" type="number" step="0.01" min="1" name="amount" value="{{ old('amount') }}" required data-validate="positive" id="encodeAmount" />
             @error('amount')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
           </label>
+          <div id="incomeWarning" style="display:none; margin-top:4px; padding:6px 10px; border:1px solid #f59e0b; background:#fffbeb; color:#92400e; border-radius:6px; font-size:0.75rem;">
+            ⚠️ <span id="incomeWarningText"></span>
+          </div>
 
           <label style="font-size:0.75rem;">Payment Term (months)
             <select class="form-select" name="term_months" id="termSelect" required></select>
@@ -92,6 +95,9 @@
   const termSelect = document.getElementById('termSelect');
   const memberPicker = document.getElementById('memberPicker');
   const memberSearch = document.getElementById('memberSearch');
+  const amountInput = document.getElementById('encodeAmount');
+  const incomeWarning = document.getElementById('incomeWarning');
+  const incomeWarningText = document.getElementById('incomeWarningText');
 
   function refreshTerms() {
     const terms = TERMS[loanType.value] || [12];
@@ -119,6 +125,28 @@
     document.getElementById('mCredit').textContent     = money(opt.dataset.credit);
   }
 
+  // Check 70% income threshold warning
+  function checkIncomeWarning() {
+    const opt = memberPicker.options[memberPicker.selectedIndex];
+    if (!opt || !opt.dataset.income) {
+      incomeWarning.style.display = 'none';
+      return;
+    }
+    const monthlyIncome = parseFloat(opt.dataset.income);
+    const amount = parseFloat(amountInput.value);
+    if (!monthlyIncome || !amount) {
+      incomeWarning.style.display = 'none';
+      return;
+    }
+    const threshold = monthlyIncome * 0.70;
+    if (amount > threshold) {
+      incomeWarningText.textContent = 'Requested amount (₱' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ') exceeds 70% of monthly income (₱' + monthlyIncome.toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ' = ₱' + threshold.toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ').';
+      incomeWarning.style.display = 'block';
+    } else {
+      incomeWarning.style.display = 'none';
+    }
+  }
+
   // Searchable member picker: type in the box to filter the dropdown.
   memberSearch.addEventListener('input', function () {
     const q = this.value.trim().toLowerCase();
@@ -128,7 +156,12 @@
     });
   });
 
-  memberPicker.addEventListener('change', fillProfile);
+  memberPicker.addEventListener('change', function() {
+    fillProfile();
+    checkIncomeWarning();
+  });
+
+  amountInput.addEventListener('input', checkIncomeWarning);
 
   loanType.addEventListener('change', refreshTerms);
   refreshTerms();

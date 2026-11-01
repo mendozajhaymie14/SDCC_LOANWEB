@@ -128,7 +128,7 @@ window.renderApplicationModal = function (app) {
     else if (docStatus === 'completed') docStatusLabel = 'Verified';
     else if (docStatus === 'flagged' || docStatus === 'unverified') docStatusLabel = 'Unverified';
     const scanNoteDisplay = scanNote && scanNote !== 'null' && String(scanNote).trim() !== ''
-        ? scanNote : 'Pending AI Scan. Click "⚡ AI Scan" below to evaluate attached documents.';
+        ? scanNote : 'No document check performed. Click "⚡ Document Check" below to evaluate attached documents.';
     const scanTimeDisplay = lastScan ? new Date(lastScan).toLocaleString() : 'Never';
     /* displayId is the "APP-0021" number shown to people; appId is the real database id used by the routes */
     const displayId     = String(app.app_id || app.id || '').replace(/^#?(?:APP-)?/i, '');
@@ -201,7 +201,7 @@ window.renderApplicationModal = function (app) {
         docsHtml +
         row('Document Status', '<span style="font-weight:600;">' + docStatusLabel + '</span>') +
         '<div style="margin-top:1rem;padding:.8rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px;">' +
-            '<div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:.05em;color:#1e293b;margin-bottom:.4rem;">AI Scan Analysis Note</div>' +
+            '<div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:.05em;color:#1e293b;margin-bottom:.4rem;">Document Check Analysis Note</div>' +
             '<div id="modalAiNotes" style="font-size:0.85rem;color:#1e293b;line-height:1.5;">' + scanNoteDisplay + '</div>' +
         '</div>' +
         row('Last Scan', scanTimeDisplay) +
@@ -224,7 +224,7 @@ function modalActionSection(appId, recommendedAmount) {
             '</div>' +
             /* Row 2: Tools & Cleanup */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
-                (p.scan ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:#4f46e5;border:2px solid #4f46e5;background:rgba(79,70,229,0.08);cursor:pointer;" onclick="triggerAiScan(\'' + appId + '\')">⚡ AI Scan</button>' : '') +
+                (p.scan ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:#4f46e5;border:2px solid #4f46e5;background:rgba(79,70,229,0.08);cursor:pointer;" onclick="triggerAiScan(\'' + appId + '\')">⚡ Document Check</button>' : '') +
                 (p.delete ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:rgba(239,68,68,0.05);cursor:pointer;" onclick="deleteApp(\'' + appId + '\')">🗑 Delete Application</button>' : '') +
             '</div>' +
         '</div>' +
@@ -462,7 +462,7 @@ window.deleteApp = function (id) {
         .catch(function () { showToast('error', 'Failed to delete application #' + id + '.', '❌'); });
 };
 
-/* ── AI Scan ── */
+/* ── Document Check ── */
 window.triggerAiScan = function (id) {
     if (!id || id === 'undefined' || id === 'null') {
         if (typeof showToast === 'function') showToast('error', 'Invalid application ID for AI scan', '❌');
@@ -474,7 +474,7 @@ window.triggerAiScan = function (id) {
     var scanBtn = null;
     var buttons = document.querySelectorAll('#appDetailBody button');
     for (var i = 0; i < buttons.length; i++) {
-        if (buttons[i].textContent && buttons[i].textContent.includes('AI Scan')) { scanBtn = buttons[i]; break; }
+        if (buttons[i].textContent && buttons[i].textContent.includes('Document Check')) { scanBtn = buttons[i]; break; }
     }
     if (scanBtn) { scanBtn.disabled = true; scanBtn.innerHTML = 'Scanning...'; }
 
@@ -508,8 +508,8 @@ window.triggerAiScan = function (id) {
         })
         .then(function (data) {
             if (!data || !data.success) {
-                showToast('error', (data && data.message) ? data.message : 'AI Scan failed.', '❌');
-                if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ AI Scan'; }
+                showToast('error', (data && data.message) ? data.message : 'Document Check failed.', '❌');
+                if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ Document Check'; }
                 return;
             }
 
@@ -573,14 +573,14 @@ window.triggerAiScan = function (id) {
                     /* ignore fetch errors – the scan updates are already visible */
                 });
 
-            showToast('success', 'AI Scan Complete • Score: ' + (score != null ? score : 'N/A') + ' • Risk: ' + riskLevel, '⚡');
+            showToast('success', 'Document Check Complete • Score: ' + (score != null ? score : 'N/A') + ' • Risk: ' + riskLevel, '⚡');
 
-            if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ AI Scan'; }
+            if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ Document Check'; }
         })
         .catch(function (err) {
-            console.error('AI Scan error:', err);
-            showToast('error', 'AI Scan failed: ' + (err.message || 'check server logs'), '❌');
-            if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ AI Scan'; }
+            console.error('Document Check error:', err);
+            showToast('error', 'Document Check failed: ' + (err.message || 'check server logs'), '❌');
+            if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ Document Check'; }
         });
 };
 </script>

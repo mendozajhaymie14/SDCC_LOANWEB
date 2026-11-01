@@ -129,12 +129,12 @@ class UserController extends Controller
         $rules = [
             'full_name'                  => ['required', 'string', 'max:255'],
             'email'                      => ['required', 'email', 'max:255'],
-            'contact_number'             => ['nullable', 'string', 'size:11', 'regex:/^[0-9]{11}$/'],
+            'contact_number'             => ['nullable', new \App\Rules\PhilippineMobileNumber],
             'address'                    => ['nullable', 'string', 'max:500'],
             'birth_date'                 => ['nullable', 'date'],
             'source_of_income'           => ['required', 'in:' . implode(',', Config::get('loan_matrix.form_options.source_of_income'))],
             'employer_name'              => ['nullable', 'string', 'max:255'],
-            'monthly_income'             => ['required', 'numeric', 'in:' . implode(',', array_column(Config::get('loan_matrix.form_options.monthly_income'), 0))],
+            'monthly_income'             => ['required', 'numeric', 'min:1'],
             'existing_monthly_obligations' => ['required', 'numeric', 'min:0'],
             'purpose_of_loan'            => ['required', 'in:Educational,Business,Personal,Emergency'],
             'loan_type'                  => ['required', 'in:' . implode(',', array_keys(Config::get('loan_matrix.loan_types')))],
@@ -150,10 +150,17 @@ class UserController extends Controller
             'amount.min'          => 'The smallest loan we release is ₱1,000.',
             'amount.max'          => 'Maximum amount for this product is ₱' . number_format($maxAmount ?? 2000000, 2),
             'term_months.in'      => 'This product only supports ' . implode(', ', $matrix['terms']) . '-month terms.',
-            'contact_number.regex' => 'Mobile number must be exactly 11 digits.',
         ];
 
         $data = $request->validate($rules, $messages);
+
+        // Consent validation: require document_consent when documents are uploaded
+        if ($request->hasFile('required_documents') && ! $request->boolean('document_consent')) {
+            return back()->withInput()->withErrors([
+                'document_consent' => 'You must consent to your uploaded documents being scanned for verification. '
+                    . 'The AI check is advisory; recommended amounts and risk levels are rule-based and unchanged.',
+            ]);
+        }
 
         // Auto-fill removed fields from member application record
         $memberApp = Auth::user()->memberApplication;
@@ -337,7 +344,7 @@ class UserController extends Controller
 
         $principal = (float) ($application->amount ?? 0);
         $termMonths = (int) ($application->term_months ?? 12);
-        $rate = (float) config('loan_matrix.rate', 0.12);
+        $rate = (float) (\App\Models\Setting::get('annual_interest_rate', config('loan_matrix.rate', 12)) / 100);
 
         $service = app(\App\Services\AmortizationService::class);
         $schedule = $service->schedule($principal, $termMonths, $rate);

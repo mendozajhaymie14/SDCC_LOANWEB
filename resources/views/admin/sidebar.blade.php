@@ -33,13 +33,6 @@
   </a>
   @endif
 
-  @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::PROCESS_DISBURSEMENTS))
-  <a href="{{ url('/disbursements') }}" class="nav-item {{ request()->is('disbursements*') ? 'active' : '' }}" data-tip="Loan Release Records">
-    <i class="fa-solid fa-file-circle-check nav-icon"></i>
-    <span class="nav-label">Release Records</span>
-  </a>
-  @endif
-
   @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::APPROVE_MEMBERSHIPS))
   <a href="{{ url('/memberships') }}" class="nav-item {{ request()->is('memberships*') ? 'active' : '' }}" data-tip="Membership Applications">
     <i class="fa-solid fa-id-card nav-icon"></i>

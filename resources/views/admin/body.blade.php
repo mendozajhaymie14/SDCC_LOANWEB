@@ -15,10 +15,9 @@
     // KPI card gating: each card links to a route the viewing role may not own.
     // Render as a real <a> only when the permission is held, else <div>.
     $kpiPerms = [
-        'disbursements.index'  => \App\Support\Permissions::PROCESS_DISBURSEMENTS,
+        'applications.index'   => \App\Support\Permissions::ENCODE_APPLICATIONS,
         'repayments.index'     => \App\Support\Permissions::RECORD_PAYMENTS,
         'active-members.index' => \App\Support\Permissions::VIEW_MEMBER_PROFILES,
-        'applications.index'   => \App\Support\Permissions::ENCODE_APPLICATIONS,
         'memberships.index'    => \App\Support\Permissions::APPROVE_MEMBERSHIPS,
     ];
     $kpiTag = fn (string $route) =>
@@ -54,17 +53,17 @@
 
 <div class="page active" id="page-dashboard">
 
-  <!-- 1. TOP: Dynamic AI Risk Warning Banner (Phase 1) -->
+  <!-- 1. TOP: Dynamic Rule-Based Risk Warning Banner (Phase 1) -->
   @if($hasFlags)
   <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
-    <span style="color: #dc2626; font-weight: 600; font-size: 0.95rem;">⚠️ Attention Required • {{ $riskFlagsCount }} AI Risk Flag(s) Detected</span>
+    <span style="color: #dc2626; font-weight: 600; font-size: 0.95rem;">⚠️ Attention Required • {{ $riskFlagsCount }} Rule-Based Risk Flag(s) Detected</span>
     @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))
     <a href="{{ route('risk-flags.index') }}" style="background-color: #dc2626; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
     @endif
   </div>
   @else
   <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
-    <span style="color: #16a34a; font-weight: 600; font-size: 0.95rem;">🛡️ System Healthy • 0 AI Risk Flags Detected</span>
+    <span style="color: #16a34a; font-weight: 600; font-size: 0.95rem;">🛡️ System Healthy • 0 Rule-Based Risk Flags Detected</span>
     @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))
     <a href="{{ route('risk-flags.index') }}" style="background-color: #16a34a; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
     @endif
@@ -73,15 +72,15 @@
 
   <!-- 2. Row 1: KPI Stat Cards -->
   <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.5rem; width: 100%;">
-    <{{ $kpiTag('disbursements.index') }} @if($kpiHref('disbursements.index'))href="{{ $kpiHref('disbursements.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
+    <{{ $kpiTag('applications.index') }} @if($kpiHref('applications.index'))href="{{ $kpiHref('applications.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card blue" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
-          <div class="kpi-label" style="color: #374151 !important;">Total Loan Released</div>
+          <div class="kpi-label" style="color: #374151 !important;">Total Approved Loans</div>
           <div class="kpi-icon blue"></div>
         </div>
-        <div class="kpi-val" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalDisbursed ?? 0, 2) }}</div>
+        <div class="kpi-val" id="totalApproved" style="color: #111827 !important; font-weight: 700;">₱{{ number_format($totalApproved ?? 0, 2) }}</div>
       </div>
-    </{{ $kpiTag('disbursements.index') }}>
+    </{{ $kpiTag('applications.index') }}>
     <{{ $kpiTag('repayments.index') }} @if($kpiHref('repayments.index'))href="{{ $kpiHref('repayments.index') }}"@endif style="text-decoration: none !important; color: inherit !important; flex: 1 1 calc(20% - 0.75rem); min-width: 170px;">
       <div class="kpi-card green" style="background: #fff; padding: 1.1rem; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
         <div class="kpi-top">
@@ -124,11 +123,10 @@
 
   <!-- 3. Row 2: Interactive Chart.js Grid (Phase 2) -->
   <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1.5rem; width: 100%;">
-
-    <!-- LEFT: Monthly Disbursements vs Repayments Bar Chart -->
+    <!-- LEFT: Monthly Approved Loans vs Repayments Bar Chart -->
     <div style="flex: 1 1 calc(50% - 0.75rem); min-width: 320px; background: #fff; padding: 1.25rem; border-radius: 12px; border: 1px solid #eaecf0;">
       <div class="panel-head">
-        <h2 class="panel-title">Monthly Releases vs Repayments</h2>
+        <h2 class="panel-title">Monthly Approved Loans vs Repayments</h2>
       </div>
       <div class="panel-body h-full flex flex-col">
         <div style="position: relative; height: 260px; width: 100%; overflow: hidden;">
@@ -175,7 +173,7 @@
               <th>RECOMMENDED</th>
               <th>RISK</th>
               <th>STATUS</th>
-              <th>AI SCORE</th>
+              <th>Rule-Based Score</th>
               <th>DATE</th>
               <th>ACTION</th>
             </tr>
@@ -194,7 +192,7 @@
                       'risk_level' => $app->risk_level,
                       'risk_score' => $app->risk_score,
                       'recommended_amount' => $app->recommended_amount,
-                      'ai_analysis_note' => $app->ai_analysis_note ?? 'Pending AI Scan.',
+                      'ai_analysis_note' => $app->ai_analysis_note ?? 'Pending Document Check.',
                       'created_at' => isset($app->created_at) ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : 'Oct 13, 2026',
                       'documents' => $app->loanApplication?->documents ?? [],
                   ];
@@ -297,7 +295,7 @@
               <tr>
                 <td style="text-align: left; font-weight: 600;">Total Exposure</td>
                 <td style="text-align: center;"></td>
-                <td style="text-align: right; font-weight: 600;">₱{{ number_format($totalDisbursed ?? 0, 2) }}</td>
+                <td style="text-align: right; font-weight: 600;">₱{{ number_format($totalApproved ?? 0, 2) }}</td>
               </tr>
             </tfoot>
           </table>
@@ -374,7 +372,7 @@
             <th>Recommended</th>
             <th>Risk</th>
             <th>Status</th>
-            <th>AI Score</th>
+            <th>Rule-Based Score</th>
             <th>Date</th>
             <th>Action</th>
           </tr>
@@ -433,7 +431,6 @@
   </div>
 </div>
 
-<div class="page" id="page-disbursements"><div class="page-header"><div class="page-heading">Release Records</div>@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::PROCESS_DISBURSEMENTS))<button class="btn-new" onclick="openModal('processPayout')">+ Record Release</button>@endif</div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">💰</div><div style="margin-top:.8rem;">3 releases pending. Connect to backend to view all.</div></div></div>
 <div class="page" id="page-repayments"><div class="page-header"><div class="page-heading">Repayments</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔄</div><div style="margin-top:.8rem;">Repayment schedule and history. Connect to backend to populate.</div></div></div>
 <div class="page" id="page-credit"><div class="page-header"><div class="page-heading">Credit Assessment</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔍</div><div style="margin-top:.8rem;">AI-powered credit scoring engine. Connect to backend to view reports.</div></div></div>
 <div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ {{ $riskFlagsCount }} active risk flags require attention.</p><div class="feed">@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))<a href="{{ route('risk-flags.index') }}" style="background:transparent;color:inherit;padding:0.2rem 0.5rem;border-radius:4px;text-decoration:none;font-weight:600;" onclick="event.stopPropagation()">View All Risk Flags</a>@endif</div></div></div>
@@ -443,12 +440,12 @@
 <!-- Chart.js CDN + Chart Rendering (Phase 2) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Monthly Disbursements vs Repayments Bar Chart
+  // Monthly Approved Loans vs Repayments Bar Chart
   const disbursementChartData = {
     labels: {!! json_encode($monthLabels) !!},
     datasets: [
       {
-        label: 'Releases',
+        label: 'Approved Loans',
         data: {{ json_encode($monthlyDisbursements) }},
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
         borderColor: 'rgba(59, 130, 246, 1)',
@@ -480,7 +477,7 @@
     }
   };
 
-  // AI Risk Profile Distribution Doughnut Chart
+  // Rule-Based Risk Profile Distribution Doughnut Chart
   const riskChartData = {
     labels: ['Low Risk', 'Moderate Risk', 'High Risk'],
     datasets: [{

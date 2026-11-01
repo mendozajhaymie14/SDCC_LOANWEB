@@ -129,7 +129,6 @@ class ViewPermissionGatingTest extends TestCase
             Permissions::VIEW_APPLICATIONS    => '/admin/applications/' . $application->id,
             Permissions::MANAGE_USERS         => '/admin/users',
             Permissions::APPROVE_MEMBERSHIPS  => '/memberships',
-            Permissions::PROCESS_DISBURSEMENTS => '/disbursements',
             Permissions::RECORD_PAYMENTS      => '/repayments',
             Permissions::VIEW_REPORTS         => '/reports',
             Permissions::VERIFY_DOCUMENTS     => '/admin/risk-flags',
@@ -303,24 +302,5 @@ class ViewPermissionGatingTest extends TestCase
             $memberships->assertForbidden();
         }
     }
-
-    /**
-     * Release records are process_disbursements (branch manager only). The nav
-     * link, the KPI card and the page itself must agree.
-     *
-     * @dataProvider staffRoleProvider
-     */
-    public function test_release_records_are_visible_only_to_the_branch_manager(string $role): void
-    {
-        $user = User::factory()->create(['usertype' => $role]);
-
-        $response = $this->actingAs($user)->get('/dashboard');
-        $response->assertOk();
-
-        $this->assertSame(
-            Permissions::has($user, Permissions::PROCESS_DISBURSEMENTS),
-            str_contains($response->getContent(), 'href="' . route('disbursements.index') . '"'),
-            "Role '{$role}' sees the Release Records control without process_disbursements"
-        );
-    }
 }
+

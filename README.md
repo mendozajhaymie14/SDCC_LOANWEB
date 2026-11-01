@@ -53,6 +53,28 @@ APP_ENV=local php artisan queue:work         # runs pending jobs from the databa
 APP_ENV=local php artisan schedule:run        # one-pass of the scheduler; usually triggered by cron
 ```
 
+### Windows/XAMPP — Task Scheduler for scheduled reminders
+
+On Windows/XAMPP there is no system cron. Use Task Scheduler to run the reminder cycle
+once per day (08:00 Asia/Manila) via `schedule:run`:
+
+1. **Open Task Scheduler** → Create Basic Task → name it "SDCC Loan Reminders".
+2. **Trigger**: Daily at 08:00, repeat every 1 day.
+3. **Action**: Start a program.
+   - Program/script: `C:\xampp\php\php.exe` (or your PHP CLI path)
+   - Add arguments: `artisan schedule:run`
+   - Start in: `C:\New folder\SDCC_LOANWEB` (the Laravel project root)
+4. **Conditions**: Uncheck "Start the task only if the computer is on AC power" if you run
+   this on a laptop, otherwise the task may never trigger on battery.
+5. **Settings**: Check "Allow task to be run on demand" and "Run task as soon as possible
+   after a scheduled start is missed".
+6. Save and run once manually to confirm no errors. Check `storage/logs/laravel.log`
+   for reminder output.
+
+The scheduler entry is registered in `routes/console.php` and runs `PaymentReminderService::run()`
+at 08:00 Asia/Manila daily. It sends due-soon / due-today / overdue reminders by email,
+logs each send to `app_notification_logs`, and guards against duplicate sends per day.
+
 **Test suite:**
 
 ```bash
@@ -101,7 +123,7 @@ skip in production unless `SEED_DEMO_USERS=true`. See `database/seeders/RoleDemo
 3. **No disbursement processing** — the disbursements page records release events only (date, reference); it never moves money and there is no payment gateway. Paper C1 explicitly forbids payout logic.
 4. **AI is advisory only** — the Gemini integration documents each application (document check) but must never change the recommended amount or risk score. Label it "Document check (assistive)"; the app works fully with `GEMINI_API_KEY` empty (paper C2).
 5. **Member-only reminders; staff encoding TBD** — members may self-submit applications; staff encoding of applications and member profiles (FR-05–09) is still being built (Task D). Both paths feed the same tables.
-6. **Reminder channel** — the `mail` log driver is delivered in local dev; SMS is not implemented unless added. Duplicate-send guards and post-payment silence are covered by tests (Task E).
+6. **Reminder channel** — reminders are delivered by EMAIL only (`mail` log driver in local dev). Duplicate-send guards and post-payment silence are covered by tests (Task E).
 7. **Tech-stack deviation** — the paper describes Bootstrap / HTML-CSS-JS; the implementation uses Laravel, Livewire-adjacent views, Tailwind CSS and Jetstream (paper C5 listed this as an accepted deviation). It was not rewritten.
 8. **Daily automated backup not yet scheduled** — the manual backup route exists but a daily `schedule:run` job writing to a non-public folder with a 14-day retention cap lands in Task G.
 9. **CSV-import-from-Google-Sheets helper not yet added** — `import:members` / `import:loans` commands (Task H) are next to come.

@@ -20,7 +20,7 @@
                 <span style="font-size: 1.25rem; font-weight: 700; color: #1e293b;">{{ '₱' . number_format($application->amount, 2) }}</span>
             </div>
             <div style="background-color: #e2e8f0; border: 1px solid #cbd5e1; padding: 0.5rem 1rem; border-radius: 8px; text-align: center;">
-                <span style="font-size: 0.7rem; color: #4a5568; display: block; text-transform: uppercase;">AI Score</span>
+                <span style="font-size: 0.7rem; color: #4a5568; display: block; text-transform: uppercase;">Recommended Amount & Risk (Rule-Based)</span>
                 <span style="font-size: 1.25rem; font-weight: 700; color: #1e293b;">{{ $application->ai_score }}/100</span>
             </div>
         </div>
@@ -49,15 +49,15 @@
             <strong>Date Submitted:</strong> {{ \Carbon\Carbon::parse($application->created_at)->format('M d, Y') }}
         </div>
 
-        {{-- AI Risk Breakdown --}}
+        {{-- Rule-Based Risk Breakdown --}}
         <div style="margin-bottom: 1rem;">
-            <strong>AI Risk Breakdown:</strong>
+            <strong>Rule-Based Risk Breakdown:</strong>
         </div>
         <div style="margin-bottom: 0.5rem;">
             <strong>DTI Ratio:</strong> {{ isset($loanApp->debt_to_income_ratio) ? $loanApp->debt_to_income_ratio . '%' : 'N/A' }}
         </div>
         <div style="margin-bottom: 0.5rem;">
-            <strong>Document Score:</strong> {{ $application->ai_score !== null ? $application->ai_score . '/100' : 'N/A' }}
+            <strong>Document Check:</strong> {{ $application->ai_score !== null ? $application->ai_score . '/100 (Rule-Based Score)' : 'N/A' }}
         </div>
         <div>
             <strong>Credit Rating:</strong> {{ isset($loanApp->ai_credit_score) ? $loanApp->ai_credit_score : 'N/A' }}

@@ -50,7 +50,6 @@ class PermissionMatrixTest extends TestCase
         'add_review_notes'      => ['route' => '/admin/applications/1/notes', 'method' => 'POST', 'fixture' => 'create_application'],
         'validate_recommendation' => ['route' => '/admin/applications/1/recommendation', 'method' => 'POST', 'fixture' => 'create_application'],
         'approve_memberships'   => ['route' => '/memberships', 'method' => 'GET'],
-        'process_disbursements' => ['route' => '/disbursements', 'method' => 'GET'],
         'own_portal'            => ['route' => '/user/dashboard', 'method' => 'GET'],
         'view_own_loans'        => ['route' => '/user/loans/1/amortization', 'method' => 'GET', 'fixture' => 'create_loan'],
         'apply_membership'      => ['route' => '/user/membership', 'method' => 'GET'],

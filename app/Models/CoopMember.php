@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CoopMember extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     /**
      * The one canonical member status.
@@ -43,6 +43,10 @@ class CoopMember extends Model
         'share_capital',
         'savings_balance',
         'is_migs',
+        'address',
+        'occupation',
+        'monthly_income',
+        'existing_monthly_obligations',
     ];
 
     protected $casts = [

@@ -1164,6 +1164,35 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   padding: 2.5rem 0;
 }
 
+.btn-review {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-review:hover {
+  background: #f8fafc;
+}
+.btn-review.btn-delete {
+  background: transparent;
+  border: 1px solid #ef4444;
+  color: #ef4444;
+}
+.btn-review.btn-delete:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+.empty-table-msg {
+
 .search-icon {
   color: var(--muted, #64748b);
   font-size: 0.85rem;

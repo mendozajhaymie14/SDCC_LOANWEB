@@ -53,6 +53,15 @@ class AppNotification extends Model
     public const TYPE_MEMBERSHIP_REJECTED = 'membership_rejected';
     public const TYPE_WELCOME = 'welcome';
 
+    /**
+     * Staff-facing notification types.
+     * These are only shown in the staff bell dropdown.
+     */
+    public const TYPE_NEW_LOAN_APPLICATION = 'new_loan_application';
+    public const TYPE_NEW_MEMBERSHIP_APPLICATION = 'new_membership_application';
+    public const TYPE_REMINDER_FAILED = 'reminder_failed';
+    public const TYPE_REMINDER_SUMMARY = 'reminder_summary';
+
     public static function getTypes(): array
     {
         return [
@@ -65,7 +74,42 @@ class AppNotification extends Model
             self::TYPE_DUE_TODAY,
             self::TYPE_OVERDUE,
             self::TYPE_PAYMENT_REC,
+            self::TYPE_NEW_LOAN_APPLICATION,
+            self::TYPE_NEW_MEMBERSHIP_APPLICATION,
+            self::TYPE_REMINDER_FAILED,
+            self::TYPE_REMINDER_SUMMARY,
         ];
+    }
+
+    /**
+     * Scope: staff notification types only (shown in staff bell).
+     */
+    public function scopeStaffTypes($query)
+    {
+        return $query->whereIn('type', [
+            self::TYPE_NEW_LOAN_APPLICATION,
+            self::TYPE_NEW_MEMBERSHIP_APPLICATION,
+            self::TYPE_REMINDER_FAILED,
+            self::TYPE_REMINDER_SUMMARY,
+        ]);
+    }
+
+    /**
+     * Scope: member notification types only.
+     */
+    public function scopeMemberTypes($query)
+    {
+        return $query->whereIn('type', [
+            self::TYPE_APPROVED,
+            self::TYPE_REJECTED,
+            self::TYPE_MEMBERSHIP_APPROVED,
+            self::TYPE_MEMBERSHIP_REJECTED,
+            self::TYPE_WELCOME,
+            self::TYPE_DUE_SOON,
+            self::TYPE_DUE_TODAY,
+            self::TYPE_OVERDUE,
+            self::TYPE_PAYMENT_REC,
+        ]);
     }
 
     public function user(): BelongsTo

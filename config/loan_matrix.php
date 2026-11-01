@@ -115,6 +115,10 @@ return [
                 'Purpose: payment of tuition fees, purchase of uniforms, shoes, books, and other school materials.',
                 'Proof of Purpose: school registration or card, statement of account/tuition fee, or list of books/school supplies.',
             ],
+            'required_proofs' => [
+                'primary' => ['school registration form', 'school report card', 'certificate of enrollment'],
+                'secondary' => ['statement of account', 'tuition fee breakdown', 'list of books', 'school supplies list'],
+            ],
             'rate' => 0.12,
         ],
         'emergency' => [
@@ -125,6 +129,10 @@ return [
                 '20% of the approved credit limit.',
                 'With approved credit limit and within the approved DTI ratio.',
                 'Proof of emergency purpose (e.g., hospitalization, medical care, typhoon/flood/fire).',
+            ],
+            'required_proofs' => [
+                'primary' => ['hospitalization', 'medical certificate', 'doctor\'s note', 'calamity documentation'],
+                'secondary' => [],
             ],
             'rate' => 0.12,
         ],
@@ -200,5 +208,19 @@ return [
 
     'interest' => [
         'monthly_rate' => 0.01,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reminder Settings
+    |--------------------------------------------------------------------------
+    |
+    | How many days ahead to send "due soon" reminders. Configurable so the
+    | cooperative can adjust the reminder window without code changes.
+    |
+    */
+
+    'reminders' => [
+        'due_soon_window_days' => 3,
     ],
 ];

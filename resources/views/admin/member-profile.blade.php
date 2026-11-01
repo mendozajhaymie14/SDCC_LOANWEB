@@ -52,7 +52,7 @@
         <h3 style="font-size:0.95rem; margin: 12px 0 6px;">Edit Profile & Financial Profile</h3>
         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">
           <label style="font-size:0.75rem;">Contact Number
-            <input class="form-input" type="text" name="contact_number" value="{{ old('contact_number', $member->contact_number) }}" />
+            <input class="form-input" type="text" name="contact_number" value="{{ old('contact_number', $member->contact_number) }}" data-validate="phone" />
           </label>
           <label style="font-size:0.75rem;">Address
             <input class="form-input" type="text" name="address" value="{{ old('address', $member->address) }}" />
@@ -61,19 +61,19 @@
             <input class="form-input" type="text" name="occupation" value="{{ old('occupation', $member->occupation) }}" />
           </label>
           <label style="font-size:0.75rem;">Monthly Income (₱)
-            <input class="form-input" type="number" step="0.01" name="monthly_income" value="{{ old('monthly_income', $member->monthly_income) }}" />
+            <input class="form-input" type="number" step="0.01" name="monthly_income" value="{{ old('monthly_income', $member->monthly_income) }}" data-validate="positive" />
           </label>
           <label style="font-size:0.75rem;">Existing Monthly Obligations (₱)
             <input class="form-input" type="number" step="0.01" name="existing_monthly_obligations" value="{{ old('existing_monthly_obligations', $member->existing_monthly_obligations) }}" />
           </label>
           <label style="font-size:0.75rem;">Savings Balance (₱)
-            <input class="form-input" type="number" step="0.01" name="savings_balance" value="{{ old('savings_balance', $member->savings_balance) }}" />
+            <input class="form-input" type="number" step="0.01" name="savings_balance" value="{{ old('savings_balance', $member->savings_balance) }}" data-validate="positive" />
           </label>
           <label style="font-size:0.75rem;">Share Capital (₱)
-            <input class="form-input" type="number" step="0.01" name="share_capital" value="{{ old('share_capital', $member->share_capital) }}" />
+            <input class="form-input" type="number" step="0.01" name="share_capital" value="{{ old('share_capital', $member->share_capital) }}" data-validate="positive" />
           </label>
           <label style="font-size:0.75rem;">Approved Credit Limit (₱)
-            <input class="form-input" type="number" step="0.01" name="approved_credit_limit" value="{{ old('approved_credit_limit', $member->approved_credit_limit) }}" />
+            <input class="form-input" type="number" step="0.01" name="approved_credit_limit" value="{{ old('approved_credit_limit', $member->approved_credit_limit) }}" data-validate="positive" />
           </label>
         </div>
         <button type="submit" class="btn-review" style="margin-top:10px;">Save Changes</button>

@@ -10,6 +10,126 @@
     window.__memberPermissions = {
         edit: {{ $perm(\App\Support\Permissions::EDIT_MEMBER_PROFILES) ? 'true' : 'false' }},
     };
+
+    // ─── DUPLICATE MEMBER LIVE CHECK ───
+    // Blur on name/email/contact calls POST /admin/check-duplicate.
+    // Red error for email/contact match; amber warning for name-only match.
+    // Blocks submit on error. exclude_id avoids flagging the edited member.
+    // Single source of truth for the whole footer: this file has two <script>
+    // blocks sharing one global scope, so declaring it twice is a SyntaxError
+    // that kills the second block (modals, notifications, etc.).
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+      || document.querySelector('input[name="_token"]')?.value
+      || @json(csrf_token());
+
+    function setupDuplicateCheck(config) {
+      const { form, nameFields, emailEl, contactEl, excludeIdEl } = config;
+
+      let hasError = false;
+
+      function getFullName() {
+        return nameFields
+          .map(f => (f ? f.value.trim() : ''))
+          .filter(Boolean)
+          .join(' ');
+      }
+
+      function getExcludeId() {
+        if (!excludeIdEl) return null;
+        const v = excludeIdEl.value;
+        return v ? parseInt(v, 10) : null;
+      }
+
+      function clearMsg(fieldEl) {
+        const parent = fieldEl.parentElement;
+        if (parent) parent.querySelectorAll('.dup-check-msg').forEach(m => m.remove());
+        fieldEl.style.borderColor = '';
+      }
+
+      function showMessage(fieldEl, msg, type) {
+        const parent = fieldEl.parentElement;
+        if (!parent) return;
+        parent.querySelectorAll('.dup-check-msg').forEach(m => m.remove());
+        const div = document.createElement('div');
+        div.className = 'dup-check-msg';
+        div.style.cssText = 'margin-top:4px; font-size:0.75rem; padding:4px 8px; border-radius:4px;';
+        if (type === 'error') {
+          div.style.color = '#b91c1c'; div.style.background = '#fef2f2'; div.style.border = '1px solid #fca5a5';
+          fieldEl.style.borderColor = '#ef4444';
+        } else {
+          div.style.color = '#92400e'; div.style.background = '#fffbeb'; div.style.border = '1px solid #f59e0b';
+        }
+        div.textContent = msg;
+        parent.appendChild(div);
+      }
+
+      function checkField(fieldEl) {
+        const fullName = getFullName();
+        const email = emailEl ? emailEl.value.trim() : '';
+        const contact = contactEl ? contactEl.value.trim() : '';
+        if (!fullName && !email && !contact) { clearMsg(fieldEl); return; }
+        const body = new URLSearchParams();
+        body.append('full_name', fullName);
+        body.append('email', email);
+        body.append('phone', contact);
+        const excl = getExcludeId();
+        if (excl) body.append('exclude_id', excl);
+        body.append('_token', csrfToken);
+        fetch('/admin/check-duplicate', {
+          method: 'POST',
+          headers: {
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: body,
+        })
+          .then(r => r.json())
+          .then(result => {
+            if (result.is_duplicate) { hasError = true; showMessage(fieldEl, result.message, 'error'); }
+            else if (result.is_warning) { showMessage(fieldEl, result.message, 'warning'); }
+            else { clearMsg(fieldEl); }
+          })
+          .catch(() => {});
+      }
+
+      const tracked = [emailEl, contactEl, ...nameFields].filter(Boolean);
+      tracked.forEach(el => el.addEventListener('blur', () => checkField(el)));
+
+      form.addEventListener('submit', function (e) {
+        if (hasError) {
+          e.preventDefault();
+          if (typeof showToast === 'function') showToast('error', 'Please fix the duplicate member error before submitting.', '❌');
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const addAMemberForm = document.querySelector('#modal-addActiveMember form');
+      if (addAMemberForm) {
+        setupDuplicateCheck({
+          form: addAMemberForm,
+          nameFields: [document.getElementById('addAMemberName')],
+          emailEl: document.getElementById('addAMemberEmail'),
+          contactEl: document.getElementById('addAMemberPhone'),
+          excludeIdEl: document.getElementById('addAMemberExcludeId'),
+        });
+      }
+      const addMAppForm = document.querySelector('#modal-addMember form');
+      if (addMAppForm) {
+        setupDuplicateCheck({
+          form: addMAppForm,
+          nameFields: [
+            document.getElementById('addMAppFirstName'),
+            document.getElementById('addMAppMiddleName'),
+            document.getElementById('addMAppSurname'),
+          ],
+          emailEl: document.getElementById('addMAppEmail'),
+          contactEl: document.getElementById('addMAppContact'),
+          excludeIdEl: document.getElementById('addMAppExcludeId'),
+        });
+      }
+    });
 </script>
 
 <!-- PROFILE & SETTINGS DROPDOWN -->
@@ -61,7 +181,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Loan Amount (₱)</label>
-        <input type="number" step="0.01" name="amount" placeholder="150000" required class="form-input"/>
+        <input type="number" step="0.01" name="amount" placeholder="150000" required class="form-input" data-validate="positive"/>
       </div>
       <button class="btn-submit" type="submit">Submit Application</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
@@ -90,24 +210,26 @@
 
       <div class="form-group">
         <label class="form-label">Member ID</label>
-        <input type="text" name="member_id" class="form-input" placeholder="e.g. SDCC-2024-0001" required/>
+        <input type="text" name="member_id" id="addAMemberId" class="form-input" placeholder="e.g. SDCC-2024-0001" required/>
       </div>
 
       <div class="form-group">
         <label class="form-label">Full Name</label>
-        <input type="text" name="full_name" class="form-input" placeholder="e.g. Juan Santos" required/>
+        <input type="text" name="full_name" id="addAMemberName" class="form-input" placeholder="e.g. Juan Santos" required/>
       </div>
 
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email Address</label>
-          <input type="email" name="email" class="form-input" placeholder="juan@email.com" required/>
+          <input type="email" name="email" id="addAMemberEmail" class="form-input" placeholder="juan@email.com" required/>
         </div>
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+          <input type="text" name="phone" id="addAMemberPhone" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
         </div>
       </div>
+
+      <input type="hidden" name="exclude_id" id="addAMemberExcludeId" value=""/>
 
       <div class="form-group">
         <label class="form-label">Date of Birth</label>
@@ -160,7 +282,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" name="phone" id="addAdminPhone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+          <input type="text" name="phone" id="addAdminPhone" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
         </div>
         <div class="form-group">
           <label class="form-label">Role</label>
@@ -210,7 +332,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+          <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
         </div>
         <div class="form-group">
           <label class="form-label">Role</label>
@@ -289,7 +411,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Contact Number</label>
-          <input type="text" id="editContact" name="contact_number" class="form-input"/>
+          <input type="text" id="editContact" name="contact_number" class="form-input" data-validate="phone"/>
         </div>
       </div>
 
@@ -402,27 +524,29 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">First Name</label>
-          <input type="text" name="first_name" class="form-input" placeholder="e.g. Juan" required/>
+          <input type="text" name="first_name" id="addMAppFirstName" class="form-input" placeholder="e.g. Juan" required/>
         </div>
         <div class="form-group">
           <label class="form-label">Middle Name</label>
-          <input type="text" name="middle_name" class="form-input" placeholder="e.g. Dela"/>
+          <input type="text" name="middle_name" id="addMAppMiddleName" class="form-input" placeholder="e.g. Dela"/>
         </div>
         <div class="form-group">
           <label class="form-label">Surname</label>
-          <input type="text" name="surname" class="form-input" placeholder="e.g. Cruz" required/>
+          <input type="text" name="surname" id="addMAppSurname" class="form-input" placeholder="e.g. Cruz" required/>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email Address</label>
-          <input type="email" name="email" class="form-input" placeholder="juan@email.com" required/>
+          <input type="email" name="email" id="addMAppEmail" class="form-input" placeholder="juan@email.com" required/>
         </div>
         <div class="form-group">
           <label class="form-label">Contact Number</label>
-          <input type="text" name="contact_number" class="form-input" placeholder="+63 9XX XXX XXXX"/>
+          <input type="text" name="contact_number" id="addMAppContact" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
         </div>
       </div>
+
+      <input type="hidden" name="exclude_id" id="addMAppExcludeId" value=""/>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">TIN</label>
@@ -443,24 +567,7 @@
   </div>
   @endif
 
-  <!-- 3. Record Release Modal (release record only — no money moves) -->
-  @if($perm(\App\Support\Permissions::PROCESS_DISBURSEMENTS))
-  <div class="modal" id="modal-processPayout" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <div class="modal-title">📋 Record Release</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
-    </div>
-    <div class="form-group"><label class="form-label">Application ID</label><input class="form-input" placeholder="#SCC-XXXXX"/></div>
-    <div class="form-group"><label class="form-label">Borrower Name</label><input class="form-input" placeholder="Full name"/></div>
-    <div class="form-group"><label class="form-label">Release Amount (₱)</label><input class="form-input" placeholder="150000" type="number"/></div>
-    <div class="form-group"><label class="form-label">Release Date</label><input class="form-input" placeholder="YYYY-MM-DD" type="date"/></div>
-    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" placeholder="Optional notes…"></textarea></div>
-    <button class="btn-submit" type="button" onclick="submitPayout()">Record Release</button>
-    <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
-  </div>
-  @endif
-
-  <!-- 4. Generate Report Modal -->
+  <!-- 3. Generate Report Modal -->
   @if($perm(\App\Support\Permissions::VIEW_REPORTS))
   <div class="modal" id="modal-generateReport" onclick="event.stopPropagation()">
     <div class="modal-header">
@@ -541,26 +648,65 @@
     @endforeach
   };
 
-  const csrfToken = @json(csrf_token());
-
   const notifications = [
-    @foreach (\App\Models\AppNotification::latest()->take(8)->get() as $n)
+    @foreach (\App\Models\AppNotification::staffTypes()->latest()->take(8)->get() as $n)
       @php
         $userName  = $n->data['applicant_name'] ?? $n->data['user_name'] ?? ($n->applicant ?? '');
         $appNumber = $n->data['application_number'] ?? $n->data['loan_id'] ?? ($n->app_id ?? '');
         $prefix    = is_numeric($appNumber) ? 'APP-' : '';
+        $type      = $n->type;
+        // Determine icon and color by notification type
+        $icon      = match ($type) {
+          'new_loan_application'   => 'N',
+          'new_membership_application' => 'M',
+          'reminder_failed'        => '!',
+          'reminder_summary'       => 'S',
+          default                  => 'i',
+        };
+        $bgColor   = match ($type) {
+          'new_loan_application'   => 'rgba(52,211,153,0.15)',
+          'new_membership_application' => 'rgba(99,102,241,0.15)',
+          'reminder_failed'        => 'rgba(248,113,113,0.15)',
+          'reminder_summary'       => 'rgba(251,191,36,0.15)',
+          default                  => 'rgba(107,114,128,0.15)',
+        };
+        $textColor = match ($type) {
+          'new_loan_application'   => 'var(--accent3)',
+          'new_membership_application' => 'var(--accent2)',
+          'reminder_failed'        => 'var(--red)',
+          'reminder_summary'       => 'var(--accent)',
+          default                  => 'var(--muted)',
+        };
+        // Build link to related page
+        $link      = '';
+        $linkText  = '';
+        if ($type === 'new_loan_application' && $n->loan_application_id) {
+          $link = `{{ route('applications.show', $n->loan_application_id) }}`;
+          $linkText = 'View Application';
+        } elseif ($type === 'new_membership_application' && $n->loan_application_id) {
+          $link = `{{ route('members.show', $n->loan_application_id) }}`;
+          $linkText = 'View Member';
+        } elseif ($n->data['application_number']) {
+          $link = `{{ route('applications.show', $n->data['application_number']) }}`;
+          $linkText = 'View Application';
+        }
       @endphp
       {
-        type: @json($n->type),
+        type: @json($type),
         message: @json($n->message),
         appId: @json($prefix . $appNumber),
         applicant: @json($userName),
         time: @json($n->created_at->diffForHumans()),
-        unread: {{ $n->read_at ? 'false' : 'true' }}
+        unread: {{ $n->read_at ? 'false' : 'true' }},
+        link: @json($link),
+        linkText: @json($linkText),
+        icon: @json($icon),
+        bgColor: @json($bgColor),
+        textColor: @json($textColor),
       },
     @endforeach
   ];
-  const unreadNotifCount = {{ \App\Models\AppNotification::whereNull('read_at')->count() }};
+  const unreadNotifCount = {{ \App\Models\AppNotification::staffTypes()->whereNull('read_at')->count() }};
 
   const statusColor = {approved:'var(--accent3)',pending:'var(--gold)',review:'var(--accent)',rejected:'var(--red)'};
   const scoreColor = s => s>=51?'var(--accent3)':s>=0?'var(--red)':'var(--muted)';
@@ -597,7 +743,7 @@
     const titles = {
       dashboard:'Dashboard', analytics:'Analytics', applications:'All Applications',
       pending:'Pending Review', approved:'Approved Loans', rejected:'Rejected',
-      disbursements:'Release Records', repayments:'Repayments', members:'Active Members',
+      repayments:'Repayments', members:'Active Members',
       credit:'Credit Assessment', risk:'Risk Flags', settings:'Settings',
       reports:'Reports'
     };
@@ -671,7 +817,7 @@
         ${row('Full Name', m.name)}
         ${row('Email Address', m.email)}
         ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</span>`)}
-        ${row('AI Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${m.aiScore ?? 'N/A'}</span>`)}
+        ${row('Rule-Based Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${m.aiScore ?? 'N/A'}</span>`)}
         ${row('Date Joined', m.date)}
         ${row('Status', `<span class="status-pill ${m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
 
@@ -704,7 +850,7 @@
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead>
               <tr style="border-bottom: 1px solid #eaecf0;">
-                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">AI Score</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Rule-Based Score</th>
                 <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">App ID</th>
                 <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Borrower</th>
                 <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Status</th>
@@ -807,20 +953,21 @@
       dropdown.appendChild(empty);
     } else {
       notifications.forEach(n => {
-        const isApproved = n.type === 'approved';
         const item = document.createElement('div');
         item.className = 'notif-item' + (n.unread ? ' unread' : '');
         if (n.unread) item.style.background = 'rgba(56,189,248,0.05)';
+        const linkHtml = n.link ? `<a href="${n.link}" style="color:${n.textColor};font-size:0.72rem;font-weight:600;text-decoration:none;">${n.linkText} →</a>` : '';
         item.innerHTML = `
-          <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.95rem;background:${isApproved ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)'};">
-            ${isApproved ? '✅' : '❌'}
+          <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.95rem;background:${n.bgColor};">
+            ${n.icon}
           </div>
           <div style="flex:1;">
             <div style="font-size:0.83rem;color:var(--text);line-height:1.4;font-weight:600;">${n.message}</div>
             <div style="font-size:0.75rem;color:var(--muted2);margin-top:0.1rem;">${n.applicant} · #${n.appId}</div>
             <div class="notif-time">${n.time}</div>
+            ${linkHtml}
           </div>
-          ${n.unread ? `<span class="notif-unread-dot" style="width:8px;height:8px;border-radius:50%;background:${isApproved ? 'var(--accent3)' : 'var(--red)'};flex-shrink:0;margin-top:4px;"></span>` : ''}
+          ${n.unread ? `<span class="notif-unread-dot" style="width:8px;height:8px;border-radius:50%;background:${n.textColor};flex-shrink:0;margin-top:4px;"></span>` : ''}
         `;
         dropdown.appendChild(item);
       });
@@ -973,10 +1120,10 @@
         return res.json();
       })
       .then(data => {
-        // Update the "Total Loan Disbursed" KPI without waiting for reload
-        if (data && data.total_disbursed != null) {
-          const el = document.getElementById('totalDisbursed');
-          if (el) el.textContent = '₱' + Number(data.total_disbursed).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // Update the "Total Approved Loans" KPI without waiting for reload
+        if (data && data.total_approved != null) {
+          const el = document.getElementById('totalApproved');
+          if (el) el.textContent = '₱' + Number(data.total_approved).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
         showToast(action === 'approve' ? 'success' : 'error', successMsg, action === 'approve' ? '✅' : '❌');
         closeAllModals();

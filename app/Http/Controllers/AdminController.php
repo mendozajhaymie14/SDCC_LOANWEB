@@ -8,19 +8,25 @@ use Carbon\Carbon;
 use App\Models\Application;
 use App\Models\AppNotification;
 use App\Models\AppNotificationLog;
+use App\Mail\LoanApprovedMail;
+use App\Mail\LoanRejectedMail;
+use Illuminate\Support\Facades\Mail;
 use App\Models\AuditLog;
 use App\Models\Borrowers;
 use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
+use App\Models\Setting;
 use App\Models\User;
 use App\Support\Format;
 use App\Support\LoanStatus;
 use App\Support\Permissions;
 use App\Services\AmortizationService;
+use App\Services\DuplicateMemberService;
 use App\Services\LoanEvaluationService;
 use App\Services\PaymentReminderService;
+use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -42,8 +48,9 @@ class AdminController extends Controller
                 && ! Permissions::has(Auth::user(), Permissions::OWN_PORTAL)) {
                 $applications = Application::with('loanApplication.user')->latest()->get();
 
-                $totalDisbursed = (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount');
+                $totalApproved = (float) LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount');
                 $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count();
+                $totalMembersCount = CoopMember::count();
                 $activeBorrowersCount = $activeMembersCount;
 
                 $riskFlagsCount = Application::where('risk_level', 'High')->count();
@@ -75,14 +82,14 @@ class AdminController extends Controller
                     $monthStart = now()->subMonths($i)->startOfMonth();
                     $monthEnd = now()->subMonths($i)->endOfMonth(); $monthLabels[] = now()->subMonths($i)->format('M');
 
-                    $disbursed = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])
+                    $monthlyApproved = LoanApplication::where('status', LoanStatus::APPROVED)
                         ->whereBetween('created_at', [$monthStart, $monthEnd])
                         ->sum('amount');
 
                     $collected = Payment::whereBetween('payment_date', [$monthStart, $monthEnd])
                         ->sum('amount_paid');
 
-                    $monthlyDisbursements[] = (float) $disbursed;
+                    $monthlyDisbursements[] = (float) $monthlyApproved;
                     $monthlyRepayments[] = (float) $collected;
                 }
 
@@ -126,8 +133,19 @@ class AdminController extends Controller
                     ->where('status', 'Sent')
                     ->count();
 
+                // Overdue loans: disbursed/approved with a remaining balance that
+                // is past the next due date.
+                $overdueLoans = LoanApplication::where('status', LoanStatus::APPROVED)
+                    ->where('remaining_balance', '>', 0)
+                    ->whereDate('next_due_date', '<', now()->toDateString())
+                    ->with('user.coopMember')
+                    ->latest()
+                    ->get();
+                $overdueAmount = (float) $overdueLoans->sum('remaining_balance');
+
                 return view('admin.index', compact(
-                    'applications', 'activeBorrowersCount', 'activeMembersCount', 'totalDisbursed',
+                    'applications', 'activeBorrowersCount', 'activeMembersCount', 'totalApproved',
+                    'totalMembersCount', 'overdueLoans', 'overdueAmount',
                     'notifications', 'pendingApplicationsCount',
                     'pendingApplications', 'loanTypes', 'recentRepayments',
                     'membershipApplicationsCount', 'totalRepayments',
@@ -158,6 +176,13 @@ class AdminController extends Controller
             'loan_type' => 'required|string',
             'amount'    => 'required|numeric|min:0',
         ]);
+
+        // Consent validation: require document_consent when documents are uploaded
+        if ($request->hasFile('required_documents') && ! $request->boolean('document_consent')) {
+            return back()->withInput()->withErrors([
+                'document_consent' => 'You must consent to document scanning for this application to be processed.',
+            ]);
+        }
 
         $lastId = Application::max('id') ?? 0;
         $appId = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
@@ -199,9 +224,12 @@ class AdminController extends Controller
         }
 
         $disbursementDate = now();
-        $totalPayable = $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
+        // Use the model's totalPayable() which computes principal + interest,
+        // NOT the raw principal. This is the single source of truth for all flows.
+        $loanApp = $application->loanApplication;
+        $totalPayable = $loanApp ? $loanApp->totalPayable() : $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
 
-        DB::transaction(function () use ($application, $disbursementDate, $totalPayable, $approvedAmount, $reason) {
+        DB::transaction(function () use ($application, $disbursementDate, $totalPayable, $approvedAmount, $reason, $loanApp) {
             $application->status = 'Approved';
             $application->approved_amount = $approvedAmount ?? $application->recommended_amount ?? 0.00;
             $application->next_due_date = $disbursementDate->copy()->addMonth();
@@ -266,6 +294,47 @@ class AdminController extends Controller
                 'message'   => 'Application Approved',
             ]);
 
+            // Email the borrower about the approval
+            try {
+                $loanApp = $application->loanApplication;
+                if ($loanApp && $loanApp->user?->email) {
+                    Mail::to($loanApp->user->email)->send(new LoanApprovedMail($loanApp));
+                    AppNotificationLog::log(
+                        $loanApp->user->email, 'Your Loan Application Has Been Approved', 'approved', 'Sent',
+                        'email', $loanApp->user_id, $loanApp->id
+                    );
+                } elseif ($application->loan_application_id) {
+                    $fallback = LoanApplication::find($application->loan_application_id);
+                    if ($fallback?->user?->email) {
+                        Mail::to($fallback->user->email)->send(new LoanApprovedMail($fallback));
+                        AppNotificationLog::log(
+                            $fallback->user->email, 'Your Loan Application Has Been Approved', 'approved', 'Sent',
+                            'email', $fallback->user_id, $fallback->id
+                        );
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::error('Approval email failed for loan', [
+                    'application_id' => $application->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $loanAppRef = $application->loan_application_id
+                    ? LoanApplication::find($application->loan_application_id)
+                    : null;
+                $userId = $loanAppRef?->user?->id;
+                AppNotificationLog::logFailed(
+                    (string) ($application->loan_application_id
+                        ? optional(LoanApplication::find($application->loan_application_id))->user?->email
+                        : config('mail.from.address')),
+                    'Application Approved',
+                    'approved',
+                    $e->getMessage(),
+                    'email',
+                    $userId,
+                    $application->loan_application_id
+                );
+            }
+
             AuditLog::log('Application Approved', "Application {$application->app_id} approved for {$application->applicant}. Approved amount: " . ($approvedAmount ?? $application->recommended_amount ?? 0) . ($reason ? ". Reason: $reason" : ''));
         });
 
@@ -282,7 +351,7 @@ class AdminController extends Controller
             'success'        => true,
             'app_id'         => $application->app_id,
             'status'         => $application->status,
-            'total_disbursed' => (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount'),
+            'total_approved' => (float) LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount'),
         ]);
     }
 
@@ -322,6 +391,46 @@ class AdminController extends Controller
                 'message'   => 'Application Rejected',
             ]);
 
+            // Email the borrower about the rejection
+            try {
+                $loanApp = $application->loanApplication;
+                if ($loanApp && $loanApp->user?->email) {
+                    Mail::to($loanApp->user->email)->send(new LoanRejectedMail($loanApp, $rejectReason));
+                    AppNotificationLog::log(
+                        $loanApp->user->email, 'Your Loan Application Update', 'rejected', 'Sent',
+                        'email', $loanApp->user_id, $loanApp->id
+                    );
+                } elseif ($application->loan_application_id) {
+                    $fallback = LoanApplication::find($application->loan_application_id);
+                    if ($fallback?->user?->email) {
+                        Mail::to($fallback->user->email)->send(new LoanRejectedMail($fallback, $rejectReason));
+                        AppNotificationLog::log(
+                            $fallback->user->email, 'Your Loan Application Update', 'rejected', 'Sent',
+                            'email', $fallback->user_id, $fallback->id
+                        );
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::error('Rejection email failed for loan', [
+                    'application_id' => $application->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $loanAppRef = $application->loan_application_id
+                    ? LoanApplication::find($application->loan_application_id)
+                    : null;
+                AppNotificationLog::logFailed(
+                    (string) ($application->loan_application_id
+                        ? optional(LoanApplication::find($application->loan_application_id))->user?->email
+                        : config('mail.from.address')),
+                    'Application Rejected',
+                    'rejected',
+                    $e->getMessage(),
+                    'email',
+                    $loanAppRef?->user?->id,
+                    $application->loan_application_id
+                );
+            }
+
             AuditLog::log('Application Rejected', "Application {$application->app_id} rejected for {$application->applicant}" . ($rejectReason ? ". Reason: $rejectReason" : ''));
         });
 
@@ -329,7 +438,7 @@ class AdminController extends Controller
             'success'        => true,
             'app_id'         => $application->app_id,
             'status'         => $application->status,
-            'total_disbursed' => (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount'),
+            'total_approved' => (float) LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount'),
         ]);
     }
 
@@ -356,7 +465,9 @@ class AdminController extends Controller
     // 7. Mark all notifications as read
     public function markNotificationsRead()
     {
-        AppNotification::whereNull('read_at')->update(['read_at' => now()]);
+        AppNotification::whereNull('read_at')
+            ->where('user_id', auth()->id())
+            ->update(['read_at' => now()]);
         return response()->json(['success' => true]);
     }
 
@@ -414,11 +525,35 @@ class AdminController extends Controller
             'member_id'     => 'required|string|max:255|unique:coop_members,member_id',
             'full_name'     => 'required|string|max:255',
             'email'         => 'required|email|unique:coop_members,email',
-            'phone'         => 'nullable|string|max:20',
+            'phone'         => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
             'date_of_birth' => 'nullable|date',
+            'address'       => 'nullable|string|max:255',
+            'occupation'    => 'nullable|string|max:255',
+            'monthly_income' => 'nullable|numeric|min:0',
+            'existing_monthly_obligations' => 'nullable|numeric|min:0',
+            'savings_balance' => 'nullable|numeric|min:0',
+            'share_capital' => 'nullable|numeric|min:0',
+            'approved_credit_limit' => 'nullable|numeric|min:0',
             'is_registered' => 'boolean',
             'status'        => 'required|string|in:' . implode(',', CoopMember::STATUSES),
         ]);
+
+        // Duplicate detection: block on email or contact number match, warn on name-only match.
+        // Editing an existing member is excluded via the blank member_id path.
+        $check = app(DuplicateMemberService::class)->check(
+            $validated['full_name'],
+            $validated['email'],
+            $validated['phone'] ?? null
+        );
+
+        if ($check['isDuplicate']) {
+            return redirect()->route('active-members.index')
+                ->withErrors(['email' => $check['message']]);
+        }
+
+        if ($check['isWarning'] && $request->filled('confirm_continue')) {
+            // Officer confirms to continue despite name-only warning
+        }
 
         $lastId = CoopMember::withTrashed()->max('id') ?? 0;
         $memberId = 'SDCC-' . date('Y') . '-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
@@ -430,6 +565,13 @@ class AdminController extends Controller
             'email'          => $validated['email'],
             'contact_number' => $validated['phone'] ?? null,
             'date_of_birth'  => $validated['date_of_birth'] ?? now(),
+            'address'        => $validated['address'] ?? null,
+            'occupation'     => $validated['occupation'] ?? null,
+            'monthly_income' => $validated['monthly_income'] ?? null,
+            'existing_monthly_obligations' => $validated['existing_monthly_obligations'] ?? null,
+            'savings_balance' => $validated['savings_balance'] ?? null,
+            'share_capital'  => $validated['share_capital'] ?? null,
+            'approved_credit_limit' => $validated['approved_credit_limit'] ?? null,
             'is_registered'  => $request->boolean('is_registered'),
             'status'         => $validated['status'] ?? CoopMember::STATUS_ACTIVE,
         ]);
@@ -484,7 +626,7 @@ class AdminController extends Controller
         $validated = $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|max:255|unique:users,email',
-            'phone'    => 'nullable|string|max:20',
+            'phone'    => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
             'password' => 'nullable|string|min:8',
             'role'     => 'required|string|in:' . implode(',', Permissions::STAFF_ROLES),
         ]);
@@ -529,7 +671,7 @@ class AdminController extends Controller
         $validated = $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|max:255',
-            'phone'    => 'nullable|string|max:20',
+            'phone'    => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
             'password' => 'nullable|string|min:8',
             'role'     => 'required|string|in:' . implode(',', Permissions::STAFF_ROLES),
         ]);
@@ -603,6 +745,26 @@ class AdminController extends Controller
     public function approveMember($id)
     {
         $application = MemberApplication::findOrFail($id);
+
+        // Duplicate detection: block on email or contact number match (other than this application's own email)
+        // warn on name-only match. Exclude this application's own ID so it doesn't flag itself.
+        $check = app(DuplicateMemberService::class)->check(
+            $application->fullName,
+            $application->email,
+            $application->contact_number,
+            $application->id // exclude this application from pending check
+        );
+
+        if ($check['isDuplicate']) {
+            // If the match is the same email, it's likely this application's own record
+            // being found in coop_members (already exists but inactive). Allow that.
+            if (!($check['matchedFields'] === ['email'] && $check['existingMember'] instanceof \App\Models\CoopMember)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $check['message'],
+                ], 422);
+            }
+        }
 
         $member = DB::transaction(function () use ($application) {
             $userId = $application->user_id;
@@ -810,10 +972,12 @@ class AdminController extends Controller
     // 24. Navigation Routes
     public function repayments()
     {
-        $repayments = Payment::with('loanApplication.user')->latest()->get();
+        $repayments = Payment::with('loanApplication.user', 'application')
+            ->latest()
+            ->get();
         $totalRepayments = Payment::sum('amount_paid');
         $approvedLoans = Application::with('loanApplication.user')
-            ->whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])
+            ->where('status', 'Approved')
             ->where('remaining_balance', '>', 0)
             ->latest()
             ->get();
@@ -865,22 +1029,35 @@ class AdminController extends Controller
 
     public function settings()
     {
-        $settings = [
-            'cooperative_name'        => config('cooperative.name', 'San Dionisio Credit Cooperative'),
-            'cooperative_email'       => config('cooperative.email', 'info@sandionisiocoop.com'),
-            'cooperative_address'     => config('cooperative.address', 'San Dionisio, Parañaque City'),
-            'cooperative_phone'       => config('cooperative.phone', '+63 2 8XXX XXXX'),
-            'annual_interest_rate'    => config('loan_matrix.rate', 12),
-            'default_loan_term'       => config('loan_matrix.default_term', 12),
-            'penalty_rate'            => config('loan_matrix.penalty_rate', 5),
-            'min_approval_score'      => config('loan_matrix.min_score', 50),
-            'high_risk_threshold'     => config('loan_matrix.high_risk', 30),
-            'grace_period_days'       => config('loan_matrix.grace_days', 7),
-            'reminder_frequency'      => config('loan_matrix.reminder_freq', 'weekly'),
+        // Editable settings (read from Setting table with config fallback)
+        $editable = [
+            'cooperative_name'     => Setting::get('cooperative_name', config('cooperative.name', 'San Dionisio Credit Cooperative')),
+            'cooperative_email'    => Setting::get('cooperative_email', config('cooperative.email', 'info@sandionisiocoop.com')),
+            'cooperative_address'  => Setting::get('cooperative_address', config('cooperative.address', 'San Dionisio, Parañaque City')),
+            'cooperative_phone'    => Setting::get('cooperative_phone', config('cooperative.phone', '+63 2 8XXX XXXX')),
+            'annual_interest_rate' => Setting::get('annual_interest_rate', config('loan_matrix.rate', 12)),
+            'template_due_soon'    => Setting::get('template_due_soon', ''),
+            'template_due_today'   => Setting::get('template_due_today', ''),
+            'template_overdue'     => Setting::get('template_overdue', ''),
+            'template_approval'    => Setting::get('template_approval', ''),
+            'template_rejection'   => Setting::get('template_rejection', ''),
+        ];
+
+        // Read-only config-driven settings (selection criteria per paper)
+        $readonly = [
+            'default_loan_term'    => config('loan_matrix.default_term', 12),
+            'penalty_rate'         => config('loan_matrix.penalty_rate', 5),
+            'min_approval_score'   => config('loan_matrix.min_score', 50),
+            'high_risk_threshold'  => config('loan_matrix.high_risk', 30),
+            'grace_period_days'    => config('loan_matrix.grace_days', 7),
+            'reminder_frequency'   => config('loan_matrix.reminder_freq', 'weekly'),
+            'dti_limit'            => config('loan_evaluation.dti_limit', 0.40),
+            'risk_low'             => config('loan_evaluation.risk_low', 70),
+            'risk_medium'          => config('loan_evaluation.risk_medium', 50),
         ];
 
         $recentAuditLogs = AuditLog::latest()->take(5)->get();
-        return view('admin.settings', compact('settings', 'recentAuditLogs'));
+        return view('admin.settings', compact('editable', 'readonly', 'recentAuditLogs'));
     }
 
     public function reports(Request $request)
@@ -889,19 +1066,20 @@ class AdminController extends Controller
         $filters = $this->buildReportFilters($request);
 
         // KPI cards (always show these, unaffected by report-type filters for now)
-        $totalDisbursed = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::DISBURSED])->sum('amount') ?? 0;
+        $totalApproved = LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount') ?? 0;
         $totalRepayments = Payment::sum('amount_paid') ?? 0;
         $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count() ?? 0;
         $pendingApplicationsCount = Application::where('status', 'Pending')->count() ?? 0;
 
-        // Build the three report sections
-        $loanSummary   = $this->loanSummaryData($filters);
-        $approvedRecs  = $this->approvedLoanRecordsData($filters);
-        $borrowerPerf  = $this->borrowerPerformanceData($filters);
+        // Build the four report sections
+        $loanSummary      = $this->loanSummaryData($filters);
+        $approvedRecs     = $this->approvedLoanRecordsData($filters);
+        $borrowerPerf     = $this->borrowerPerformanceData($filters);
+        $overduePayments  = $this->overduePaymentsData($filters);
 
         return view('admin.reports', compact(
-            'totalDisbursed', 'totalRepayments', 'activeMembersCount', 'pendingApplicationsCount',
-            'loanSummary', 'approvedRecs', 'borrowerPerf', 'filters'
+            'totalApproved', 'totalRepayments', 'activeMembersCount', 'pendingApplicationsCount',
+            'loanSummary', 'approvedRecs', 'borrowerPerf', 'overduePayments', 'filters'
         ));
     }
 
@@ -915,10 +1093,16 @@ class AdminController extends Controller
         $startDate  = $request->query('start_date');
         $endDate    = $request->query('end_date');
         $status     = $request->query('status');
+        $riskLevel  = $request->query('risk_level');
 
         $statusWhere = null;
         if ($status !== null && $status !== '') {
             $statusWhere = fn ($q) => $q->where('status', $status);
+        }
+
+        $riskWhere = null;
+        if ($riskLevel !== null && $riskLevel !== '') {
+            $riskWhere = fn ($q) => $q->where('risk_level', $riskLevel);
         }
 
         $dateWhere = null;
@@ -935,7 +1119,8 @@ class AdminController extends Controller
             'start_date'  => $startDate,
             'end_date'    => $endDate,
             'status'      => $status,
-            'status_closures' => ['status' => $statusWhere, 'date' => $dateWhere],
+            'risk_level'  => $riskLevel,
+            'status_closures' => ['status' => $statusWhere, 'risk' => $riskWhere, 'date' => $dateWhere],
         ];
     }
 
@@ -944,6 +1129,9 @@ class AdminController extends Controller
         $closures = $filters['status_closures'] ?? [];
         if ($closures['status'] !== null) {
             $query = $closures['status']($query);
+        }
+        if ($closures['risk'] !== null) {
+            $query = $closures['risk']($query);
         }
         if ($closures['date'] !== null) {
             $query = $closures['date']($query);
@@ -958,37 +1146,41 @@ class AdminController extends Controller
      *  ================================================================== */
     private function loanSummaryData(array $filters): array
     {
-        $query = LoanApplication::query();
+        $base = LoanApplication::query();
+        $base = $this->applyReportFilters($base, $filters);
 
-        $query = $this->applyReportFilters($query, $filters);
-
-        $countByStatus = $query->selectRaw('status, count(*) as cnt')
+        // ---- Status counts / sums (each on its own clone) ----
+        $qStatusCount = clone $base;
+        $countByStatus = $qStatusCount->selectRaw('status, count(*) as cnt')
             ->groupBy('status')
             ->get()
             ->keyBy('status')
             ->toArray();
 
-        $countByType = $query->selectRaw('loan_type, count(*) as cnt')
+        $qStatusSum = clone $base;
+        $byStatus = $qStatusSum->selectRaw('status, sum(amount) as total')
+            ->groupBy('status')
+            ->get()
+            ->keyBy('status')
+            ->toArray();
+
+        $qTypeCount = clone $base;
+        $countByType = $qTypeCount->selectRaw('loan_type, count(*) as cnt')
             ->groupBy('loan_type')
             ->get()
             ->keyBy('loan_type')
             ->toArray();
 
-        $byStatus = $query->selectRaw('status, sum(amount) as total')
-            ->groupBy('status')
-            ->get()
-            ->keyBy('status')
-            ->toArray();
-
-        $byType = $query->selectRaw('loan_type, sum(amount) as total')
+        $qTypeSum = clone $base;
+        $byType = $qTypeSum->selectRaw('loan_type, sum(amount) as total')
             ->groupBy('loan_type')
             ->get()
             ->keyBy('loan_type')
             ->toArray();
 
         // Normalise
-        $statusTotalMap = ['pending' => 0, 'approved' => 0, 'disbursed' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
-        $countStatusMap = ['pending' => 0, 'approved' => 0, 'disbursed' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
+        $statusTotalMap = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
+        $countStatusMap = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
 
         foreach ($byStatus as $row) {
             $statusTotalMap[$row['status']] = (float) ($row['total'] ?? 0);
@@ -1006,8 +1198,9 @@ class AdminController extends Controller
             $countTypeMap[$row['loan_type']] = (int) ($row['cnt'] ?? 0);
         }
 
-        // Risk-level distribution
-        $riskDist = $query->selectRaw('risk_level, count(*) as cnt')
+        // ---- Risk-level distribution (fresh clone) ----
+        $qRisk = clone $base;
+        $riskDist = $qRisk->selectRaw('risk_level, count(*) as cnt')
             ->groupBy('risk_level')
             ->get()
             ->keyBy('risk_level')
@@ -1018,6 +1211,10 @@ class AdminController extends Controller
             $riskMap[$row['risk_level']] = (int) ($row['cnt'] ?? 0);
         }
 
+        // ---- Totals from a fresh query (not the cloned $base) ----
+        $totalCount = clone $base;
+        $totalAmount = (float) $totalCount->sum('amount');
+
         return [
             'type'           => $filters['report_type'],
             'status_totals'  => $statusTotalMap,
@@ -1025,8 +1222,8 @@ class AdminController extends Controller
             'by_type'        => $typeTotalMap,
             'by_type_counts' => $countTypeMap,
             'risk_distribution' => $riskMap,
-            'total_count'    => $query->count(),
-            'total_amount'   => (float) $query->sum('amount'),
+            'total_count'    => $totalCount->count(),
+            'total_amount'   => $totalAmount,
         ];
     }
 
@@ -1037,7 +1234,7 @@ class AdminController extends Controller
      *  ================================================================== */
     private function approvedLoanRecordsData(array $filters): \Illuminate\Support\Collection
     {
-        $query = LoanApplication::whereIn('status', ['approved', 'disbursed'])
+        $query = LoanApplication::whereIn('status', ['approved'])
             ->with(['user.coopMember']);
 
         $query = $this->applyReportFilters($query, $filters);
@@ -1060,6 +1257,39 @@ class AdminController extends Controller
                     'approved_date'   => $app->reviewed_at ? $app->reviewed_at->format('M d, Y') : 'N/A',
                     'approved_by'     => $app->admin_remarks ?? 'N/A',
                     'app_id'          => $app->app_id,
+                ];
+            });
+    }
+
+    /** ==================================================================
+     *  Overdue Payments report:
+     *  disbursed/approved loans with remaining balance > 0 AND next_due_date
+     *  in the past. Each row shows member, loan type, due date, overdue amount.
+     *  ================================================================== */
+    private function overduePaymentsData(array $filters): \Illuminate\Support\Collection
+    {
+        $query = LoanApplication::where('status', LoanStatus::APPROVED)
+            ->where('remaining_balance', '>', 0)
+            ->whereDate('next_due_date', '<', now()->toDateString())
+            ->with(['user.coopMember']);
+
+        $query = $this->applyReportFilters($query, $filters);
+
+        return $query->latest('reviewed_at')
+            ->get()
+            ->map(function ($app) {
+                $member = $app->user?->coopMember;
+                $overdueDays = (int) now()->startOfDay()->diff(Carbon::parse($app->next_due_date)->startOfDay())->days;
+
+                return (object)[
+                    'member_name'   => $member?->full_name ?? 'Applicant',
+                    'member_id'     => $member?->id ?? null,
+                    'loan_type'     => $app->loan_type,
+                    'loan_type_label' => $app->getLoanTypeLabelAttribute(),
+                    'amount'         => Format::money((float) $app->remaining_balance),
+                    'due_date'      => $app->next_due_date?->format('M d, Y'),
+                    'overdue_days'  => $overdueDays,
+                    'app_id'        => $app->reference,
                 ];
             });
     }
@@ -1130,6 +1360,7 @@ class AdminController extends Controller
                 'member_name'   => $member->full_name ?? 'Unknown',
                 'member_id'     => $member->id,
                 'total_loans'   => $loanApps->count(),
+                'total_approved_amount' => Format::money($totalLoanAmount),
                 'total_paid'    => Format::money($totalPaid),
                 'outstanding'   => Format::money($outstanding),
                 'on_time_count' => $onTime,
@@ -1138,62 +1369,6 @@ class AdminController extends Controller
                 'performance_label' => $label,
             ];
         });
-    }
-
-    public function disbursements()
-    {
-        $applications = Application::whereIn('status', ['Approved', 'approved', 'Disbursed', 'disbursed'])->latest()->get();
-
-        $disbursements = $applications->map(function ($app) {
-            return (object)[
-                'id'             => $app->id ?? 1,
-                'reference_no'   => 'DISB-' . str_pad($app->id ?? 1, 5, '0', STR_PAD_LEFT),
-                'applicant_name' => $app->applicant ?? $app->full_name ?? 'Applicant',
-                'loan_type'      => $app->loan_type ?? 'Personal Loan',
-                'amount'         => $app->amount ?? 0,
-                'status'         => 'Disbursed',
-                'created_at'     => $app->created_at ?? now(),
-            ];
-        });
-
-        return view('admin.disbursements', compact('disbursements'));
-    }
-
-    // 25. Process a disbursement
-    public function processDisbursement(Request $request)
-    {
-        $validated = $request->validate([
-            'application_id' => 'required|exists:applications,id',
-            'disbursement_date' => 'nullable|date',
-            'reference_number' => 'nullable|string|max:255',
-            'notes' => 'nullable|string',
-        ]);
-
-        $application = Application::findOrFail($validated['application_id']);
-        $disbursementDate = $validated['disbursement_date'] ?? now();
-        $totalPayable = $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
-
-        $application->status = 'Disbursed';
-        $application->disbursement_date = $disbursementDate;
-        $application->reference_number = $validated['reference_number'] ?? null;
-        $application->next_due_date = Carbon::parse($disbursementDate)->copy()->addMonth();
-        $application->remaining_balance = $totalPayable;
-        $application->save();
-
-        if ($application->loan_application_id) {
-            LoanApplication::where('id', $application->loan_application_id)->update([
-                'status'            => 'disbursed',
-                'reviewed_at'       => now(),
-                'remaining_balance' => $totalPayable,
-                'next_due_date'     => Carbon::parse($disbursementDate)->copy()->addMonth(),
-            ]);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Disbursement processed successfully.',
-            'application_id' => $application->app_id,
-        ]);
     }
 
     // 26. Store a repayment
@@ -1212,22 +1387,21 @@ class AdminController extends Controller
             ->lockForUpdate()
             ->firstOrFail();
 
-        // Only allow payments on approved/disbursed loans
-        if (!LoanStatus::isApproved($application->status) && !LoanStatus::isDisbursed($application->status)) {
+        // Only allow payments on approved loans
+        if (!LoanStatus::isApproved($application->status)) {
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Repayments can only be made on approved or disbursed loans.',
+                    'message' => 'Repayments can only be made on approved loans.',
                 ], 422);
             }
-            return back()->with('error', 'Repayments can only be made on approved or disbursed loans.');
+            return back()->with('error', 'Repayments can only be made on approved loans.');
         }
 
         $amount = (float) $validated['amount'];
-        $remainingBalance = (float) ($application->remaining_balance ?? 0);
 
-        // Reject overpayment
-        if ($amount > $remainingBalance) {
+        // Over-payment guard: payment cannot exceed remaining balance
+        if ($amount > ($application->remaining_balance ?? 0)) {
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
@@ -1237,12 +1411,12 @@ class AdminController extends Controller
             return back()->with('error', 'Payment amount exceeds remaining balance.');
         }
 
-        // Reject duplicate reference number for same loan
-        if (!empty($validated['reference_no'])) {
-            $exists = Payment::where('loan_application_id', $application->loan_application_id)
+        // Duplicate reference check: prevent duplicate reference numbers for the same loan
+        if (! empty($validated['reference_no'])) {
+            $duplicateRef = Payment::where('loan_application_id', $application->loan_application_id)
                 ->where('reference_no', $validated['reference_no'])
                 ->exists();
-            if ($exists) {
+            if ($duplicateRef) {
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
@@ -1253,56 +1427,49 @@ class AdminController extends Controller
             }
         }
 
-        DB::transaction(function () use ($application, $validated, $remainingBalance) {
-            $newBalance = $remainingBalance - (float) $validated['amount'];
-
-            $application->remaining_balance = $newBalance;
-            $application->save();
-
-            if ($application->loan_application_id) {
-                LoanApplication::where('id', $application->loan_application_id)->update([
-                    'remaining_balance' => $newBalance,
-                ]);
+        // Duplicate amount+date check: prevent payments with the same amount and date
+        $paymentDate = $validated['payment_date'] ?? now()->toDateString();
+        $duplicateAmountDate = Payment::where('loan_application_id', $application->loan_application_id)
+            ->where('amount_paid', $amount)
+            ->whereDate('payment_date', $paymentDate)
+            ->exists();
+        if ($duplicateAmountDate) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A payment with the same amount and date already exists for this loan.',
+                ], 422);
             }
+            return back()->with('error', 'A payment with the same amount and date already exists for this loan.');
+        }
 
-            // Update status if balance reaches zero
-            if (bccomp((string) $newBalance, '0', 2) <= 0) {
-                $application->status = LoanStatus::write(LoanStatus::PAID, 'applications');
-                $application->next_due_date = null;
-                $application->save();
+        $payment = null;
 
-                if ($application->loan_application_id) {
-                    LoanApplication::where('id', $application->loan_application_id)->update([
-                        'status'            => LoanStatus::write(LoanStatus::PAID),
-                        'next_due_date'     => null,
-                    ]);
-                }
-            } else {
-                // Advance next_due_date by one month
-                $nextDue = $application->next_due_date ?? now()->endOfMonth();
-                $newDueDate = Carbon::parse($nextDue)->addMonth();
-                $application->next_due_date = $newDueDate;
-                $application->save();
-
-                if ($application->loan_application_id) {
-                    LoanApplication::where('id', $application->loan_application_id)->update([
-                        'next_due_date'     => $newDueDate,
-                    ]);
-                }
-            }
-
+        DB::transaction(function () use ($application, $validated, $amount, &$payment) {
             // Create Payment record
-            Payment::create([
+            $newRemainingBalance = (float) ($application->remaining_balance ?? 0) - $amount;
+
+            $payment = Payment::create([
                 'loan_application_id' => $application->loan_application_id,
                 'user_id'             => $application->user_id,
-                'amount_paid'         => (float) $validated['amount'],
-                'remaining_balance_after' => $newBalance,
+                'amount_paid'         => $amount,
+                'remaining_balance_after' => $newRemainingBalance,
                 'reference_no'        => $validated['reference_no'] ?? null,
                 'payment_date'        => $validated['payment_date'] ?? now(),
                 'payment_method'      => $validated['payment_method'] ?? null,
                 'notes'               => $validated['notes'] ?? null,
                 'encoded_by'          => Auth::id(),
             ]);
+
+            // Recompute loan state using the single source of truth service.
+            // The new payment is now in the DB, so it will be counted in total_paid.
+            $loanApplication = $application->loan_application_id
+                ? LoanApplication::where('id', $application->loan_application_id)->lockForUpdate()->first()
+                : null;
+
+            if ($loanApplication) {
+                app(PaymentService::class)->recomputeLoanState($loanApplication);
+            }
 
             AuditLog::log('Payment Recorded', "Repayment of ₱{$validated['amount']} recorded for {$application->app_id}");
         });
@@ -1322,64 +1489,166 @@ class AdminController extends Controller
             ? response()->json([
                 'success' => true,
                 'message' => 'Repayment recorded successfully.',
+                'payment_id' => $payment->id,
                 'remaining_balance' => (float) ($application->remaining_balance ?? 0),
             ])
             : redirect()->route('repayments.index')->with('success', 'Repayment recorded successfully.');
     }
 
-    // 27. Delete a repayment record
-    public function destroyRepayment(int $id)
-    {
-        $repayment = Payment::findOrFail($id);
-        $repayment->delete();
-
-        return response()->json(['success' => true]);
-    }
-
-    // 28. Update an existing repayment record
+    // 27. Update an existing repayment record
     public function updateRepayment(Request $request, int $id)
     {
         $repayment = Payment::findOrFail($id);
 
+        $loanApplication = null;
+        if ($repayment->loan_application_id) {
+            $loanApplication = LoanApplication::where('id', $repayment->loan_application_id)
+                ->lockForUpdate()
+                ->first();
+        }
+
+        $application = null;
+        if ($loanApplication) {
+            $application = Application::where('loan_application_id', $loanApplication->id)->first();
+        }
+
         $validated = $request->validate([
-            'amount'           => 'required|numeric|min:0.01',
-            'payment_method'   => 'nullable|string|max:100',
-            'reference_no'    => 'nullable|string|max:255',
-            'payment_date'    => 'nullable|date',
-            'notes'           => 'nullable|string|max:500',
+            'amount' => 'required|numeric|min:0.01',
+            'payment_method' => 'nullable|string|max:100',
+            'reference_no' => 'nullable|string|max:255',
+            'payment_date' => 'nullable|date',
+            'notes' => 'nullable|string|max:500',
         ]);
 
-        $repayment->update([
-            'amount_paid'      => (float) $validated['amount'],
-            'payment_method'   => $validated['payment_method'] ?? null,
-            'reference_no'    => $validated['reference_no'] ?? null,
-            'payment_date'    => $validated['payment_date'] ?? null,
-            'notes'           => $validated['notes'] ?? null,
-        ]);
+        $newAmount = (float) $validated['amount'];
+        $oldAmount = (float) $repayment->amount_paid;
 
-        return $request->expectsJson()
-            ? response()->json(['success' => true, 'message' => 'Repayment updated successfully.'])
-            : redirect()->route('repayments.index')->with('success', 'Repayment updated successfully.');
-    }
-
-    // 28. Update application settings
-    public function updateSettings(Request $request)
-    {
-        $validated = $request->validate([
-            'cooperative_name' => 'nullable|string|max:255',
-            'interest_rate' => 'nullable|numeric|min:0|max:100',
-            'email' => 'nullable|email|max:255',
-            'phone' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:255',
-        ]);
-
-        foreach ($validated as $key => $value) {
-            if ($value !== null) {
-                Application::where('app_id', 'settings')->update([$key => $value]);
+        // Duplicate reference check: excludes the payment being edited
+        if (!empty($validated['reference_no'])) {
+            $exists = Payment::where('loan_application_id', $repayment->loan_application_id)
+                ->where('reference_no', $validated['reference_no'])
+                ->where('id', '!=', $repayment->id)
+                ->exists();
+            if ($exists) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'A payment with this reference number already exists for this loan.',
+                    ], 422);
+                }
+                return back()->with('error', 'A payment with this reference number already exists for this loan.');
             }
         }
 
-        return response()->json(['success' => true, 'message' => 'Settings updated successfully.']);
+        // Duplicate amount+date check: excludes the payment being edited
+        $paymentDate = $validated['payment_date'] ?? $repayment->payment_date;
+        $exists = Payment::where('loan_application_id', $repayment->loan_application_id)
+            ->where('amount_paid', $newAmount)
+            ->whereDate('payment_date', $paymentDate)
+            ->where('id', '!=', $repayment->id)
+            ->exists();
+        if ($exists) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A payment with the same amount and date already exists for this loan.',
+                ], 422);
+            }
+            return back()->with('error', 'A payment with the same amount and date already exists for this loan.');
+        }
+
+        // Over-payment rejection: total_paid_after_edit = current total paid - old_amount + new_amount
+        if ($loanApplication) {
+            $totalPayable = $loanApplication->totalPayable();
+            $totalPaid = Payment::where('loan_application_id', $loanApplication->id)
+                ->sum('amount_paid');
+            $totalPaidAfterEdit = $totalPaid - $oldAmount + $newAmount;
+
+            if ($totalPaidAfterEdit > $totalPayable) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Total paid would exceed total payable.',
+                    ], 422);
+                }
+                return back()->with('error', 'Total paid would exceed total payable.');
+            }
+        }
+
+        // Capture old values for audit log before update
+        $oldValues = $repayment->toArray();
+
+        DB::transaction(function () use ($repayment, $validated, $newAmount, $oldAmount, $loanApplication, $oldValues) {
+            // Update only editable fields
+            $repayment->update([
+                'amount_paid' => $newAmount,
+                'payment_method' => $validated['payment_method'] ?? null,
+                'reference_no' => $validated['reference_no'] ?? null,
+                'payment_date' => $validated['payment_date'] ?? $repayment->payment_date,
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            AuditLog::log('Repayment Updated', "Repayment #{$repayment->id} updated for loan application #{$repayment->loan_application_id}", $repayment->user_id ?? null,
+                $oldValues,
+                $repayment->toArray());
+        });
+
+        // Recompute loan state after update. The payment has already been
+        // updated in the DB with the new amount, so recomputeLoanState will
+        // sum all payments including the updated one — no exclusion needed.
+        if ($loanApplication) {
+            app(PaymentService::class)->recomputeLoanState($loanApplication);
+        }
+
+        return $request->expectsJson()
+            ? response()->json([
+                'success' => true,
+                'message' => 'Repayment updated successfully.',
+                'remaining_balance' => $loanApplication ? (float) ($loanApplication->remaining_balance ?? 0) : 0,
+            ])
+            : redirect()->route('repayments.index')->with('success', 'Repayment updated successfully.');
+    }
+
+    // 28. Update application settings (persists to the Setting model)
+    public function updateSettings(Request $request)
+    {
+        $validated = $request->validate([
+            // Editable settings
+            'cooperative_name'     => 'required|string|max:255',
+            'cooperative_email'    => 'required|email|max:255',
+            'cooperative_address'  => 'required|string|max:500',
+            'cooperative_phone'    => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
+            'annual_interest_rate' => 'required|integer|min:1|max:100',
+            'template_due_soon'    => 'sometimes|string',
+            'template_due_today'   => 'sometimes|string',
+            'template_overdue'     => 'sometimes|string',
+            'template_approval'    => 'sometimes|string',
+            'template_rejection'   => 'sometimes|string',
+            // Read-only settings (displayed but not persisted via this form)
+            'default_loan_term'    => 'sometimes|integer|min:1|max:60',
+            'penalty_rate'         => 'sometimes|integer|min:0|max:100',
+            'min_approval_score'   => 'sometimes|integer|min:1|max:100',
+            'high_risk_threshold'  => 'sometimes|integer|min:1|max:100',
+            'grace_period_days'    => 'sometimes|integer|min:0|max:365',
+            'reminder_frequency'   => 'sometimes|string',
+        ]);
+
+        // Persist editable settings to the Setting model (audit-logged via the model's booted hooks)
+        Setting::set('cooperative_name', $validated['cooperative_name']);
+        Setting::set('cooperative_email', $validated['cooperative_email']);
+        Setting::set('cooperative_address', $validated['cooperative_address']);
+        Setting::set('cooperative_phone', $validated['cooperative_phone'] ?? '');
+        Setting::set('annual_interest_rate', $validated['annual_interest_rate']);
+        Setting::set('template_due_soon', $validated['template_due_soon'] ?? '');
+        Setting::set('template_due_today', $validated['template_due_today'] ?? '');
+        Setting::set('template_overdue', $validated['template_overdue'] ?? '');
+        Setting::set('template_approval', $validated['template_approval'] ?? '');
+        Setting::set('template_rejection', $validated['template_rejection'] ?? '');
+
+        // Read-only settings are config-driven and not persisted here.
+
+        return back()
+            ->with('success', 'Settings updated successfully.');
     }
 
     // 28. Export reports to PDF
@@ -1388,18 +1657,19 @@ class AdminController extends Controller
         $filters = $this->buildReportFilters($request);
         $type = $filters['report_type'];
 
-        $data = match ($type) {
-            'loan_summary'         => $this->loanSummaryData($filters),
-            'approved_records'     => $this->approvedLoanRecordsData($filters),
-            'borrower_performance' => $this->borrowerPerformanceData($filters),
-            default                => ['type' => $type, 'data' => Application::latest()->get()],
-        };
+        $loanSummary      = $this->loanSummaryData($filters);
+        $approvedRecs     = $this->approvedLoanRecordsData($filters);
+        $borrowerPerf     = $this->borrowerPerformanceData($filters);
+        $overduePayments  = $this->overduePaymentsData($filters);
 
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.report-pdf', [
-            'data'      => $data,
-            'type'      => $type,
-            'filters'   => $filters,
-            'generatedAt' => now(),
+            'type'           => $type,
+            'filters'        => $filters,
+            'generatedAt'    => now(),
+            'loanSummary'    => $loanSummary,
+            'approvedRecs'   => $approvedRecs,
+            'borrowerPerf'   => $borrowerPerf,
+            'overduePayments'=> $overduePayments,
         ]);
 
         return $pdf->download("report_{$type}_" . now()->format('Y-m-d') . '.pdf');
@@ -1494,7 +1764,7 @@ class AdminController extends Controller
             $sheet->setCellValue('A1', 'Borrower Performance Report');
             $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
 
-            $headers = ['Member', 'Total Loans', 'Total Paid', 'Outstanding', 'On-time', 'Late', 'Overdue', 'Performance'];
+            $headers = ['Member', 'Total Loans', 'Total Approved', 'Total Paid', 'Outstanding', 'On-time', 'Late', 'Overdue', 'Performance'];
             foreach ($headers as $i => $h) {
                 $sheet->setCellValue(chr(65 + $i) . '4', $h);
             }
@@ -1503,12 +1773,34 @@ class AdminController extends Controller
             foreach ($rows as $app) {
                 $sheet->setCellValue('A' . $row, $app->member_name ?? 'N/A');
                 $sheet->setCellValue('B' . $row, $app->total_loans ?? 0);
-                $sheet->setCellValue('C' . $row, $app->total_paid ?? '0');
-                $sheet->setCellValue('D' . $row, $app->outstanding ?? '0');
-                $sheet->setCellValue('E' . $row, $app->on_time_count ?? 0);
-                $sheet->setCellValue('F' . $row, $app->late_count ?? 0);
-                $sheet->setCellValue('G' . $row, $app->overdue_count ?? 0);
-                $sheet->setCellValue('H' . $row, $app->performance_label ?? 'N/A');
+                $sheet->setCellValue('C' . $row, $app->total_approved_amount ?? '0');
+                $sheet->setCellValue('D' . $row, $app->total_paid ?? '0');
+                $sheet->setCellValue('E' . $row, $app->outstanding ?? '0');
+                $sheet->setCellValue('F' . $row, $app->on_time_count ?? 0);
+                $sheet->setCellValue('G' . $row, $app->late_count ?? 0);
+                $sheet->setCellValue('H' . $row, $app->overdue_count ?? 0);
+                $sheet->setCellValue('I' . $row, $app->performance_label ?? 'N/A');
+                $row++;
+            }
+        } elseif ($type === 'overdue_payments') {
+            $rows = $this->overduePaymentsData($filters);
+
+            $sheet->setCellValue('A1', 'Overdue Payments Report');
+            $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
+
+            $headers = ['App ID', 'Member', 'Loan Type', 'Overdue Amount', 'Due Date', 'Overdue Days'];
+            foreach ($headers as $i => $h) {
+                $sheet->setCellValue(chr(65 + $i) . '4', $h);
+            }
+
+            $row = 5;
+            foreach ($rows as $app) {
+                $sheet->setCellValue('A' . $row, $app->app_id ?? '');
+                $sheet->setCellValue('B' . $row, $app->member_name ?? 'N/A');
+                $sheet->setCellValue('C' . $row, $app->loan_type_label ?? 'N/A');
+                $sheet->setCellValue('D' . $row, (float) ($app->amount ?? 0));
+                $sheet->setCellValue('E' . $row, $app->due_date ?? 'N/A');
+                $sheet->setCellValue('F' . $row, $app->overdue_days ?? 0);
                 $row++;
             }
         } else {
@@ -1529,9 +1821,12 @@ class AdminController extends Controller
         $logs = AppNotificationLog::latest()
             ->when(request('search'), fn ($q, $s) => $q->where('subject', 'like', "%{$s}%")->orWhere('recipient_email', 'like', "%{$s}%"))
             ->when(request('status'), fn ($q, $s) => $q->where('status', $s))
+            ->when(request('type'), fn ($q, $t) => $q->where('notification_type', $t))
+            ->when(request('channel'), fn ($q, $c) => $q->where('channel', $c))
             ->when(request('start_date'), fn ($q, $d) => $q->whereDate('created_at', '>=', $d))
             ->when(request('end_date'), fn ($q, $d) => $q->whereDate('created_at', '<=', $d))
-            ->paginate(20);
+            ->paginate(20)
+            ->withQueryString();
 
         return view('admin.notifications-log', compact('logs'));
     }
@@ -1639,7 +1934,7 @@ class AdminController extends Controller
 
         $principal = (float) ($application->amount ?? 0);
         $termMonths = (int) ($loanApp?->term_months ?? 12);
-        $rate = (float) config('loan_matrix.rate', 0.12);
+        $rate = (float) (Setting::get('annual_interest_rate', config('loan_matrix.rate', 12)) / 100);
 
         $service = app(\App\Services\AmortizationService::class);
         $schedule = $service->schedule($principal, $termMonths, $rate);
@@ -1667,13 +1962,13 @@ class AdminController extends Controller
 
         $principal = (float) ($application->amount ?? 0);
         $termMonths = (int) ($loanApp?->term_months ?? 12);
-        $rate = (float) config('loan_matrix.rate', 0.12);
+        $rate = (float) (Setting::get('annual_interest_rate', config('loan_matrix.rate', 12)) / 100);
 
         $service = app(\App\Services\AmortizationService::class);
         $schedule = $service->schedule($principal, $termMonths, $rate);
         $summary = $service->summary($principal, $termMonths, $rate);
 
-        $html = view('admin.amortization-pdf', compact('application', 'loanApp', 'schedule', 'summary'))->render();
+        $html = view('admin.amortization-pdf', compact('application', 'loanApp', 'schedule', $summary))->render();
 
         return response($html, 200, [
             'Content-Type' => 'text/html',
@@ -1683,49 +1978,225 @@ class AdminController extends Controller
 
     public function backup()
     {
-        $driver = DB::connection()->getDriverName();
+        $backupDir = base_path('storage/app/backups');
+        $backups = [];
 
-        // Table list: portable across MySQL and SQLite (the test DB is SQLite).
-        $tables = $driver === 'mysql'
-            ? collect(DB::select('SHOW TABLES'))->map(fn($r) => (string) reset($r))->all()
-            : collect(DB::select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))
-                ->map(fn($r) => (string) $r->name)->all();
+        if (is_dir($backupDir)) {
+            $files = glob("{$backupDir}/backup_*.sql.gz");
+            usort($files, function ($a, $b) {
+                return filemtime($b) <=> filemtime($a);
+            });
 
-        $dump = "-- San Dionisio Credit Cooperative Database Backup\n";
-        $dump .= "-- Generated: " . now()->format('Y-m-d H:i:s') . "\n\n";
-
-        foreach ($tables as $tableName) {
-            $dump .= "-- Table: {$tableName}\n";
-            $dump .= "DROP TABLE IF EXISTS `{$tableName}`;\n";
-
-            $createTable = $driver === 'mysql'
-                ? DB::select("SHOW CREATE TABLE `{$tableName}`")[0]->{'Create Table'}
-                : (DB::select("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", [$tableName])[0]->sql ?? '');
-
-            if ($createTable !== '') {
-                $dump .= $createTable . ";\n\n";
-            }
-
-            $rows = DB::select("SELECT * FROM `{$tableName}`");
-            if (!empty($rows)) {
-                $dump .= "INSERT INTO `{$tableName}` VALUES\n";
-                $values = [];
-                foreach ($rows as $row) {
-                    $rowValues = [];
-                    foreach ((array) $row as $value) {
-                        $rowValues[] = $value === null ? 'NULL' : "'" . str_replace("'", "\\'", $value) . "'";
-                    }
-                    $values[] = '(' . implode(', ', $rowValues) . ')';
-                }
-                $dump .= implode(",\n", $values) . ";\n\n";
+            foreach ($files as $file) {
+                $backups[] = [
+                    'filename' => basename($file),
+                    'size'     => filesize($file),
+                    'date'     => date('Y-m-d H:i:s', filemtime($file)),
+                ];
             }
         }
 
-        $filename = 'scc_backup_' . now()->format('Y-m-d_H-i-s') . '.sql';
+        return view('admin.backup', compact('backups'));
+    }
 
-        return response($dump, 200, [
-            'Content-Type' => 'application/x-sql',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+    /**
+     * Download a stored backup file.
+     * Validates the filename against a strict whitelist pattern — no path traversal.
+     */
+    public function downloadBackup($filename)
+    {
+        // Validate filename: backup_{database}_{timestamp}.sql.gz — no directory traversal
+        if (!preg_match('/^backup_[a-zA-Z0-9_]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.sql\.gz$/', $filename)) {
+            abort(404, 'Backup file not found.');
+        }
+
+        $backupDir = base_path('storage/app/backups');
+        $filepath = $backupDir . '/' . $filename;
+
+        if (!file_exists($filepath) || realpath($filepath) !== realpath($filepath) || strpos(realpath($filepath), realpath($backupDir)) !== 0) {
+            abort(404, 'Backup file not found.');
+        }
+
+        return response()->download($filepath);
+    }
+
+    /**
+     * Restore the database from a selected backup file.
+     *
+     * Safeguards:
+     * - Admin-only (route middleware enforces role)
+     * - Requires confirmation text "RESTORE"
+     * - Creates a fresh backup before restoring
+     * - Filename validated against strict whitelist — no path traversal, no arbitrary files
+     * - Respects the DatabaseProtectionProvider: restore of the real 'sdcc' database
+     *   is refused unless ALLOW_PROTECTED_DB=1 is set explicitly on the command line.
+     * - Writes an audit log entry
+     */
+    public function restoreBackup(Request $request)
+    {
+        $validated = $request->validate([
+            'filename'    => 'required|string|max:255',
+            'confirm'     => 'required|string',
+            'confirmation' => 'nullable|string',
+        ]);
+
+        // Require explicit confirmation text "RESTORE"
+        $confirmation = $validated['confirmation'] ?? $validated['confirm'] ?? '';
+        if (strtoupper(trim($confirmation)) !== 'RESTORE') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Confirmation failed. Please type RESTORE to confirm.',
+            ], 422);
+        }
+
+        $filename = $validated['filename'];
+
+        // Strict filename validation: no path traversal, only managed backup files
+        if (!preg_match('/^backup_[a-zA-Z0-9_]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.sql\.gz$/', $filename)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid backup file name.',
+            ], 422);
+        }
+
+        $backupDir = base_path('storage/app/backups');
+        $filepath = $backupDir . '/' . $filename;
+
+        // Final safety: ensure the file is within the managed backups directory
+        if (!file_exists($filepath)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Selected backup file does not exist.',
+            ], 404);
+        }
+
+        $realPath = realpath($filepath);
+        $realDir = realpath($backupDir);
+        if ($realPath === false || $realDir === false || strpos($realPath, $realDir) !== 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Selected file is outside the backup directory.',
+            ], 422);
+        }
+
+        try {
+            // ── Check DatabaseProtectionProvider guard ──
+            $databaseName = config('database.connections.' . config('database.default') . '.database');
+            $protectedDatabases = config('sdcc.protected_databases', ['sdcc']);
+            $protectedDatabases = array_map('strtolower', array_map('trim', $protectedDatabases));
+
+            $isProtected = in_array(strtolower($databaseName), $protectedDatabases, true);
+            $allowProtected = (bool) env('ALLOW_PROTECTED_DB', false);
+
+            if ($isProtected && !$allowProtected) {
+                AuditLog::log('DB Restore Blocked', "Attempt to restore from {$filename} on protected database '{$databaseName}' was blocked by DatabaseProtectionProvider.", null, ['filename' => $filename, 'database' => $databaseName]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "This action is blocked. Restoring the real '{$databaseName}' database requires ALLOW_PROTECTED_DB=1. Use --env=scratch for testing.",
+                ], 403);
+            }
+
+            // ── Pre-restore: create a fresh backup ──
+            // Only the mysqldump-based sdcc:backup command is available; on
+            // SQLite there is no dump tool, so we skip the pre-restore backup
+            // there rather than fail the restore.
+            $driver = DB::connection()->getDriverName();
+            if ($driver === 'mysql') {
+                \Artisan::call('sdcc:backup');
+            }
+
+            // ── Perform restore ──
+
+            if ($driver === 'mysql') {
+                $host = config('database.connections.mysql.host', 'localhost');
+                $port = config('database.connections.mysql.port', 3306);
+                $username = config('database.connections.mysql.username', 'root');
+                $password = config('database.connections.mysql.password', '');
+                $database = $databaseName;
+
+                $mysqldumpPath = $this->findMysqldumpPath();
+                if (!$mysqldumpPath) {
+                    throw new \RuntimeException('Could not find mysqldump for restore.');
+                }
+
+                $cmd = "{$mysqldumpPath} -h {$host} -P {$port} -u {$username}";
+                if ($password) {
+                    $cmd .= " -p{$password}";
+                }
+                $cmd .= " {$database} < " . escapeshellarg($filepath);
+
+                $process = new \Symfony\Component\Process\Process($cmd);
+                $process->run();
+
+                if (!$process->isSuccessful()) {
+                    throw new \RuntimeException('Restore failed: ' . $process->getErrorOutput());
+                }
+            } else {
+                // SQLite: decompress and execute
+                $sql = gzdecode(file_get_contents($filepath));
+                if ($sql === false) {
+                    throw new \RuntimeException('Could not decompress backup file.');
+                }
+
+                DB::unprepared($sql);
+            }
+
+            AuditLog::log('DB Restore', "Restored database from backup file: {$filename}", null, ['filename' => $filename, 'database' => $databaseName]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Database successfully restored from {$filename}.",
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('DB Restore error: ' . $e->getMessage(), ['exception' => $e]);
+
+            AuditLog::log('DB Restore Failed', "Failed to restore from {$filename}: {$e->getMessage()}", null, ['filename' => $filename, 'error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Restore failed: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Find mysqldump binary path.
+     */
+    protected function findMysqldumpPath(): ?string
+    {
+        $path = exec('which mysqldump 2>/dev/null');
+        if ($path) {
+            return trim($path);
+        }
+        $xamppPath = 'C:\\xampp\\mysql\\bin\\mysqldump.exe';
+        if (file_exists($xamppPath)) {
+            return $xamppPath;
+        }
+        return null;
+    }
+
+    public function checkDuplicate(Request $request)
+    {
+        $validated = $request->validate([
+            'full_name' => 'required|string|max:255',
+            'email'     => 'required|email|max:255',
+            'phone'     => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
+            'exclude_id' => 'nullable|integer',
+        ]);
+
+        $check = app(DuplicateMemberService::class)->check(
+            $validated['full_name'],
+            $validated['email'],
+            $validated['phone'] ?? null,
+            $validated['exclude_id']
+        );
+
+        return response()->json([
+            'is_duplicate' => $check['isDuplicate'],
+            'is_warning'   => $check['isWarning'],
+            'message'      => $check['message'],
+            'matched_fields' => $check['matchedFields'],
         ]);
     }
 

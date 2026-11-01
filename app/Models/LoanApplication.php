@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Services\AmortizationService;
+use Illuminate\Support\Facades\DB;
 
 class LoanApplication extends Model
 {
@@ -24,6 +25,7 @@ class LoanApplication extends Model
         'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
         'remaining_balance', 'next_due_date',
         'recommended_amount', 'risk_level', 'risk_score', 'risk_factors',
+        'document_check',
         // AI scoring fields (added for synchronous fallback)
         'ai_score', 'ai_analysis_notes', 'extracted_document_data', 'document_processing_status',
     ];
@@ -54,11 +56,39 @@ class LoanApplication extends Model
             ->emi((float) $this->amount, (int) ($this->term_months ?? 12));
     }
 
+    /**
+     * Total payable = principal + interest over the full term.
+     * This is the ONLY correct base for remaining_balance — never the raw principal.
+     */
+    public function totalPayable(): float
+    {
+        return (float) app(AmortizationService::class)
+            ->summary((float) $this->amount, (int) ($this->term_months ?? 12))['total_paid'];
+    }
+
+    /**
+     * Remaining balance as total payable minus sum of payments.
+     * Used by PaymentService::recomputeLoanState() as single source of truth.
+     */
+    public function remainingBalance(): float
+    {
+        $paid = $this->payments()->sum('amount_paid');
+        return max(0, $this->totalPayable() - (float) $paid);
+    }
+
+    /**
+     * Payments on this loan, ordered chronologically.
+     */
+    public function payments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Payment::class, 'loan_application_id')
+            ->orderBy('payment_date', 'asc');
+    }
+
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {
             'approved'   => 'Approved',
-            'disbursed'  => 'Disbursed & Released',
             'rejected'   => 'Rejected',
             default      => 'Under review',
         };
@@ -130,5 +160,44 @@ class LoanApplication extends Model
         $nextId = static::withTrashed()->max('id') + 1;
 
         return 'SDCC-' . now()->format('Y') . '-' . str_pad((string) $nextId, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Total paid — sum of all payments' amount_paid.
+     */
+    public function totalPaid(): float
+    {
+        return (float) $this->payments()->sum('amount_paid');
+    }
+
+    /**
+     * Outstanding balance = totalPayable - totalPaid.
+     */
+    public function outstandingBalance(): float
+    {
+        return max(0, $this->totalPayable() - $this->totalPaid());
+    }
+
+    /**
+     * Next due date — first unpaid installment date or null if fully paid.
+     */
+    public function nextDueDate(): ?string
+    {
+        if ($this->outstandingBalance() <= 0) {
+            return null;
+        }
+        $emi = $this->monthly_payment;
+        $paid = $this->totalPaid();
+        $paidInstallments = floor($paid / $emi);
+        $disbursed = $this->disbursement_date ?? $this->reviewed_at ?? now();
+        return \Carbon\Carbon::parse($disbursed)->addMonths($paidInstallments + 1)->format('Y-m-d');
+    }
+
+    /**
+     * Human-readable status via LoanStatus.
+     */
+    public function statusString(): string
+    {
+        return \App\Support\LoanStatus::write($this->status, 'loan_applications');
     }
 }

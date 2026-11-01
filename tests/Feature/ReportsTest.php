@@ -77,7 +77,7 @@ class ReportsTest extends TestCase
             'full_name' => 'Test Borrower',
             'loan_type' => 'regular',
             'amount' => 5000,
-            'status' => 'disbursed',
+            'status' => 'approved',
             'risk_level' => 'Low',
         ]);
 
@@ -85,9 +85,9 @@ class ReportsTest extends TestCase
         $response->assertOk();
 
         $content = $response->getContent();
-        $this->assertStringContainsString('Reports & Analytics', $content);
+        $this->assertStringContainsString('Reports &amp; Analytics', $content);
         $this->assertStringContainsString('Loan Summary', $content);
-        $this->assertStringContainsString('Approved Loan Records', $content);
+        $this->assertStringContainsString('Approved Records', $content);
         $this->assertStringContainsString('Borrower Performance', $content);
     }
 

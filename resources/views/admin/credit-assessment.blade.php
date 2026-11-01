@@ -7,7 +7,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
             <h1 style="font-size: 1.5rem; font-weight: 700; color: #101828; margin: 0;">Credit Assessment</h1>
-            <p style="font-size: 0.875rem; color: #667085; margin-top: 0.25rem;">AI Scoring Summary: {{ $totalEvaluated }} Evaluated</p>
+            <p style="font-size: 0.875rem; color: #667085; margin-top: 0.25rem;">Rule-Based Scoring Summary: {{ $totalEvaluated }} Evaluated</p>
         </div>
 
         <!-- KPI Summary Badges -->
@@ -44,7 +44,7 @@
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">App ID</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Borrower</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Requested</th>
-                    <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">AI Score</th>
+                    <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Rule-Based Score</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Risk Level</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Recommended</th>
                     <th style="padding: 0.75rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Action</th>

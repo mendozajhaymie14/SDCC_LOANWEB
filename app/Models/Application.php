@@ -27,10 +27,14 @@ class Application extends Model
         'remaining_balance',
         'next_due_date',
         'disbursement_date',
+        'reference_number',
+        'recorded_by',
+        'notes',
         'recommended_amount',
         'risk_level',
         'risk_score',
         'risk_factors',
+        'document_check',
         'approved_amount',
         'admin_remarks',
     ];
@@ -58,5 +62,45 @@ class Application extends Model
     public function getAiScorePendingAttribute(): bool
     {
         return $this->attributes['ai_score'] === null;
+    }
+
+    /**
+     * Total paid — delegates to related LoanApplication.
+     */
+    public function totalPaid(): float
+    {
+        return $this->loanApplication ? $this->loanApplication->totalPaid() : 0.0;
+    }
+
+    /**
+     * Outstanding balance = totalPayable - totalPaid.
+     */
+    public function outstandingBalance(): float
+    {
+        return max(0, $this->totalPayable() - $this->totalPaid());
+    }
+
+    /**
+     * Total payable — delegates to related LoanApplication.
+     */
+    public function totalPayable(): float
+    {
+        return $this->loanApplication ? $this->loanApplication->totalPayable() : 0.0;
+    }
+
+    /**
+     * Next due date — delegates to related LoanApplication.
+     */
+    public function nextDueDate(): ?string
+    {
+        return $this->loanApplication ? $this->loanApplication->nextDueDate() : null;
+    }
+
+    /**
+     * Human-readable status via LoanStatus.
+     */
+    public function statusString(): string
+    {
+        return \App\Support\LoanStatus::write($this->status, 'applications');
     }
 }

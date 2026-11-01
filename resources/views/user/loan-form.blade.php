@@ -88,14 +88,12 @@
         <div class="grid-2">
           <div class="field">
             <label for="monthly_income">Monthly income * <span class="hint">(in pesos)</span></label>
-            <select id="monthly_income" name="monthly_income"
-                    class="@error('monthly_income') has-error @enderror" required>
-              <option value="">Select a range</option>
-              @foreach (config('loan_matrix.form_options.monthly_income') as [$value, $label])
-                <option value="{{ $value }}" @selected(old('monthly_income') == $value)>{{ $label }}</option>
-              @endforeach
-            </select>
-            @error('monthly_income') <span class="error-text">{{ $message }}</span> @enderror
+            <input type="number" id="monthly_income" name="monthly_income" min="1" step="0.01"
+                   value="{{ old('monthly_income') }}"
+                   class="form-input @error('monthly_income') has-error @enderror" required autocomplete="off" data-validate="positive">
+            @error('monthly_income')
+    <div class="field-error">{{ $message }}</div>
+@enderror
           </div>
 
           <div class="field">
@@ -136,7 +134,7 @@
             <label for="amount">Amount * <span class="hint" id="amountHint">(₱1,000 – ₱2,000,000)</span></label>
             <input type="number" id="amount" name="amount" min="1000" max="2000000" step="100" inputmode="numeric"
                    value="{{ old('amount') }}"
-                   class="@error('amount') has-error @enderror" required autocomplete="off">
+                   class="@error('amount') has-error @enderror" required autocomplete="off" data-validate="positive"/>
             @error('amount') <span class="error-text">{{ $message }}</span> @enderror
           </div>
 
@@ -149,6 +147,10 @@
               @endforeach
             </select>
             @error('term_months') <span class="error-text">{{ $message }}</span> @enderror
+          </div>
+
+          <div id="incomeWarning" style="display:none; margin-top:4px; padding:6px 10px; border:1px solid #f59e0b; background:#fffbeb; color:#92400e; border-radius:6px; font-size:0.75rem;">
+            ⚠️ <span id="incomeWarningText"></span>
           </div>
 
         </div>
@@ -184,6 +186,69 @@
         <label for="agree">I confirm that my details are true and correct.</label>
         @error('agree') <span class="error-text">{{ $message }}</span> @enderror
       </div>
+
+      <div class="field checkbox-field">
+        <input type="checkbox" id="consentGemini" name="document_consent" value="1" @checked(old('document_consent'))>
+        <label for="consentGemini">I consent to my uploaded documents being scanned by Gemini AI for verification purposes only. The AI check is advisory; recommended amounts and risk levels are determined by rule-based evaluation.</label>
+        @error('document_consent') <span class="error-text">{{ $message }}</span> @enderror
+      </div>
+
+      <script>
+        (function () {
+          var consent = document.getElementById('consentGemini');
+          var fileInput = document.getElementById('required_documents');
+
+          function setDisabled(checked) {
+            if (fileInput) { fileInput.disabled = !checked; }
+          }
+
+          if (consent && fileInput) {
+            // initial state
+            setDisabled(consent.checked);
+            consent.addEventListener('change', function () {
+              setDisabled(this.checked);
+              if (!this.checked) {
+                // clear any chosen file when consent is unticked
+                fileInput.value = '';
+                var preview = document.getElementById('filePreview');
+                if (preview) { preview.innerHTML = ''; }
+              }
+            });
+          }
+
+          // 70% income threshold warning
+          var incomeInput = document.getElementById('monthly_income');
+          var amountInput = document.getElementById('amount');
+          var warning = document.getElementById('incomeWarning');
+          var warningText = document.getElementById('incomeWarningText');
+
+          function money(v) {
+            if (v === '' || v === null || v === undefined) return '';
+            return '₱' + Number(v).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+          }
+
+          function checkIncomeWarning() {
+            var income = parseFloat(incomeInput.value);
+            var amount = parseFloat(amountInput.value);
+            if (!income || income <= 0 || !amount || amount <= 0) {
+              if (warning) { warning.style.display = 'none'; }
+              return;
+            }
+            var threshold = income * 0.70;
+            if (amount > threshold) {
+              if (warningText) {
+                warningText.textContent = 'Requested amount (' + money(amount) + ') exceeds 70% of monthly income (' + money(income) + ' = ' + money(threshold) + ').';
+              }
+              if (warning) { warning.style.display = 'block'; }
+            } else {
+              if (warning) { warning.style.display = 'none'; }
+            }
+          }
+
+          if (incomeInput) { incomeInput.addEventListener('input', checkIncomeWarning); }
+          if (amountInput) { amountInput.addEventListener('input', checkIncomeWarning); }
+        })();
+      </script>
 
       <div class="form-actions">
         <button type="submit" class="btn-solid">Submit application</button>

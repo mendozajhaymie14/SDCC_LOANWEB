@@ -99,6 +99,11 @@ Route::middleware(['auth', 'role'])->group(function () {
     Route::middleware(['role:' . Permissions::MANAGE_BACKUPS])->group(function () {
         Route::get('/admin/backup', [AdminController::class, 'backup'])
             ->name('admin.backup');
+        Route::get('/admin/backup/download/{filename}', [AdminController::class, 'downloadBackup'])
+            ->name('admin.backup.download')
+            ->where('filename', 'backup_[a-zA-Z0-9_]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.sql\.gz');
+        Route::post('/admin/backup/restore', [AdminController::class, 'restoreBackup'])
+            ->name('admin.backup.restore');
     });
 
     Route::middleware(['role:' . Permissions::VIEW_AUDIT_LOGS])->group(function () {
@@ -108,7 +113,6 @@ Route::middleware(['auth', 'role'])->group(function () {
 
     // ------------------------------------------------------------------
     // Branch manager: reports, staff activity, loan decisions, memberships,
-    // release records, audit log viewing
     // ------------------------------------------------------------------
     Route::middleware(['role:' . Permissions::VIEW_REPORTS])->group(function () {
         Route::get('/reports', [AdminController::class, 'reports'])
@@ -149,15 +153,6 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('memberships.destroy');
         Route::put('/memberships/{id}', [AdminController::class, 'updateMember'])
             ->name('memberships.update');
-    });
-
-    Route::middleware(['role:' . Permissions::PROCESS_DISBURSEMENTS])->group(function () {
-        // Release record — records that a loan was released to the member.
-        // Per the design paper this records the release only; no money moves.
-        Route::get('/disbursements', [AdminController::class, 'disbursements'])
-            ->name('disbursements.index');
-        Route::post('/admin/disbursements/process', [AdminController::class, 'processDisbursement'])
-            ->name('disbursements.process');
     });
 
     // ------------------------------------------------------------------
@@ -249,8 +244,6 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('repayments.store');
         Route::put('/repayments/{id}', [AdminController::class, 'updateRepayment'])
             ->name('repayments.update');
-        Route::delete('/repayments/{id}', [AdminController::class, 'destroyRepayment'])
-            ->name('repayments.destroy');
     });
 
     // ------------------------------------------------------------------
@@ -262,6 +255,9 @@ Route::middleware(['auth', 'role'])->group(function () {
 
         Route::post('/notifications/mark-read', [AdminController::class, 'markNotificationsRead'])
             ->name('notifications.markRead');
+
+        Route::post('/admin/check-duplicate', [AdminController::class, 'checkDuplicate'])
+            ->name('admin.check-duplicate');
     });
 });
 

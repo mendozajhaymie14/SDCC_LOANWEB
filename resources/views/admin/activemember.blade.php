@@ -47,7 +47,7 @@
           <span class="records-count">Approved Members: {{ $members->where('is_registered', true)->count() }}</span>
         </div>
         @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::EDIT_MEMBER_PROFILES))
-        <button class="btn-new" type="button" onclick="openModal('addMember')">+ Add Member</button>
+        <button class="btn-new" type="button" onclick="openModal('addActiveMember')">+ Add Member</button>
         @endif
       </div>
 
@@ -124,12 +124,11 @@
     if (!row) return;
     const cells = row.querySelectorAll('td');
     const set = (sel, val) => { const el = document.querySelector(sel); if (el) el.value = val; };
-    set('#member_id', cells[0].textContent.trim().replace('#', ''));
-    set('#name', cells[1].textContent.trim());
-    set('#email', cells[2].textContent.trim());
-    set('#status', cells[3].querySelector('.status-pill')?.textContent.trim() || 'pending');
-    set('#income', cells[4].textContent.trim().replace(/[₱,]/g, '') === '—' ? '' : cells[4].textContent.trim().replace(/[₱,]/g, ''));
-    openModal('addMember');
+    set('#addAMemberId', cells[0].textContent.trim().replace('#', ''));
+    set('#addAMemberName', cells[1].textContent.trim());
+    set('#addAMemberEmail', cells[2].textContent.trim());
+    set('#addAMemberExcludeId', id);
+    openModal('addActiveMember');
   }
 
   function deleteMember(id) {

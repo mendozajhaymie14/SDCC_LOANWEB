@@ -216,4 +216,133 @@ class ReminderTest extends TestCase
             ->post(route('reminders.run'))
             ->assertForbidden();
     }
+
+    // ─── Approval / Rejection email tests (capstone: email only) ───
+
+    private function makePendingLoan(User $member): LoanApplication
+    {
+        CoopMember::factory()->create([
+            'user_id'       => $member->id,
+            'share_capital' => 30000,
+            'is_migs'       => false,
+        ]);
+
+        return LoanApplication::factory()->create([
+            'user_id'                       => $member->id,
+            'full_name'                     => 'Test Borrower',
+            'email'                         => $member->email,
+            'loan_type'                     => 'regular',
+            'amount'                        => 5000,
+            'status'                        => 'pending',
+            'monthly_income'                => 20000,
+            'existing_monthly_obligations'  => 0,
+            'share_capital'                 => 30000,
+            'term_months'                   => 12,
+            'remaining_balance'             => 0,
+            'next_due_date'                 => null,
+        ]);
+    }
+
+    private function makePendingAdminApp(LoanApplication $loanApp): \App\Models\Application
+    {
+        return \App\Models\Application::factory()->create([
+            'loan_application_id' => $loanApp->id,
+            'app_id'              => 'APP-' . str_pad($loanApp->id, 4, '0', STR_PAD_LEFT),
+            'applicant'           => $loanApp->full_name,
+            'status'              => 'pending',
+            'recommended_amount'  => 2500.00,
+            'risk_level'          => 'Medium',
+            'risk_score'          => 60,
+        ]);
+    }
+
+    /** @test */
+    public function approving_a_loan_sends_email_to_borrower()
+    {
+        $member = $this->makeMember();
+        $loan   = $this->makePendingLoan($member);
+        $app    = $this->makePendingAdminApp($loan);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->post(route('applications.approve', $app->id), [
+                'approved_amount' => 10000,
+                'reason'          => 'Good history',
+            ]);
+
+        Mail::assertSent(\App\Mail\LoanApprovedMail::class, function ($mail) use ($member) {
+            return $mail->hasTo($member->email);
+        });
+
+        // Also logged in the notification outbox
+        $this->assertDatabaseHas('app_notification_logs', [
+            'recipient_email'    => $member->email,
+            'subject'            => 'Your Loan Application Has Been Approved',
+            'notification_type'  => 'approved',
+            'status'             => 'Sent',
+        ]);
+    }
+
+    /** @test */
+    public function rejecting_a_loan_sends_email_to_borrower()
+    {
+        $member = $this->makeMember();
+        $loan   = $this->makePendingLoan($member);
+        $app    = $this->makePendingAdminApp($loan);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->post(route('applications.reject', $app->id), [
+                'reason' => 'Insufficient documentation',
+            ]);
+
+        Mail::assertSent(\App\Mail\LoanRejectedMail::class, function ($mail) use ($member) {
+            return $mail->hasTo($member->email);
+        });
+
+        $this->assertDatabaseHas('app_notification_logs', [
+            'recipient_email'    => $member->email,
+            'subject'            => 'Your Loan Application Update',
+            'notification_type'  => 'rejected',
+            'status'             => 'Sent',
+        ]);
+    }
+
+    /** @test */
+    public function approved_loan_then_payment_received_sends_payment_email()
+    {
+        $member = $this->makeMember();
+        $loan   = $this->makePendingLoan($member);
+        $app    = $this->makePendingAdminApp($loan);
+
+        $admin = $this->makeAdmin();
+
+        // Approve first
+        $this->actingAs($admin)
+            ->post(route('applications.approve', $app->id), [
+                'approved_amount' => 10000,
+                'reason'          => 'Good history',
+            ]);
+
+        Mail::assertSent(\App\Mail\LoanApprovedMail::class);
+
+        // Record a repayment
+        $this->actingAs($admin)
+            ->post(route('repayments.store'), [
+                'application_id'  => $app->id,
+                'amount'          => 1000,
+                'payment_method'  => 'Cash',
+                'payment_date'    => now()->format('Y-m-d'),
+            ]);
+
+        // PaymentReceived event dispatches NotifyMemberOfPayment — verify it
+        // sent the payment notification email (existing behavior, confirmed here).
+        $this->assertDatabaseHas('app_notification_logs', [
+            'recipient_email'   => $member->email,
+            'notification_type' => 'payment_received',
+            'status'            => 'Sent',
+        ]);
+    }
 }

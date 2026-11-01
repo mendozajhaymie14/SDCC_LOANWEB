@@ -14,7 +14,6 @@ class LoanStatus
     /** Both tables may store these */
     public const PENDING   = 'pending';
     public const APPROVED  = 'approved';
-    public const DISBURSED = 'disbursed';
     public const REJECTED  = 'rejected';
     public const PAID      = 'paid';
     public const FLAGGED   = 'flagged';
@@ -22,7 +21,6 @@ class LoanStatus
     private static array $ACCEPTED = [
         self::PENDING   => self::PENDING,
         self::APPROVED  => self::APPROVED,
-        self::DISBURSED => self::DISBURSED,
         self::REJECTED  => self::REJECTED,
         self::PAID      => self::PAID,
         self::FLAGGED   => self::FLAGGED,
@@ -40,7 +38,6 @@ class LoanStatus
 
     public static function isPending($v): bool    { return self::is($v) && strtolower($v) === self::PENDING; }
     public static function isApproved($v): bool  { return self::is($v) && strtolower($v) === self::APPROVED; }
-    public static function isDisbursed($v): bool { return self::is($v) && strtolower($v) === self::DISBURSED; }
     public static function isRejected($v): bool  { return self::is($v) && strtolower($v) === self::REJECTED; }
     public static function isPaid($v): bool      { return self::is($v) && strtolower($v) === self::PAID; }
     public static function isFlagged($v): bool   { return self::is($v) && strtolower($v) === self::FLAGGED; }
@@ -55,24 +52,22 @@ class LoanStatus
         if ($table === 'applications') {
             // Return PascalCase for applications table
             return match ($lower) {
-                'pending'   => 'Pending',
-                'approved'  => 'Approved',
-                'disbursed' => 'Disbursed',
-                'rejected'  => 'Rejected',
-                'paid'      => 'Paid',
-                'flagged'   => 'Flagged',
-                default     => ucfirst($constant),
+                'pending'  => 'Pending',
+                'approved' => 'Approved',
+                'rejected' => 'Rejected',
+                'paid'     => 'Paid',
+                'flagged'  => 'Flagged',
+                default    => ucfirst($constant),
             };
         } else {
             // Return lowercase for loan_applications table
             return match ($lower) {
-                'pending'   => 'pending',
-                'approved'  => 'approved',
-                'disbursed' => 'disbursed',
-                'rejected'  => 'rejected',
-                'paid'      => 'paid',
-                'flagged'   => 'flagged',
-                default     => $constant,
+                'pending'  => 'pending',
+                'approved' => 'approved',
+                'rejected' => 'rejected',
+                'paid'     => 'paid',
+                'flagged'  => 'flagged',
+                default    => $constant,
             };
         }
     }

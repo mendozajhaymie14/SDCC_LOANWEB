@@ -57,7 +57,6 @@ class Permissions
     public const OWN_PORTAL = 'own_portal';
     public const VIEW_OWN_LOANS = 'view_own_loans';
     public const APPROVE_MEMBERSHIPS = 'approve_memberships';
-    public const PROCESS_DISBURSEMENTS = 'process_disbursements';
 
     /** The 'Become a member' form and the member's own membership status */
     public const APPLY_MEMBERSHIP = 'apply_membership';
@@ -74,6 +73,7 @@ class Permissions
             self::VIEW_AUDIT_LOGS => true,
             self::VIEW_DASHBOARD => true,
             self::VIEW_MEMBER_PROFILES => true,
+            self::RECORD_PAYMENTS => true,
         ],
         self::ROLE_BRANCH_MANAGER => [
             self::VIEW_DASHBOARD => true,
@@ -92,7 +92,6 @@ class Permissions
             self::VIEW_MEMBER_PROFILES => true,
             self::EDIT_MEMBER_PROFILES => true,
             self::APPROVE_MEMBERSHIPS => true,
-            self::PROCESS_DISBURSEMENTS => true,
         ],
         self::ROLE_LOAN_OFFICER => [
             self::VIEW_DASHBOARD => true,

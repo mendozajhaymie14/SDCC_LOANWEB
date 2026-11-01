@@ -25,7 +25,7 @@
   <div class="passbook-ledger">
     <div class="ledger-row">
       <span class="ledger-label">Released to date</span>
-      <span class="ledger-value">₱{{ number_format($summary['borrowed'], 2) }}</span>
+      <span class="ledger-value">{{ \App\Support\Format::money($summary['borrowed']) }}</span>
     </div>
     <div class="ledger-row">
       <span class="ledger-label">Applications</span>
@@ -52,7 +52,7 @@
       <div class="balance-due-grid">
         <div class="balance-due-item">
           <h3 class="balance-due-label">Remaining Balance</h3>
-          <p class="balance-due-value">₱{{ number_format($applications->where('status', 'approved')->sum('remaining_balance'), 2) }}</p>
+          <p class="balance-due-value">{{ \App\Support\Format::money($applications->where('status', 'approved')->sum('remaining_balance')) }}</p>
         </div>
         <div class="balance-due-item">
           <h3 class="balance-due-label">Next Payment Due</h3>
@@ -136,12 +136,12 @@
 
         <div>
           <div class="app-cell-label">Amount</div>
-          <div class="app-cell-value">₱{{ number_format($application->amount, 2) }}</div>
+          <div class="app-cell-value">{{ \App\Support\Format::money($application->amount) }}</div>
         </div>
 
         <div>
           <div class="app-cell-label">Term / monthly</div>
-          <div class="app-cell-value">{{ $application->term_months }} mos &middot; ₱{{ number_format($application->monthly_payment, 2) }}</div>
+          <div class="app-cell-value">{{ $application->term_months }} mos &middot; {{ \App\Support\Format::money($application->monthly_payment) }}</div>
         </div>
 
         <div>
@@ -157,9 +157,9 @@
               @method('DELETE')
               <button type="submit" class="link-withdraw">Withdraw</button>
             </form>
-          @elseif (in_array($application->status, ['approved', 'disbursed']) && $application->remaining_balance > 0)
+          @elseif (in_array($application->status, ['approved']) && $application->remaining_balance > 0)
   <div class="app-cell-label">
-    Balance: ₱{{ number_format($application->remaining_balance, 2) }}
+    Balance: {{ \App\Support\Format::money($application->remaining_balance) }}
     @if ($application->next_due_date)
       &middot; Next due {{ $application->next_due_date->format('d M Y') }}
     @endif

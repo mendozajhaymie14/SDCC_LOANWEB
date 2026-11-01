@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\MemberApplication;
+use App\Services\DuplicateMemberService;
 use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -90,7 +91,7 @@ class MemberApplicationController extends Controller
 
             // Demographics
             'residency_type' => ['nullable', 'string', 'max:100'],
-            'contact_number' => ['required', 'digits:11'],
+            'contact_number' => ['required', new \App\Rules\PhilippineMobileNumber],
             'email'          => ['required', 'string', 'email', 'max:255', function ($attribute, $value, $fail) {
                 $email = strtolower(trim($value));
 
@@ -202,6 +203,28 @@ class MemberApplicationController extends Controller
 
         if (!$email) {
             return back()->withErrors(['email' => 'Email address is required.'])->withInput();
+        }
+
+        // Duplicate detection against existing coop_members (and pending applications).
+        // Block on email or contact number match; warn on name-only match.
+        $fullName = $data['first_name'] . ' ' . $data['middle_name'] . ' ' . $data['surname'];
+        $contactNumber = $data['contact_number'] ?? null;
+
+        $check = app(DuplicateMemberService::class)->check(
+            $fullName,
+            $email,
+            $contactNumber
+        );
+
+        if ($check['isDuplicate']) {
+            return back()->withInput()
+                ->withErrors(['email' => $check['message']]);
+        }
+
+        if ($check['isWarning']) {
+            // Name-only match - show warning but allow officer to continue
+            // The warning is stored in session for display on the next page
+            session()->flash('duplicate_warning', $check['message']);
         }
 
         // Look up an existing application by email before writing, so the

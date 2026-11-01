@@ -12,15 +12,15 @@ class PaymentFactory extends Factory
     public function definition(): array
     {
         return [
-            'loan_application_id' => 1,
-            'user_id' => 1,
+            'loan_application_id' => null,
+            'user_id' => null,
             'amount_paid' => 1000,
-            'remaining_balance_after' => 4000,
-            'reference_no' => 'REF-' . fake()->unique()->numerify('####'),
+            'remaining_balance_after' => 0,
+            'reference_no' => null,
             'payment_date' => now(),
             'payment_method' => 'cash',
             'notes' => null,
-            'encoded_by' => 1,
+            'encoded_by' => null,
         ];
     }
 }

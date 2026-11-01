@@ -81,7 +81,7 @@
     </div>
     <div class="info-item">
       <div class="info-label">Interest Rate</div>
-      <div class="info-value">{{ config('loan_matrix.rate', 0.12) * 100 }}% p.a.</div>
+      <div class="info-value">{{ App\Models\Setting::get('annual_interest_rate', config('loan_matrix.rate', 12)) }}% p.a.</div>
     </div>
     <div class="info-item">
       <div class="info-label">Monthly EMI</div>
@@ -133,7 +133,7 @@
   @if(isset($riskMetrics))
     <div class="risk-section">
       <h3 style="font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
-        AI Risk Breakdown
+        Rule-Based Risk Breakdown
       </h3>
       <div class="risk-grid">
         <div>
@@ -169,10 +169,10 @@
           </div>
         </div>
         <div>
-          <div class="info-label">AI Score</div>
+          <div class="info-label">Recommended Amount & Risk (Rule-Based)</div>
           <div style="margin-top: 4px;">
             <span class="risk-badge @if(($application->ai_score ?? 0) < 50) risk-high @elseif(($application->ai_score ?? 0) < 80) risk-medium @else risk-low @endif">
-              {{ $application->ai_score ?? 'N/A' }}/100
+              {{ $application->ai_score ?? 'N/A' }}/100 (Rule-Based Rule)
             </span>
           </div>
         </div>

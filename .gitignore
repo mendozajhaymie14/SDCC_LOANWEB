@@ -48,3 +48,8 @@ extract-scripts*.cjs
 other_db
 phpunit_out.txt
 TASK-B-STATUS.md
+*.zip
+test_output.txt
+baseline_failures.txt
+with_changes_failures.txt
+*test_results.txt

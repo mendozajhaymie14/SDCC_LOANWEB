@@ -1,4 +1,12 @@
-@php
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Membership Application | San Dionisio Credit Cooperative</title>
+</head>
+<body>
+  @php
     $isAuth = auth()->check();
     $authEmail = $isAuth ? auth()->user()->email : '';
     $user = $isAuth ? auth()->user() : null;
@@ -148,6 +156,7 @@
                                 <input type="tel" id="contact_number" name="contact_number"
                                        value="{{ old('contact_number', $contactNo) }}"
                                        class="member-app-input"
+                                       data-validate="phone"
                                        required autocomplete="tel"
                                        maxlength="11"
                                        pattern="[0-9]{11}"
@@ -261,10 +270,8 @@
                id="address_line"
                name="address_line"
                value="{{ old('address_line') }}"
-               placeholder="e.g. 70 Sampaguita St"
                class="member-app-input"
                maxlength="255" />
-        <span class="text-xs text-gray-500 mt-1 block">Unit No./Floor, Building Name, Building/House No., Street, Subdivision/Village</span>
         @isset($errors)@error('address_line')<span class="error-text">{{ $message }}</span>@enderror@endisset
     </div>
 
@@ -277,7 +284,6 @@
                id="zip_code"
                name="zip_code"
                value="{{ old('zip_code') }}"
-               placeholder="e.g. 1740"
                maxlength="4"
                pattern="[0-9]{1,4}"
                inputmode="numeric"
@@ -405,11 +411,17 @@
                     </div>
 
                     <!-- ── Bottom Action Bar ── -->
-                    <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; gap: 16px; padding-top: 16px; border-top: 1px solid #e2f0e4;">
-                        <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
-                        <button type="submit" class="btn-submit">
-                            {{ __('Submit Application') }}
-                        </button>
+                    <div style="display: flex; flex-direction: column; align-items: flex-end; margin-top: 12px; gap: 16px; padding-top: 16px; border-top: 1px solid #e2f0e4;">
+                        <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #4b5563; margin-top: 4px;">
+                            <input type="checkbox" id="consentGemini" name="consent_gemini" required style="margin-top: 2px;" />
+                            <label for="consentGemini">I consent to my uploaded documents being scanned by Gemini AI for verification purposes only. The AI check is advisory; recommended amounts and risk levels are determined by rule-based evaluation.</label>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 16px; width: 100%;">
+                            <a href="{{ url('/') }}" class="btn-cancel">Cancel</a>
+                            <button type="submit" class="btn-submit">
+                                {{ __('Submit Application') }}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -417,6 +429,101 @@
         </div>
     </div>
 </div>
+
+<script>
+  // ─── DUPLICATE MEMBER LIVE CHECK ───
+  // Blur on name/email/contact calls POST /admin/check-duplicate.
+  // Red error for email/contact match; amber warning for name-only match.
+  // Blocks submit on error.
+  document.addEventListener('DOMContentLoaded', function () {
+    const form = document.querySelector('form[action="/member-application"]');
+    if (!form) return;
+
+    const csrfToken = form.querySelector('input[name="_token"]')?.value || '';
+
+    const firstName = document.getElementById('first_name');
+    const middleName = document.getElementById('middle_name');
+    const lastName = document.getElementById('last_name');
+    const email = document.getElementById('email');
+    const contact = document.getElementById('contact_number');
+
+    function getFullName() {
+      return [firstName, middleName, lastName]
+        .map(f => f ? f.value.trim() : '')
+        .filter(Boolean)
+        .join(' ');
+    }
+
+    function clearMsg(fieldEl) {
+      const parent = fieldEl.parentElement;
+      if (parent) parent.querySelectorAll('.dup-check-msg').forEach(m => m.remove());
+      fieldEl.style.borderColor = '';
+    }
+
+    function showMessage(fieldEl, msg, type) {
+      const parent = fieldEl.parentElement;
+      if (!parent) return;
+      parent.querySelectorAll('.dup-check-msg').forEach(m => m.remove());
+      const div = document.createElement('div');
+      div.className = 'dup-check-msg ' + (type === 'error' ? 'error' : 'warning');
+      div.style.cssText = 'margin-top:4px; font-size:0.75rem; padding:4px 8px; border-radius:4px;';
+      if (type === 'error') {
+        div.style.color = '#b91c1c';
+        div.style.background = '#fef2f2';
+        div.style.border = '1px solid #fca5a5';
+        fieldEl.style.borderColor = '#ef4444';
+      } else {
+        div.style.color = '#92400e';
+        div.style.background = '#fffbeb';
+        div.style.border = '1px solid #f59e0b';
+      }
+      div.textContent = msg;
+      parent.appendChild(div);
+    }
+
+    function checkField(fieldEl) {
+      const fullName = getFullName();
+      const eml = email ? email.value.trim() : '';
+      const cnt = contact ? contact.value.trim() : '';
+      if (!fullName && !eml && !cnt) { clearMsg(fieldEl); return; }
+
+      const body = new FormData();
+      body.append('full_name', fullName);
+      body.append('email', eml);
+      body.append('phone', cnt);
+      body.append('_token', csrfToken);
+
+      fetch('/admin/check-duplicate', {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+        body: body,
+      })
+        .then(r => r.json())
+        .then(result => {
+          if (result.is_duplicate) {
+            showMessage(fieldEl, result.message, 'error');
+          } else if (result.is_warning) {
+            showMessage(fieldEl, result.message, 'warning');
+          } else {
+            clearMsg(fieldEl);
+          }
+        })
+        .catch(() => {});
+    }
+
+    const fields = [firstName, middleName, lastName, email, contact].filter(Boolean);
+    fields.forEach(el => el.addEventListener('blur', () => checkField(el)));
+
+    // Block submit on any duplicate error
+    form.addEventListener('submit', function (e) {
+      const errorEls = document.querySelectorAll('.dup-check-msg.error');
+      if (errorEls.length > 0) {
+        e.preventDefault();
+        alert('Please fix the duplicate member errors before submitting.');
+      }
+    });
+  });
+</script>
 
 <script>
   // Enhanced file upload preview with constrained thumbnails and file details
@@ -796,6 +903,69 @@
       .member-app-banner h1 { font-size: 20px !important; }
       .member-app-form-side { padding: 22px 18px; }
       .form-card { padding: 22px 18px; }
+      /* stack every two-column row of fields */
+  .member-app-form-side [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+  /* let grid children shrink instead of stretching the page */
+  .member-app-form-side [style*="display: grid"] > * {
+    min-width: 0;
+  }
+  .member-app-form-side input,
+  .member-app-form-side select,
+  .member-app-form-side textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  /* character references: one card per person */
+  .ref-head { display: none; }
+  .ref-row {
+    display: flex !important;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+  }
+  .ref-no { justify-content: flex-start; padding: 4px 8px; }
+  /* make sure nothing forces horizontal scroll */
+  .member-app-page, .member-app-frame { max-width: 100vw; overflow-x: hidden; }
+  html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+
+  /* let every wrapper shrink to the phone width */
+  .member-app-page,
+  .member-app-frame,
+  .member-app-form-side,
+  .member-app-form-side form,
+  .member-app-form-side fieldset,
+  .member-app-form-side .form-card,
+  .member-app-form-side .field {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .member-app-form-side fieldset { width: 100%; }
+  .member-app-form-side select { text-overflow: ellipsis; }
+
+    .member-app-banner > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    padding: 24px 16px !important;
+  }
+  
+    html, body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    position: relative;
+  }
+  .member-app-page {
+    position: relative;      /* makes absolute children belong to this box */
+    overflow: hidden;
+    contain: paint;          /* clips anything that tries to stick out */
+    max-width: 100vw;
+  }
     }
 
     @media (max-width: 480px) {
@@ -850,3 +1020,5 @@
       object-fit: cover !important;
     }
 </style>
+</body>
+</html>
