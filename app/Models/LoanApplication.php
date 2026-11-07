@@ -106,6 +106,29 @@ class LoanApplication extends Model
     }
 
     /**
+     * Get the borrower's email for notifications.
+     *
+     * Priority: (a) user's linked coop_member.email, (b) user.email,
+     * (c) stored loan.email. Skips empty strings; returns null if none found.
+     */
+    public function getRecipientEmail(): ?string
+    {
+        $candidates = [
+            $this->user?->coopMember?->email,
+            $this->user?->email,
+            $this->email,
+        ];
+
+        foreach ($candidates as $email) {
+            if ($email !== null && trim($email) !== '') {
+                return $email;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Human-readable applicant name, formatted as "Last, First Middle".
      * Handles Filipino compound surnames (Dela Cruz, Van der, Mc, etc.)
      *

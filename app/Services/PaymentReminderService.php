@@ -160,9 +160,7 @@ class PaymentReminderService
                     // Only log Sent after a successful send attempt
                     // Use the same fallback chain as sendEmail() so the logged
                     // recipient_email matches the actual email that was sent.
-                    $logEmail = $loan->user?->coopMember?->email
-                        ?? $loan->user?->email
-                        ?? $loan->email
+                    $logEmail = $loan->getRecipientEmail()
                         ?? config('mail.from.address');
                     AppNotificationLog::log($logEmail, $title, $type, 'Sent', 'email', $loan->user_id, $loan->id);
 
@@ -170,9 +168,7 @@ class PaymentReminderService
                     $totals['sent']++;
                 } else {
                     // Email was not sent because there's no email on file — log as Skipped
-                    $skipEmail = $loan->user?->coopMember?->email
-                        ?? $loan->user?->email
-                        ?? $loan->email
+                    $skipEmail = $loan->getRecipientEmail()
                         ?? config('mail.from.address');
 
                     AppNotificationLog::log($skipEmail, $title, $type, 'Skipped', 'email', $loan->user_id, $loan->id);
@@ -189,7 +185,8 @@ class PaymentReminderService
 
                 // Log email failure with the error message
                 // Use the same fallback chain for the error log
-                $email = $loan->user?->coopMember?->email
+                $email = $loan->getRecipientEmail()
+                    ?? $loan->user?->coopMember?->email
                     ?? $loan->user?->email
                     ?? $loan->email;
                 $errorEmail = $email ?? config('mail.from.address');
@@ -277,10 +274,7 @@ class PaymentReminderService
     private function sendEmail(LoanApplication $loan, string $title, string $message): bool
     {
         // Fallback chain: coop member email → user email → loan-stored email → no email
-        $email = $loan->user?->coopMember?->email
-            ?? $loan->user?->email
-            ?? $loan->email
-            ?? null;
+        $email = $loan->getRecipientEmail();
 
         if (!$email) {
             Log::warning('Payment reminder email skipped — no email on file for loan', [

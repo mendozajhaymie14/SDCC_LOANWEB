@@ -394,6 +394,62 @@ class ReportsTest extends TestCase
     }
 
     /** @test */
+    public function borrower_performance_anchors_first_due_date_for_fully_paid_loans(): void
+    {
+        $manager = User::factory()->create(['usertype' => Permissions::ROLE_BRANCH_MANAGER]);
+        $memberUser = User::factory()->create(['usertype' => Permissions::ROLE_MEMBER]);
+        CoopMember::factory()->create([
+            'user_id' => $memberUser->id,
+            'full_name' => 'Test Borrower',
+            'status' => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // Fully paid loan: status=paid, next_due_date=null
+        // created_at = 2026-01-10 → firstDueDate = endOfMonth = 2026-01-31
+        // EMI for 5000/12 = 444.24, totalPaid = 1000, installmentsCovered = floor(1000/444.24) = 2
+        // nextDue = 2026-01-31 + 2 months = 2026-03-31
+        // Payment 1 (k=0): due 2026-03-31 - 2 = 2026-01-31, paid 2026-01-31 → on-time
+        // Payment 2 (k=1): due 2026-03-31 - 1 = 2026-02-28, paid 2026-02-28 → on-time
+        // Expected: on_time = 2, late = 0, overdue = 0, label = Good
+        $loan = LoanApplication::factory()->create([
+            'user_id'           => $memberUser->id,
+            'full_name'         => 'Test Borrower',
+            'loan_type'         => 'regular',
+            'amount'            => 5000,
+            'status'            => 'paid',
+            'risk_level'        => 'Low',
+            'term_months'       => 12,
+            'created_at'        => '2026-01-10 10:00:00',
+            'remaining_balance' => 0,
+            'next_due_date'     => null,
+        ]);
+
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $memberUser->id,
+            'amount_paid'         => 500,
+            'payment_date'        => '2026-01-31',
+        ]);
+
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $memberUser->id,
+            'amount_paid'         => 500,
+            'payment_date'        => '2026-02-28',
+        ]);
+
+        $response = $this->actingAs($manager)->get('/reports?report_type=borrower_performance');
+        $response->assertOk();
+        $borrowerPerf = $response->viewData('borrowerPerf');
+        $row = $borrowerPerf->first();
+        $this->assertNotNull($row);
+        $this->assertSame(2, $row->on_time_count, 'Both payments should be on-time');
+        $this->assertSame(0, $row->late_count);
+        $this->assertSame(0, $row->overdue_count);
+        $this->assertSame('Good', $row->performance_label);
+    }
+
+    /** @test */
     public function end_date_filter_includes_record_created_on_end_date(): void
     {
         $manager = User::factory()->create(['usertype' => Permissions::ROLE_BRANCH_MANAGER]);

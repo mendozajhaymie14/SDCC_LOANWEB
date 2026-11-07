@@ -434,19 +434,13 @@ class AdminController extends Controller
             // Email the borrower about the approval
             try {
                 $loanApp = $application->loanApplication;
-                if ($loanApp && $loanApp->user?->email) {
-                    Mail::to($loanApp->user->email)->send(new LoanApprovedMail($loanApp));
-                    AppNotificationLog::log(
-                        $loanApp->user->email, 'Your Loan Application Has Been Approved', 'approved', 'Sent',
-                        'email', $loanApp->user_id, $loanApp->id
-                    );
-                } elseif ($application->loan_application_id) {
-                    $fallback = LoanApplication::find($application->loan_application_id);
-                    if ($fallback?->user?->email) {
-                        Mail::to($fallback->user->email)->send(new LoanApprovedMail($fallback));
+                if ($loanApp) {
+                    $email = $loanApp->getRecipientEmail();
+                    if ($email) {
+                        Mail::to($email)->send(new LoanApprovedMail($loanApp));
                         AppNotificationLog::log(
-                            $fallback->user->email, 'Your Loan Application Has Been Approved', 'approved', 'Sent',
-                            'email', $fallback->user_id, $fallback->id
+                            $email, 'Your Loan Application Has Been Approved', 'approved', 'Sent',
+                            'email', $loanApp->user_id, $loanApp->id
                         );
                     }
                 }
@@ -531,19 +525,13 @@ class AdminController extends Controller
             // Email the borrower about the rejection
             try {
                 $loanApp = $application->loanApplication;
-                if ($loanApp && $loanApp->user?->email) {
-                    Mail::to($loanApp->user->email)->send(new LoanRejectedMail($loanApp, $rejectReason));
-                    AppNotificationLog::log(
-                        $loanApp->user->email, 'Your Loan Application Update', 'rejected', 'Sent',
-                        'email', $loanApp->user_id, $loanApp->id
-                    );
-                } elseif ($application->loan_application_id) {
-                    $fallback = LoanApplication::find($application->loan_application_id);
-                    if ($fallback?->user?->email) {
-                        Mail::to($fallback->user->email)->send(new LoanRejectedMail($fallback, $rejectReason));
+                if ($loanApp) {
+                    $email = $loanApp->getRecipientEmail();
+                    if ($email) {
+                        Mail::to($email)->send(new LoanRejectedMail($loanApp, $rejectReason));
                         AppNotificationLog::log(
-                            $fallback->user->email, 'Your Loan Application Update', 'rejected', 'Sent',
-                            'email', $fallback->user_id, $fallback->id
+                            $email, 'Your Loan Application Update', 'rejected', 'Sent',
+                            'email', $loanApp->user_id, $loanApp->id
                         );
                     }
                 }
@@ -1649,6 +1637,21 @@ class AdminController extends Controller
                 $paymentCount = $allPayments->count();
                 $nextDue = $la->next_due_date ?? null;
 
+                // Issue A follow-up: when the loan is fully paid and next_due_date
+                // is null, anchor the per-payment due dates from created_at (end-of-month)
+                // consistent with PaymentService's first-due-date fallback.
+                if (!$nextDue) {
+                    $firstDueDate = Carbon::parse($la->created_at)->endOfMonth();
+                    $totalPaid = (float) $la->totalPaid();
+                    $emi = (float) $la->monthly_payment;
+                    $installmentsCovered = $emi > 0 ? (int) floor($totalPaid / $emi) : 0;
+                    $computedNextDue = $firstDueDate->copy();
+                    if ($installmentsCovered > 0) {
+                        $computedNextDue = $computedNextDue->addMonths($installmentsCovered);
+                    }
+                    $nextDue = $computedNextDue->format('Y-m-d');
+                }
+
                 foreach ($allPayments as $index => $p) {
                     // Issue B: inclusive end-date filter on payment_date
                     if ($filters['start_date'] && $filters['end_date']) {
@@ -2147,7 +2150,15 @@ class AdminController extends Controller
         $filename = 'report_' . $type . '_' . now()->format('Y-m-d') . '.xlsx';
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
 
-        return response($writer->save('php://output'), 200, [
+        // Write to a temp file instead of php://output so the binary bytes
+        // never leak into stdout (which is what made Excel exports noisy in
+        // the test runner). The file is read back and deleted immediately.
+        $tmpFile = tempnam(sys_get_temp_dir(), 'xlsx_');
+        $writer->save($tmpFile);
+        $content = file_get_contents($tmpFile);
+        unlink($tmpFile);
+
+        return response($content, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
