@@ -13,10 +13,10 @@
     @endif
 
     <div class="passbook-actions">
-      @if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_LOAN))
+      @if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_LOAN) && $user->isActiveCoopMember())
         <a href="{{ route('user.loans.create') }}" class="btn-primary">Apply for a loan</a>
       @endif
-      @if (!$user->coopMember)
+      @if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_MEMBERSHIP))
         <a href="{{ route('user.membership') }}" class="btn-solid">Become a member</a>
       @endif
     </div>

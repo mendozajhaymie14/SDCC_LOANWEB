@@ -127,7 +127,9 @@ class MemberVerificationController extends Controller
             return false;
         }
 
-        if ($member->is_registered || $member->user_id) {
+        // is_registered only means "approved member" (admin approval sets it);
+        // it does NOT mean an online account exists. Only a linked user does.
+        if ($member->user_id) {
             return false;
         }
 

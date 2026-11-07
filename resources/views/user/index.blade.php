@@ -44,5 +44,7 @@
     @endif
   </div>
 
+@include('partials.logout-confirm')
+
 </body>
 </html>

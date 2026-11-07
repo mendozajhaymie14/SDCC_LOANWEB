@@ -41,26 +41,6 @@
   }
 
 
-  // ─── Hide/show employer name based on member status ───
-  var memberStatus = document.getElementById('member_status');
-  var employerField = document.getElementById('employerNameField');
-
-  if (memberStatus && employerField) {
-    function toggleEmployer() {
-      var val = memberStatus.value;
-      if (val === 'Student') {
-        employerField.style.display = 'none';
-        var input = employerField.querySelector('input');
-        if (input) { input.removeAttribute('name'); input.removeAttribute('required'); }
-      } else {
-        employerField.style.display = '';
-        var input = employerField.querySelector('input');
-        if (input) { input.setAttribute('name', 'employer_name'); }
-      }
-    }
-    memberStatus.addEventListener('change', toggleEmployer);
-    toggleEmployer();
-  }
 
   // ─── SDCC Loan Matrix: drive limits, terms, collateral, and requirements ───
   var MATRIX = window.SDCC_LOAN_MATRIX || {};

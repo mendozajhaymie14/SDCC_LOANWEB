@@ -39,7 +39,11 @@
             @foreach ($backups as $backup)
               <tr class="hover:bg-gray-50 transition-colors {{ $loop->odd ? 'bg-white' : 'bg-gray-50' }}">
                 <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $backup['filename'] }}</td>
-                <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $backup['size'] }}</td>
+                <td class="py-3 px-4 font-medium text-gray-600 text-sm">
+                  {{ $backup['size'] >= 1048576
+                      ? number_format($backup['size'] / 1048576, 2) . ' MB'
+                      : number_format($backup['size'] / 1024, 1) . ' KB' }}
+                </td>
                 <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $backup['date'] }}</td>
                 <td class="py-3 px-4 font-medium text-gray-600 text-sm">
                   <form method="POST" action="{{ route('admin.backup.restore') }}" style="display: inline;"
@@ -74,7 +78,7 @@
       <p style="font-size: 0.875rem; color: #4a5568; margin-bottom: 1rem;">
         Creates a gzip SQL dump of the current database. Backups are kept for 14 days.
       </p>
-      <form method="POST" action="{{ route('admin.backup') }}" style="display: inline;">
+      <form method="POST" action="{{ route('admin.backup.create') }}" style="display: inline;">
         @csrf
         <button type="submit"
             style="background-color: #2563eb; color: #ffffff; padding: 0.6rem 1.5rem; border: none; border-radius: 8px; font-weight: 600; font-size: 0.9rem;">

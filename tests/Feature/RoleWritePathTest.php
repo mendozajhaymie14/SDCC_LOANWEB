@@ -102,7 +102,6 @@ class RoleWritePathTest extends TestCase
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
             'contact_number'=> '09171234567',
-            'birthdate'     => now()->subYears(30)->format('Y-m-d'),
             'status'        => 'pending',
         ]);
 

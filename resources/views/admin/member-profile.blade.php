@@ -28,7 +28,6 @@
           <tr><td><strong>Contact Number</strong></td><td>{{ $member->contact_number ?? '—' }}</td></tr>
           <tr><td><strong>Address</strong></td><td>{{ ($member->address ?? '') ?: '—' }}</td></tr>
           <tr><td><strong>Occupation</strong></td><td>{{ $member->occupation ?? '—' }}</td></tr>
-          <tr><td><strong>Date of Birth</strong></td><td>{{ \App\Support\Format::date($member->date_of_birth) }}</td></tr>
           <tr><td><strong>Status</strong></td><td>{{ $member->status }}</td></tr>
           <tr><td><strong>Member Account</strong></td><td>{{ $member->user ? 'Linked' : 'Not Linked' }}</td></tr>
         </tbody>
@@ -39,7 +38,6 @@
         <tbody>
           <tr><td><strong>Monthly Income</strong></td><td>{{ \App\Support\Format::money($member->monthly_income) }}</td></tr>
           <tr><td><strong>Savings Balance</strong></td><td>{{ \App\Support\Format::money($member->savings_balance) }}</td></tr>
-          <tr><td><strong>Share Capital</strong></td><td>{{ \App\Support\Format::money($member->share_capital) }}</td></tr>
           <tr><td><strong>Approved Credit Limit</strong></td><td>{{ \App\Support\Format::money($member->approved_credit_limit) }}</td></tr>
           <tr><td><strong>Existing Monthly Obligations</strong></td><td>{{ \App\Support\Format::money($member->existing_monthly_obligations) }}</td></tr>
         </tbody>
@@ -68,9 +66,6 @@
           </label>
           <label style="font-size:0.75rem;">Savings Balance (₱)
             <input class="form-input" type="number" step="0.01" name="savings_balance" value="{{ old('savings_balance', $member->savings_balance) }}" data-validate="positive" />
-          </label>
-          <label style="font-size:0.75rem;">Share Capital (₱)
-            <input class="form-input" type="number" step="0.01" name="share_capital" value="{{ old('share_capital', $member->share_capital) }}" data-validate="positive" />
           </label>
           <label style="font-size:0.75rem;">Approved Credit Limit (₱)
             <input class="form-input" type="number" step="0.01" name="approved_credit_limit" value="{{ old('approved_credit_limit', $member->approved_credit_limit) }}" data-validate="positive" />

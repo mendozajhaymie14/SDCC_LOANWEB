@@ -3,7 +3,10 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use App\Console\Commands\BackfillApprovers;
+use App\Console\Commands\BackfillPaymentRecorders;
 use App\Console\Commands\SdccBackup;
+use App\Console\Commands\SdccLinkMembers;
 use App\Console\Commands\ReconcileBalances;
 
 Artisan::command('inspire', function () {

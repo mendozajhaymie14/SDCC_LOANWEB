@@ -64,6 +64,9 @@ class Permissions
     /** Applying for a loan (form, submit, cancel) */
     public const APPLY_LOAN = 'apply_loan';
 
+    /** Viewing the membership page (form or status) — granted to 'user' and 'member' only */
+    public const VIEW_MEMBERSHIP_PAGE = 'view_membership_page';
+
     /** Permission matrix: role => [ permission => allowed, ... ] */
     public const PERMISSIONS = [
         self::ROLE_ADMIN => [
@@ -74,6 +77,8 @@ class Permissions
             self::VIEW_DASHBOARD => true,
             self::VIEW_MEMBER_PROFILES => true,
             self::RECORD_PAYMENTS => true,
+            // Admins keep member profiles view-only; edit_member_profiles is
+            // intentionally NOT granted here — Credit Investigators also lack it.
         ],
         self::ROLE_BRANCH_MANAGER => [
             self::VIEW_DASHBOARD => true,
@@ -101,11 +106,13 @@ class Permissions
             self::VIEW_APPLICATIONS => true,
             self::VIEW_EVALUATION => true,
             self::RECORD_PAYMENTS => true,
+            self::APPROVE_MEMBERSHIPS => true,
         ],
         self::ROLE_CREDIT_INVESTIGATOR => [
             self::VIEW_DASHBOARD => true,
             self::VIEW_APPLICATIONS => true,
             self::VIEW_EVALUATION => true,
+            self::ENCODE_APPLICATIONS => true, // review scoring, not loan decisions or member edits
             self::VERIFY_DOCUMENTS => true,
             self::ADD_REVIEW_NOTES => true,
             self::VALIDATE_RECOMMENDATION => true,
@@ -116,11 +123,13 @@ class Permissions
             self::OWN_PORTAL => true,
             self::VIEW_OWN_LOANS => true,
             self::APPLY_LOAN => true,
+            self::VIEW_MEMBERSHIP_PAGE => true,
         ],
         self::ROLE_USER => [
             self::VIEW_DASHBOARD => true,
             self::OWN_PORTAL => true,
             self::APPLY_MEMBERSHIP => true,
+            self::VIEW_MEMBERSHIP_PAGE => true,
         ],
     ];
 
@@ -188,7 +197,11 @@ class Permissions
      */
     public static function allPermissions(): array
     {
-        return array_values(array_unique([...array_map(array_keys(...), self::PERMISSIONS)]));
+        $permissions = [];
+        foreach (self::PERMISSIONS as $rolePermissions) {
+            $permissions = array_merge($permissions, array_keys($rolePermissions));
+        }
+        return array_values(array_unique($permissions));
     }
 
     /**

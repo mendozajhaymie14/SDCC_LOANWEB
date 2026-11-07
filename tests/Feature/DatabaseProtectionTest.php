@@ -9,6 +9,16 @@ use Tests\TestCase;
 class DatabaseProtectionTest extends TestCase
 {
     /**
+     * Check if sqlite3 CLI is available.
+     */
+    private function hasSqlite3(): bool
+    {
+        $output = null;
+        $result = exec('which sqlite3 2>/dev/null', $output);
+        return ! empty($result);
+    }
+
+    /**
      * Set up a test database connection whose name is in the protected list.
      */
     private function setProtectedDb(string $dbName = 'test_db'): void
@@ -23,6 +33,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function migrate_fresh_blocked_on_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
 
         $this->expectException(ProtectedDatabaseException::class);
@@ -32,6 +46,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function migrate_fresh_allowed_with_allow_protected_db_env()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
         putenv('ALLOW_PROTECTED_DB=1');
 
@@ -49,6 +67,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function migrate_fresh_allowed_on_non_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         // Use a protected_db name that does NOT match the protected list.
         // We set protected list to 'sdcc' (default) and migrate against a
         // non-protected sqlite file.
@@ -66,6 +88,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function migrate_blocked_without_pretend_on_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
 
         $this->expectException(ProtectedDatabaseException::class);
@@ -75,6 +101,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function migrate_allowed_with_pretend_on_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
 
         try {
@@ -88,6 +118,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function db_wipe_blocked_on_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
 
         $this->expectException(ProtectedDatabaseException::class);
@@ -97,6 +131,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function db_seed_blocked_on_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
 
         $this->expectException(ProtectedDatabaseException::class);
@@ -106,6 +144,10 @@ class DatabaseProtectionTest extends TestCase
     /** @test */
     public function schema_dump_blocked_on_protected_db()
     {
+        if (! $this->hasSqlite3()) {
+            $this->markTestSkipped('sqlite3 CLI not available');
+        }
+        $this->withoutMockingConsoleOutput();
         $this->setProtectedDb('test_db');
 
         $this->expectException(ProtectedDatabaseException::class);

@@ -12,7 +12,7 @@
         <form method="GET" action="{{ url('/admin/audit-logs') }}" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%; margin-top: 0.5rem;">
             <!-- Left: Search Bar -->
             <div style="flex: 1; min-width: 260px; max-width: 380px; position: relative;">
-                <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 0.85rem;">🔍</span>
+                <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 0.85rem;"><i class="fa-solid fa-magnifying-glass nav-icon"></i></span>
                 <input type="text" name="search" value="{{ request('search') }}" placeholder="Search actions, users, or details..." style="width: 100%; padding: 0.45rem 0.75rem 0.45rem 2.2rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.85rem; color: #374151; outline: none; background: #fff;">
             </div>
 

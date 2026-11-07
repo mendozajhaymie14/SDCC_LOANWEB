@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Services\LoanEvaluationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -43,7 +44,6 @@ class StaffEncodingTest extends TestCase
             'email'        => $user->email,
             'monthly_income' => 30000,
             'existing_monthly_obligations' => 0,
-            'share_capital' => 30000,
             'savings_balance' => 20000,
             'approved_credit_limit' => 50000,
             'address'      => '12 Rizal St, Brgy.centro',
@@ -58,11 +58,14 @@ class StaffEncodingTest extends TestCase
     private function encodePayload(CoopMember $member, array $overrides = []): array
     {
         return array_merge([
-            'member_id'   => $member->id,
-            'loan_type'   => 'regular',
-            'amount'      => 20000,
-            'term_months' => 36,
-            'purpose'     => 'Capital for farm inputs',
+            'member_id'                      => $member->id,
+            'loan_type'                      => 'regular',
+            'amount'                         => 20000,
+            'term_months'                    => 36,
+            'purpose'                        => 'Capital for farm inputs',
+            'monthly_income'                 => 30000,
+            'existing_monthly_obligations'   => 0,
+            'source_of_income'               => 'Salary',
         ], $overrides);
     }
 
@@ -72,10 +75,14 @@ class StaffEncodingTest extends TestCase
         $officer = $this->loanOfficer();
         $member  = $this->member();
 
+        // Mock the document analysis job since we're not testing it here
+        Queue::fake();
+
         $response = $this->actingAs($officer)
             ->post(route('applications.encode.store'), $this->encodePayload($member));
 
-        $response->assertRedirect(route('admin.members.show', $member->id));
+        // Redirect to applications.index (not admin.members.show) on success
+        $response->assertRedirect(route('applications.index'));
         $response->assertSessionHas('success');
 
         $loanApp = LoanApplication::where('encoded_by', $officer->id)->first();
@@ -85,6 +92,7 @@ class StaffEncodingTest extends TestCase
         $this->assertSame('regular', $loanApp->loan_type);
         $this->assertEquals(20000, $loanApp->amount);
         $this->assertEquals(36, $loanApp->term_months);
+        $this->assertSame('Salary', $loanApp->source_of_income);
         $this->assertSame('pending', $loanApp->status);
         $this->assertStringStartsWith('SDCC-', $loanApp->reference);
     }
@@ -94,6 +102,8 @@ class StaffEncodingTest extends TestCase
     {
         $officer = $this->loanOfficer();
         $member  = $this->member();
+
+        Queue::fake();
 
         $this->actingAs($officer)
             ->post(route('applications.encode.store'), $this->encodePayload($member));
@@ -115,6 +125,8 @@ class StaffEncodingTest extends TestCase
     {
         $officer = $this->loanOfficer();
         $member  = $this->member();
+
+        Queue::fake();
 
         $this->actingAs($officer)
             ->post(route('applications.encode.store'), $this->encodePayload($member));
@@ -142,7 +154,6 @@ class StaffEncodingTest extends TestCase
             'full_name'       => $memberUser->name,
             'email'           => $memberUser->email,
             'source_of_income'=> 'Salary',
-            'employer_name'   => 'Widget Co.',
             'monthly_income'  => '20000',
             'existing_monthly_obligations' => '0',
             'purpose_of_loan' => 'Personal',
@@ -197,7 +208,7 @@ class StaffEncodingTest extends TestCase
         $response = $this->actingAs($officer)
             ->post(route('applications.encode.store'), $this->encodePayload($member, ['term_months' => 120]));
 
-        $response->assertSessionHas('error');
+        $response->assertSessionHasErrors(['term_months']);
         $this->assertSame(0, LoanApplication::where('encoded_by', $officer->id)->count());
     }
 
@@ -233,7 +244,7 @@ class StaffEncodingTest extends TestCase
         $this->assertTrue($json['success']);
         $this->assertSame('Juan Santos', $json['member_name']);
         $this->assertEquals(30000, $json['financial']['monthly_income']);
-        $this->assertEquals(30000, $json['financial']['share_capital']);
+        $this->assertEquals(20000, $json['financial']['savings_balance']);
     }
 
     /** @test */
@@ -252,7 +263,6 @@ class StaffEncodingTest extends TestCase
             'monthly_income' => 18000,
             'existing_monthly_obligations' => 2000,
             'savings_balance' => 5000,
-            'share_capital' => 15000,
             'approved_credit_limit' => 25000,
             'is_registered' => '1',
             'status'        => CoopMember::STATUS_ACTIVE,
@@ -267,7 +277,6 @@ class StaffEncodingTest extends TestCase
         $this->assertEquals(18000, $member->monthly_income);
         $this->assertEquals(2000, $member->existing_monthly_obligations);
         $this->assertEquals(5000, $member->savings_balance);
-        $this->assertEquals(15000, $member->share_capital);
         $this->assertEquals(25000, $member->approved_credit_limit);
     }
 
@@ -283,7 +292,6 @@ class StaffEncodingTest extends TestCase
             'monthly_income' => 41000,
             'existing_monthly_obligations' => 1500,
             'savings_balance' => 22000,
-            'share_capital' => 33000,
             'approved_credit_limit' => 60000,
         ]);
 
@@ -295,7 +303,6 @@ class StaffEncodingTest extends TestCase
         $this->assertEquals(41000, $member->monthly_income);
         $this->assertEquals(1500, $member->existing_monthly_obligations);
         $this->assertEquals(22000, $member->savings_balance);
-        $this->assertEquals(33000, $member->share_capital);
         $this->assertEquals(60000, $member->approved_credit_limit);
     }
 

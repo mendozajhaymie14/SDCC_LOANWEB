@@ -20,7 +20,7 @@
 
     <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
         <div class="modal-title" id="appDetailTitle">#APP-0000 — Application Detail</div>
-        <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
+        <div class="modal-close" type="button" onclick="closeAllModals()"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div id="appDetailBody"></div>
 </div>
@@ -54,14 +54,6 @@ window.closeAllModals = function () {
         m.classList.remove('open');
         m.style.display = 'none';
     });
-
-    document.querySelectorAll('.overlay, .modal-backdrop, .backdrop').forEach(function (b) {
-        if (b && b.parentNode) { b.parentNode.removeChild(b); }
-    });
-
-    document.body.classList.remove('modal-open', 'overflow-hidden');
-    document.body.style.overflow = '';
-    document.body.style.paddingRight = '';
 };
 
 window.closeModal = function (modalId) { closeAllModals(); };
@@ -109,7 +101,7 @@ window.renderApplicationModal = function (app) {
     const applicantName = app.applicant_name || app.borrower_name || app.applicant || app.name || 'Applicant';
     const loanType      = app.loan_type || 'educational';
     const amount        = app.amount || 0;
-    const score         = app.ai_score ?? app.risk_score ?? app.score ?? null;
+    const score         = app.risk_score ?? app.ai_score ?? app.score ?? null;
     const riskLevel     = app.risk_level || 'None';
     const riskScore     = app.risk_score ?? app.ai_score ?? app.score ?? null;
     const recommended   = app.recommended_amount || 0;
@@ -154,7 +146,7 @@ window.renderApplicationModal = function (app) {
             var ext = (cleanPath.split('.').pop() || '').toUpperCase();
             var label = 'Document ' + (i + 1) + (ext ? ' (' + ext + ')' : '');
             return '<span style="display:inline-flex;align-items:center;gap:0.2rem;background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;padding:0.35rem 0.65rem;font-size:0.75rem;margin:0.2rem;">' +
-                '📄 <a href="/storage/' + cleanPath + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">' + label + '</a>' +
+                '<i class="fa-solid fa-file nav-icon"></i> <a href="/storage/' + cleanPath + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">' + label + '</a>' +
                 '</span>';
         }).join('');
         docsHtml = '<div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">' +
@@ -219,13 +211,13 @@ function modalActionSection(appId, recommendedAmount) {
         '<div style="display:flex;flex-direction:column;gap:0.5rem;width:100%;margin-top:1.2rem;">' +
             /* Row 1: Primary Decision */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
-                (p.reject ? '<button type="button" id="btn-reject" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:transparent;cursor:pointer;" onclick="openRejectModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')">✗ Reject</button>' : '') +
-                (p.approve ? '<button type="button" id="btn-approve" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="openApproveModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')">✓ Approve</button>' : '') +
+                (p.reject ? '<button type="button" id="btn-reject" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:transparent;cursor:pointer;" onclick="openRejectModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')"><i class="fa-solid fa-xmark nav-icon"></i> Reject</button>' : '') +
+                (p.approve ? '<button type="button" id="btn-approve" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="openApproveModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')"><i class="fa-solid fa-check nav-icon"></i> Approve</button>' : '') +
             '</div>' +
             /* Row 2: Tools & Cleanup */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
-                (p.scan ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:#4f46e5;border:2px solid #4f46e5;background:rgba(79,70,229,0.08);cursor:pointer;" onclick="triggerAiScan(\'' + appId + '\')">⚡ Document Check</button>' : '') +
-                (p.delete ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:rgba(239,68,68,0.05);cursor:pointer;" onclick="deleteApp(\'' + appId + '\')">🗑 Delete Application</button>' : '') +
+                (p.scan ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:#4f46e5;border:2px solid #4f46e5;background:rgba(79,70,229,0.08);cursor:pointer;" onclick="triggerAiScan(\'' + appId + '\')"><i class="fa-solid fa-bolt nav-icon"></i> Document Check</button>' : '') +
+                (p.delete ? '<button type="button" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:rgba(239,68,68,0.05);cursor:pointer;" onclick="deleteApp(\'' + appId + '\')"><i class="fa-solid fa-trash-can nav-icon"></i> Delete Application</button>' : '') +
             '</div>' +
         '</div>' +
         /* Approve modal (inline, hidden until needed) */
@@ -364,12 +356,12 @@ window.confirmApprove = function (appId) {
     var approvedAmount = parseFloat(approvedAmountStr);
 
     if (approvedAmount > recommended && !reason) {
-        showToast('error', 'A reason is required when approving above the recommended amount.', '❌');
+        showToast('error', 'A reason is required when approving above the recommended amount.', '<i class="fa-solid fa-xmark"></i>');
         return;
     }
 
     if (!approvedAmount || approvedAmount <= 0) {
-        showToast('error', 'Please enter a valid approved amount.', '❌');
+        showToast('error', 'Please enter a valid approved amount.', '<i class="fa-solid fa-xmark"></i>');
         return;
     }
 
@@ -392,13 +384,13 @@ window.confirmApprove = function (appId) {
             return res.json();
         })
         .then(function (data) {
-            showToast('success', 'Application Approved ✓ (₱' + Number(approvedAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ')', '✅');
+            showToast('success', 'Application approved (₱' + Number(approvedAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ')', '<i class="fa-solid fa-check"></i>');
             closeAllModals();
             setTimeout(function () { location.reload(); }, 700);
         })
         .catch(function (err) {
             var msg = (err && err.message) ? err.message : 'Failed to approve application.';
-            showToast('error', msg, '❌');
+            showToast('error', msg, '<i class="fa-solid fa-xmark"></i>');
         });
 };
 
@@ -407,7 +399,7 @@ window.confirmReject = function (appId) {
     var reason = document.getElementById('rejectReason').value.trim();
 
     if (!reason) {
-        showToast('error', 'A rejection reason is required.', '❌');
+        showToast('error', 'A rejection reason is required.', '<i class="fa-solid fa-xmark"></i>');
         return;
     }
 
@@ -430,13 +422,13 @@ window.confirmReject = function (appId) {
             return res.json();
         })
         .then(function (data) {
-            showToast('success', 'Application Rejected.', '✅');
+            showToast('success', 'Application Rejected.', '<i class="fa-solid fa-check"></i>');
             closeAllModals();
             setTimeout(function () { location.reload(); }, 700);
         })
         .catch(function (err) {
             var msg = (err && err.message) ? err.message : 'Failed to reject application.';
-            showToast('error', msg, '❌');
+            showToast('error', msg, '<i class="fa-solid fa-xmark"></i>');
         });
 };
 
@@ -455,17 +447,17 @@ window.deleteApp = function (id) {
     })
         .then(function (res) { return res.ok ? res.json() : Promise.reject(res); })
         .then(function () {
-            showToast('error', 'Application #' + id + ' deleted', '🗑');
+            showToast('success', 'Application #' + id + ' deleted', '<i class="fa-solid fa-trash-can"></i>');
             closeAllModals();
             setTimeout(function () { location.reload(); }, 700);
         })
-        .catch(function () { showToast('error', 'Failed to delete application #' + id + '.', '❌'); });
+        .catch(function () { showToast('error', 'Failed to delete application #' + id + '.', '<i class="fa-solid fa-xmark"></i>'); });
 };
 
 /* ── Document Check ── */
 window.triggerAiScan = function (id) {
     if (!id || id === 'undefined' || id === 'null') {
-        if (typeof showToast === 'function') showToast('error', 'Invalid application ID for AI scan', '❌');
+        if (typeof showToast === 'function') showToast('error', 'Invalid application ID for AI scan', '<i class="fa-solid fa-xmark"></i>');
         return;
     }
 
@@ -508,7 +500,7 @@ window.triggerAiScan = function (id) {
         })
         .then(function (data) {
             if (!data || !data.success) {
-                showToast('error', (data && data.message) ? data.message : 'Document Check failed.', '❌');
+                showToast('error', (data && data.message) ? data.message : 'Document Check failed.', '<i class="fa-solid fa-xmark"></i>');
                 if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ Document Check'; }
                 return;
             }
@@ -573,13 +565,13 @@ window.triggerAiScan = function (id) {
                     /* ignore fetch errors – the scan updates are already visible */
                 });
 
-            showToast('success', 'Document Check Complete • Score: ' + (score != null ? score : 'N/A') + ' • Risk: ' + riskLevel, '⚡');
+            showToast('success', 'Document Check Complete • Score: ' + (score != null ? score : 'N/A') + ' • Risk: ' + riskLevel, '<i class="fa-solid fa-bolt"></i>');
 
             if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ Document Check'; }
         })
         .catch(function (err) {
             console.error('Document Check error:', err);
-            showToast('error', 'Document Check failed: ' + (err.message || 'check server logs'), '❌');
+            showToast('error', 'Document Check failed: ' + (err.message || 'check server logs'), '<i class="fa-solid fa-xmark"></i>');
             if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '⚡ Document Check'; }
         });
 };

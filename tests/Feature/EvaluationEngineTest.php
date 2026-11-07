@@ -34,7 +34,6 @@ class EvaluationEngineTest extends TestCase
             'monthly_income'           => 30000,
             'existing_monthly_obligations' => 0,
             'savings_balance'          => 0,
-            'share_capital'            => 30000,
             'approved_credit_limit'    => 50000,
             'is_migs'                  => false,
         ], $overrides));
@@ -56,7 +55,6 @@ class EvaluationEngineTest extends TestCase
             'term_months'                    => 12,
             'monthly_income'                 => (float) $member->monthly_income,
             'existing_monthly_obligations'   => (float) $member->existing_monthly_obligations,
-            'share_capital'                  => (float) $member->share_capital,
             'documents'                      => ['id.pdf', 'income.pdf'],
         ], $overrides));
     }
@@ -71,7 +69,7 @@ class EvaluationEngineTest extends TestCase
             // 1. Low risk — comfortable income, savings, documents.
             'low risk' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 5000,
-                 'savings_balance' => 10000, 'share_capital' => 50000],
+                 'savings_balance' => 10000],
                 ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12],
                 50000,
                 'Low',
@@ -80,7 +78,7 @@ class EvaluationEngineTest extends TestCase
             // 2. Medium risk — the request is more than twice the recommendation.
             'medium risk (request above 2x recommended)' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 2000,
-                 'savings_balance' => 0, 'share_capital' => 50000],
+                 'savings_balance' => 0],
                 ['loan_type' => 'utility', 'amount' => 30000, 'term_months' => 12],
                 10000,
                 'Medium',
@@ -89,7 +87,7 @@ class EvaluationEngineTest extends TestCase
             // 3. High risk — over-obligated: obligations eat the whole DTI budget.
             'high risk (over-obligated)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
-                 'savings_balance' => 0, 'share_capital' => 50000],
+                 'savings_balance' => 0],
                 ['loan_type' => 'regular', 'amount' => 100000, 'term_months' => 12,
                  'documents' => []],
                 5000,
@@ -100,27 +98,29 @@ class EvaluationEngineTest extends TestCase
             //    neutral history score, zero doc points, and a negative DTI budget.
             'no payment history (cannot afford)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
-                 'savings_balance' => 0, 'share_capital' => 30000],
+                 'savings_balance' => 0],
                 ['loan_type' => 'educational', 'amount' => 20000, 'term_months' => 12,
                  'documents' => []],
                 5000,
-                'High',
+                'Medium',
             ],
 
             // 5. Zero savings — no equity behind the loan, documents on file.
             'zero savings' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 0,
-                 'savings_balance' => 0, 'share_capital' => 30000],
+                 'savings_balance' => 0],
                 ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12],
                 50000,
                 'Low',
             ],
 
             // 6. Request above capacity — affordable principal caps the recommendation.
+            // No documents so docScore=0, keeping risk High (29+20+0+0=49).
             'request above capacity' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 0,
-                 'savings_balance' => 0, 'share_capital' => 30000],
-                ['loan_type' => 'regular', 'amount' => 100000, 'term_months' => 12],
+                 'savings_balance' => 0],
+                ['loan_type' => 'regular', 'amount' => 100000, 'term_months' => 12,
+                 'documents' => []],
                 78000,
                 'High',
             ],
@@ -128,17 +128,17 @@ class EvaluationEngineTest extends TestCase
             // 7. Missing documents — no doc points, everything else healthy.
             'missing documents' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 5000,
-                 'savings_balance' => 10000, 'share_capital' => 50000],
+                 'savings_balance' => 10000],
                 ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12,
                  'documents' => []],
                 50000,
                 'Medium',
             ],
 
-            // 8. Recovery loan — MIGS member gets the higher share-capital rate.
+            // 8. Recovery loan — MIGS member gets the higher savings rate.
             'recovery loan (MIGS)' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 2000,
-                 'savings_balance' => 50000, 'share_capital' => 50000, 'is_migs' => true],
+                 'savings_balance' => 50000, 'is_migs' => true],
                 ['loan_type' => 'recovery', 'amount' => 25000, 'term_months' => 24],
                 25000,
                 'Low',
@@ -196,7 +196,6 @@ class EvaluationEngineTest extends TestCase
             'monthly_income' => 30000,
             'existing_monthly_obligations' => 5000,
             'savings_balance' => 10000,
-            'share_capital' => 50000,
         ]);
         $loanApp = $this->apply($member, ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12]);
 
@@ -227,7 +226,6 @@ class EvaluationEngineTest extends TestCase
                 'monthly_income' => 30000,
                 'existing_monthly_obligations' => 5000,
                 'savings_balance' => 10000,
-                'share_capital' => 50000,
             ]);
             $loanApp = $this->apply($member, ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12]);
 
@@ -261,7 +259,6 @@ class EvaluationEngineTest extends TestCase
             'amount' => 50000,
             'monthly_income' => 30000,
             'existing_monthly_obligations' => 0,
-            'share_capital' => 30000,
             'documents' => ['id.pdf'],
         ]);
         $application = Application::factory()->create([

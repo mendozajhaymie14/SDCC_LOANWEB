@@ -47,7 +47,11 @@ class MemberApplicationController extends Controller
         // already approved (or already pending) must be told THAT, not the
         // generic "this e-mail belongs to a cooperative member" message that
         // the coop_members rule below would produce.
-        $email = strtolower(trim((string) $request->input('email')));
+        // A logged-in user's email is read-only on the form, so the server
+        // trusts the profile copy rather than whatever was posted.
+        $email = Auth::check()
+            ? strtolower(trim((string) Auth::user()->email))
+            : strtolower(trim((string) $request->input('email')));
 
         if ($email !== '') {
             $existing = MemberApplication::withTrashed()->where('email', $email)->first();
@@ -68,16 +72,13 @@ class MemberApplicationController extends Controller
             'last_name'      => ['required', 'string', 'max:255'],
             'first_name'     => ['required', 'string', 'max:255'],
             'middle_name'    => ['nullable', 'string', 'max:255'],
-            'suffix'         => ['nullable', 'string', 'max:10'],
-            'sex'            => ['required', 'in:male,female,lgbtqia+'],
-            'civil_status'   => ['required', 'in:single,married,legally_separated,annulled,widowed'],
+            'occupation'     => ['required', 'string', 'max:100'],
 
             // Current Address
-            'country'      => ['nullable', 'string', 'max:255'],
             'province'     => ['nullable', 'string', 'max:255'],
             'municipality' => ['nullable', 'string', 'max:255'],
             'barangay'     => ['nullable', 'string', 'max:255'],
-            'street'       => ['nullable', 'string', 'max:255'],
+            'address_line' => ['nullable', 'string', 'max:255'],
             'zip_code'     => ['nullable', 'string', 'max:12'],
 
             // Permanent address (existing fields kept for compatibility)
@@ -88,6 +89,10 @@ class MemberApplicationController extends Controller
             'perm_zip_code'      => ['nullable', 'string', 'max:12'],
             'perm_stay_years'    => ['nullable', 'integer', 'min:0', 'max:99'],
             'perm_stay_months'   => ['nullable', 'integer', 'min:0', 'max:11'],
+
+            // Financial profile
+            'monthly_income'              => ['nullable', 'numeric', 'min:0'],
+            'existing_monthly_obligations' => ['nullable', 'numeric', 'min:0'],
 
             // Demographics
             'residency_type' => ['nullable', 'string', 'max:100'],
@@ -103,37 +108,19 @@ class MemberApplicationController extends Controller
                     $fail('This email address is already registered as a cooperative member.');
                 }
             }],
-            'birthdate'      => ['required', 'date', 'before_or_equal:today'],
+            'data_privacy_consent' => ['required', 'accepted'],
             'nationality'    => ['nullable', 'string', 'max:100'],
             'place_of_birth' => ['nullable', 'string', 'max:255'],
-            'gender'         => ['nullable', 'string', 'max:50'],
-            'occupation'     => ['nullable', 'string', 'max:255'],
-
-            // Membership requirements
-            'tin'             => ['nullable', 'digits:12'],
-            'id_picture'      => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-            'proof_of_billing' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-
-            // Character references (up to three)
-            'character_references'            => ['nullable', 'array', 'max:3'],
-            'character_references.*.full_name' => ['nullable', 'string', 'max:255'],
-            'character_references.*.address'   => ['nullable', 'string', 'max:255'],
-            'character_references.*.contact_number' => ['nullable', 'string', 'digits:11'],
         ])->validate();
 
         // Normalize strings so the DB never stores stray whitespace
         $data['last_name']      = $this->normalize($data['last_name']);
         $data['first_name']     = $this->normalize($data['first_name']);
         $data['middle_name']    = isset($data['middle_name']) ? $this->normalize($data['middle_name']) : null;
-        $data['suffix']         = !empty($data['suffix'] ?? null) ? trim($data['suffix']) : null;
-        $data['sex']            = !empty($data['sex'] ?? null) ? $this->normalize($data['sex']) : null;
-        $data['civil_status']   = !empty($data['civil_status'] ?? null) ? $this->normalize($data['civil_status']) : null;
-        $data['country_of_birth'] = !empty($data['country_of_birth'] ?? null) ? $this->normalize($data['country_of_birth']) : null;
-        $data['city_of_birth']  = !empty($data['city_of_birth'] ?? null) ? $this->normalize($data['city_of_birth']) : null;
         $data['email']          = strtolower(trim($data['email']));
 
         // Normalize address fields only when present
-        foreach (['street', 'barangay', 'municipality', 'zip_code'] as $f) {
+        foreach (['address_line', 'barangay', 'municipality', 'zip_code'] as $f) {
             if (!empty($data[$f])) {
                 $data[$f] = $this->normalize($data[$f]);
             }
@@ -149,54 +136,14 @@ class MemberApplicationController extends Controller
             }
         }
 
-        // Normalize TIN (trim + upper-case) so lookups are case-insensitive
-        if (!empty($data['tin'])) {
-            $data['tin'] = strtoupper(trim($data['tin']));
-        } else {
-            $data['tin'] = null;
-        }
-
-        // Normalize character references; drop fully-empty rows and cap at three
-        if (!empty($data['character_references']) && is_array($data['character_references'])) {
-            $refs = [];
-            foreach (array_slice($data['character_references'], 0, 3) as $ref) {
-                if (!is_array($ref)) {
-                    continue;
-                }
-
-                $full_name  = isset($ref['full_name']) && $ref['full_name'] !== '' ? $this->normalize($ref['full_name']) : null;
-                $address    = isset($ref['address']) && $ref['address'] !== '' ? $this->normalize($ref['address']) : null;
-                $contact_no = isset($ref['contact_number']) && $ref['contact_number'] !== '' ? trim($ref['contact_number']) : null;
-
-                if ($full_name || $address || $contact_no) {
-                    $refs[] = [
-                        'full_name'  => $full_name,
-                        'address'    => $address,
-                        'contact_number' => $contact_no,
-                    ];
-                }
-            }
-            $data['character_references'] = $refs;
-        } else {
-            $data['character_references'] = null;
-        }
-
-        // Store the supporting documents and keep only their public paths
-        foreach (['id_picture', 'proof_of_billing'] as $doc) {
-            if ($request->hasFile($doc) && $request->file($doc)->isValid()) {
-                $data[$doc] = $request->file($doc)->store('member-applications', 'public');
-            } else {
-                $data[$doc] = null;
-            }
-        }
-
         // Map form fields to model attributes with fallbacks
         $data['surname'] = $request->input('last_name');
         $data['residency_type'] = $request->input('residency_type') ?? $request->input('residency') ?? 'owned';
         $data['nationality'] = $request->input('nationality', 'Filipino');
-        $data['place_of_birth'] = $request->input('place_of_birth') ?? $request->input('city_of_birth') ?? 'City of Las Piñas';
-        $data['gender'] = $request->input('gender') ?? $request->input('sex');
+        $data['place_of_birth'] = $request->input('place_of_birth') ?? 'City of Las Piñas';
         $data['occupation'] = $request->input('occupation') ?? $request->input('hanap_buhay');
+        $data['monthly_income']              = $request->input('monthly_income');
+        $data['existing_monthly_obligations'] = $request->input('existing_monthly_obligations');
 
 // Get email reliably from validated data, request input, or logged-in user
         $email = $data['email'] ?? $request->input('email') ?? (Auth::check() ? Auth::user()->email : null);
@@ -216,15 +163,25 @@ class MemberApplicationController extends Controller
             $contactNumber
         );
 
+        // Never show an applicant another member's name, Member ID or which
+        // field matched. The detailed text ($check['message']) is for staff
+        // screens only; the public form gets a generic message.
+        $publicDuplicateMessage = $check['publicMessage']
+            ?? 'We could not process this application because some of the details you entered are already on file. If you are already a member, please register or sign in using your Member ID. Otherwise, please contact the cooperative office.';
+
         if ($check['isDuplicate']) {
+            \Log::info('Duplicate membership application blocked', [
+                'matched' => $check['matchedFields'] ?? [],
+            ]);
+
             return back()->withInput()
-                ->withErrors(['email' => $check['message']]);
+                ->withErrors(['email' => $publicDuplicateMessage]);
         }
 
         if ($check['isWarning']) {
-            // Name-only match - show warning but allow officer to continue
-            // The warning is stored in session for display on the next page
-            session()->flash('duplicate_warning', $check['message']);
+            // Name-only match - the application may continue. Store only the
+            // generic text, never the existing member's details.
+            session()->flash('duplicate_warning', $publicDuplicateMessage);
         }
 
         // Look up an existing application by email before writing, so the

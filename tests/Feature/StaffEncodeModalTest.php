@@ -1,0 +1,79 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\CoopMember;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class StaffEncodeModalTest extends TestCase
+{
+    use RefreshDatabase;
+
+    /** @test */
+    public function a_loan_officer_can_submit_a_valid_encode_payload_via_the_modal_and_see_it_on_applications_index()
+    {
+        $officer = User::factory()->asLoanOfficer()->create();
+        $member = CoopMember::factory()->create([
+            'status' => CoopMember::STATUS_ACTIVE,
+            'monthly_income' => 50000,
+            'existing_monthly_obligations' => 5000,
+            'share_capital' => 30000,
+            'savings_balance' => 20000,
+            'approved_credit_limit' => 80000,
+            'occupation' => 'Vendor',
+        ]);
+
+        // Ensure the member has a linked user for evaluation
+        $user = User::factory()->create([
+            'email' => $member->email,
+            'name' => $member->full_name,
+        ]);
+        $member->update(['user_id' => $user->id]);
+
+        $response = $this->actingAs($officer)->post(route('applications.encode.store'), [
+            'member_id'                    => $member->id,
+            'loan_type'                    => 'regular',
+            'amount'                       => 25000,
+            'term_months'                  => 36,
+            'purpose'                      => 'Business capital',
+            'monthly_income'               => 50000,
+            'existing_monthly_obligations' => 5000,
+            'source_of_income'             => 'Salary',
+            'document_consent'             => '1',
+            'required_documents'           => [],
+        ]);
+
+        // Should redirect to applications.index with success flash
+        $response->assertRedirect(route('applications.index'));
+        $response->assertSessionHas('success', 'Application encoded successfully.');
+
+        // GET applications.index should now contain the new application
+        $indexResponse = $this->actingAs($officer)->get(route('applications.index'));
+        $indexResponse->assertOk();
+        $indexResponse->assertSee($member->full_name);
+    }
+
+    /** @test */
+    public function validation_failure_on_missing_member_redirects_back_with_errors_and_reopens_modal()
+    {
+        $officer = User::factory()->asLoanOfficer()->create();
+
+        // Submit without member_id (required field)
+        $response = $this->actingAs($officer)->post(route('applications.encode.store'), [
+            'loan_type'                    => 'regular',
+            'amount'                       => 25000,
+            'term_months'                  => 36,
+            'purpose'                      => 'Business capital',
+            'monthly_income'               => 50000,
+            'existing_monthly_obligations' => 5000,
+            'source_of_income'             => 'Salary',
+            'document_consent'             => '1',
+        ]);
+
+        // Should redirect back (to the encode page)
+        $response->assertRedirect();
+        $response->assertSessionHasErrors('member_id');
+    }
+}

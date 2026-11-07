@@ -25,5 +25,7 @@
 
 @include('admin.footer')
 
+@include('partials.logout-confirm')
+
 </body>
 </html>

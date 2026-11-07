@@ -161,7 +161,7 @@ class CreateNewUser implements CreatesNewUsers
                 ]);
             }
 
-            if ($locked->is_registered || $locked->user_id || User::where('coop_member_id', $locked->id)->exists()) {
+            if ($locked->user_id || User::where('coop_member_id', $locked->id)->exists()) {
                 throw ValidationException::withMessages([
                     'member_id' => ['An online account has already been registered for this cooperative member.'],
                 ]);

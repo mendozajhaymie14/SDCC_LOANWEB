@@ -46,7 +46,7 @@ class LoanSubmissionService
         Application::create([
             'loan_application_id' => $application->id,
             'app_id'              => $appId,
-            'applicant'           => $application->full_name,
+            'applicant'           => $data['full_name'],
             'loan_type'           => $application->loan_type,
             'amount'              => $application->amount,
             'status'              => 'Pending',

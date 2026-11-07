@@ -37,7 +37,7 @@ class PermissionMatrixTest extends TestCase
         'view_audit_logs'       => ['route' => '/admin/audit-logs', 'method' => 'GET'],
         'view_dashboard'        => ['route' => '/dashboard', 'method' => 'GET'],
         'view_member_profiles'  => ['route' => '/active-members', 'method' => 'GET'],
-        'edit_member_profiles'  => ['route' => '/active-members/1/approve', 'method' => 'POST', 'fixture' => 'create_coop_member'],
+        'edit_member_profiles'  => ['route' => '/active-members/1', 'method' => 'PUT', 'fixture' => 'create_coop_member'],
         'encode_applications'   => ['route' => '/applications', 'method' => 'GET'],
         'view_applications'     => ['route' => '/admin/applications/1', 'method' => 'GET', 'fixture' => 'create_application'],
         'view_evaluation'       => ['route' => '/admin/credit-assessment', 'method' => 'GET'],
@@ -53,6 +53,7 @@ class PermissionMatrixTest extends TestCase
         'own_portal'            => ['route' => '/user/dashboard', 'method' => 'GET'],
         'view_own_loans'        => ['route' => '/user/loans/1/amortization', 'method' => 'GET', 'fixture' => 'create_loan'],
         'apply_membership'      => ['route' => '/user/membership', 'method' => 'GET'],
+        'view_membership_page' => ['route' => '/user/membership', 'method' => 'GET'],
         'apply_loan'            => ['route' => '/user/loans/apply', 'method' => 'GET', 'fixture' => 'create_active_member'],
     ];
 
@@ -162,9 +163,13 @@ class PermissionMatrixTest extends TestCase
             return;
         }
 
-        $response = $method === 'GET'
-            ? $this->actingAs($user)->get($route)
-            : $this->actingAs($user)->post($route);
+        $response = match ($method) {
+            'GET'  => $this->actingAs($user)->get($route),
+            'POST' => $this->actingAs($user)->post($route),
+            'PUT'  => $this->actingAs($user)->put($route),
+            'DELETE' => $this->actingAs($user)->delete($route),
+            default => $this->actingAs($user)->post($route),
+        };
 
         if ($allowed) {
             // Allowed: the route answers (200) or redirects back (302).
@@ -175,6 +180,17 @@ class PermissionMatrixTest extends TestCase
             // form: they are taken to "Become a member" with a message.
             $response->assertRedirect(route('user.membership'));
             $response->assertSessionHas('error');
+        } elseif ($perm === Permissions::APPLY_MEMBERSHIP
+            && $usertype === Permissions::ROLE_MEMBER
+            && Permissions::has($user, Permissions::VIEW_MEMBERSHIP_PAGE)
+        ) {
+            // Member has VIEW_MEMBERSHIP_PAGE but not APPLY_MEMBERSHIP;
+            // the /user/membership route is gated by VIEW_MEMBERSHIP_PAGE,
+            // so the member can access the page even though they lack
+            // the apply_membership permission key.
+            $this->assertContains($response->getStatusCode(), [200, 302],
+                "Role '$usertype' permission '$perm': member has view_membership_page but not apply_membership; ".
+                "route is gated by view_membership_page, not apply_membership");
         } else {
             $this->assertEquals(403, $response->getStatusCode(),
                 "Role '$usertype' permission '$perm': expected 403 but got {$response->getStatusCode()}");

@@ -85,7 +85,7 @@ class CreditScoringService
         if (empty($documents)) {
             $score = $eval['risk_score'];
             $note = 'AI Scan: No supporting documents uploaded. Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
-            $riskLevel = $eval['risk_level'] ?? 'Medium';
+            $riskLevel = $eval['risk_level'];
             $riskFactors = $eval['reasons'] ?? [];
             $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
@@ -104,7 +104,7 @@ class CreditScoringService
         if (!$firstDoc) {
             $score = $eval['risk_score'];
             $note = 'AI Scan: No supporting documents uploaded. Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
-            $riskLevel = $eval['risk_level'] ?? 'Medium';
+            $riskLevel = $eval['risk_level'];
             $riskFactors = $eval['reasons'] ?? [];
             $this->persistScore($application, $loanApp, $score, $note, $riskLevel, $riskFactors);
             return [
@@ -140,7 +140,7 @@ class CreditScoringService
         $documentCheck = $scanResult['document_check'] ?? 'unavailable';
         if (in_array($documentCheck, ['unavailable', 'manual_review'])) {
             $score       = $eval['risk_score'];
-            $riskLevel   = $eval['risk_level'] ?? 'Medium';
+            $riskLevel   = $eval['risk_level'];
             $riskFactors = $eval['reasons'] ?? [];
             $note        = 'Document check unavailable, manual review required. '
                            . 'Rule-based score computed from declared data only.';
@@ -235,7 +235,7 @@ class CreditScoringService
         // as advisory fields, never used to shift the score.
         if ($hasPrimaryProof && $hasSecondaryProof) {
             $score = $eval['risk_score'];
-            $riskLevel = $eval['risk_level'] ?? 'Medium';
+            $riskLevel = $eval['risk_level'];
             $riskFactors = $eval['reasons'] ?? [];
             $riskFactors[] = 'Document check: passed';
             $has_risk_flags = ($score < 50);
@@ -263,7 +263,7 @@ class CreditScoringService
         } else {
             $note = 'AI Scan Alert: Document mismatch detected. Uploaded document does not satisfy Proof of Purpose requirements (Missing Certificate of Enrollment or Statement of Account/Tuition Fee). Documents not verified automatically; manual review required. Rule-based score computed from declared data only.';
         }
-        $riskLevel = $eval['risk_level'] ?? 'Medium';
+        $riskLevel = $eval['risk_level'];
         $riskFactors = $eval['reasons'] ?? [];
         $riskFactors[] = 'Document check: needs review';
         $has_risk_flags = true;
@@ -326,17 +326,21 @@ class CreditScoringService
             $eval = app(LoanEvaluationService::class)->evaluate($loanApp);
             return [
                 'risk_score' => (int) $eval['risk_score'],
+                'risk_level' => $eval['risk_level'],
                 'reasons'    => $eval['reasons'] ?? [],
                 'recommended_amount' => $eval['recommended_amount'] ?? 0.0,
             ];
         } catch (\Throwable $e) {
-            // Fallback if evaluation fails
+            // Fallback if evaluation fails. Score 50 maps to Medium under the
+            // same thresholds LoanEvaluationService uses, so the risk level
+            // stays consistent with the score even when evaluation throws.
             Log::warning('Failed to compute base score from LoanEvaluationService', [
                 'loan_app_id' => $loanApp?->id,
                 'error'       => $e->getMessage(),
             ]);
             return [
                 'risk_score' => 50,
+                'risk_level' => 'Medium',
                 'reasons'    => ['Rule-based evaluation unavailable'],
                 'recommended_amount' => 0.0,
             ];

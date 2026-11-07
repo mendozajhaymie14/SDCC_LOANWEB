@@ -19,15 +19,15 @@
     <div class="topbar-title" id="topbarTitle">Staff Users <span>/ System</span></div>
     <div class="search-wrap">
       <div class="search-box">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon"><i class="fa-solid fa-magnifying-glass nav-icon"></i></span>
         <input type="text" id="searchAdminInput" placeholder="Search staff…" oninput="filterAdmins(this.value)" />
       </div>
     </div>
     <div class="topbar-actions">
       <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
-        🔔<span class="notif-dot" id="notifDot"></span>
+        <i class="fa-solid fa-bell nav-icon"></i><span class="notif-dot" id="notifDot"></span>
       </div>
-      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings">⚙️</div>
+      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings"><i class="fa-solid fa-gear nav-icon"></i></div>
     </div>
   </div>
 
@@ -137,7 +137,7 @@
     closeAllDropdowns();
     const row = document.querySelector('.app-table tbody tr[data-id="' + id + '"]');
     if (!row) {
-      showToast('error', 'Staff account not found', '❌');
+      showToast('error', 'Staff account not found', '<i class="fa-solid fa-xmark nav-icon"></i>');
       return;
     }
     const cells = row.querySelectorAll('td');
@@ -167,8 +167,8 @@
         ${row2('Joined Date', joined)}
 
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
-          <button class="btn-review" type="button" style="width:100%;" onclick="editAdmin(${id})">✏️ Edit</button>
-          <button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteAdmin(${id})">🗑️ Delete Account</button>
+          <button class="btn-review" type="button" style="width:100%;" onclick="editAdmin(${id})"><i class="fa-solid fa-pen nav-icon"></i> Edit</button>
+          <button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteAdmin(${id})"><i class="fa-solid fa-trash-can nav-icon"></i> Delete Account</button>
         </div>
       `;
 
@@ -210,7 +210,7 @@
     })
       .then(res => res.ok ? res.json() : res.json().then(Promise.reject))
       .then(json => {
-        showToast('success', 'Staff account created', '✅');
+        showToast('success', 'Staff account created', '<i class="fa-solid fa-check nav-icon"></i>');
         closeAllModals();
         // A generated password is returned exactly once and never stored in
         // clear text — surface it here, then let the page reload.
@@ -226,7 +226,7 @@
         }
         setTimeout(() => location.reload(), 700);
       })
-      .catch(err => showToast('error', (err && err.message) || 'Failed to create staff account.', '❌'));
+      .catch(err => showToast('error', (err && err.message) || 'Failed to create staff account.', '<i class="fa-solid fa-xmark nav-icon"></i>'));
   }
 
   // ─── SUBMIT EDIT ADMIN ───
@@ -246,11 +246,11 @@
     })
       .then(res => res.ok ? res.json() : res.json().then(Promise.reject))
       .then(() => {
-        showToast('success', 'Admin account updated', '✅');
+        showToast('success', 'Admin account updated', '<i class="fa-solid fa-check nav-icon"></i>');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
       })
-      .catch(err => showToast('error', (err && err.message) || 'Failed to update admin.', '❌'));
+      .catch(err => showToast('error', (err && err.message) || 'Failed to update admin.', '<i class="fa-solid fa-xmark nav-icon"></i>'));
   }
 
   // ─── DELETE STAFF ───
@@ -267,14 +267,14 @@
       .then(res => res.ok ? res.json() : res.json().then(Promise.reject))
       .then(data => {
         if (data.success === false) {
-          showToast('error', data.message || 'Failed to delete staff account.', '❌');
+          showToast('error', data.message || 'Failed to delete staff account.', '<i class="fa-solid fa-xmark nav-icon"></i>');
           return;
         }
-        showToast('error', 'Staff account deleted', '🗑️');
+        showToast('error', 'Staff account deleted', '<i class="fa-solid fa-trash-can nav-icon"></i>');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
       })
-      .catch(err => showToast('error', (err && err.message) || 'Failed to delete staff account.', '❌'));
+      .catch(err => showToast('error', (err && err.message) || 'Failed to delete staff account.', '<i class="fa-solid fa-xmark nav-icon"></i>'));
   }
 </script>
 

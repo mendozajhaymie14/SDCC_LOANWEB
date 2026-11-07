@@ -37,6 +37,7 @@ class Application extends Model
         'document_check',
         'approved_amount',
         'admin_remarks',
+        'approved_by',
     ];
 
     protected $casts = [
@@ -86,6 +87,14 @@ class Application extends Model
     public function totalPayable(): float
     {
         return $this->loanApplication ? $this->loanApplication->totalPayable() : 0.0;
+    }
+
+    /**
+     * The staff user who approved this application.
+     */
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     /**

@@ -20,9 +20,9 @@
     <div class="topbar-title" id="topbarTitle">Amortization <span>/ Schedule</span></div>
     <div class="topbar-actions">
       <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
-        🔔<span class="notif-dot" id="notifDot"></span>
+        <i class="fa-solid fa-bell nav-icon"></i><span class="notif-dot" id="notifDot"></span>
       </div>
-      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings">⚙️</div>
+      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings"><i class="fa-solid fa-gear nav-icon"></i></div>
     </div>
   </div>
 

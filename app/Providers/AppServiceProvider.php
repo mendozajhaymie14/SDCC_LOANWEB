@@ -2,8 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use App\Support\Permissions;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,6 +25,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Bridge custom permissions to Laravel Gates for @can Blade directive
+        foreach (Permissions::allPermissions() as $permission) {
+            Gate::define($permission, function (User $user) use ($permission) {
+                return Permissions::has($user, $permission);
+            });
+        }
+
+        \Illuminate\Support\Facades\Mail::extend('brevo-api', function () {
+            return new \App\Mail\BrevoApiTransport((string) config('services.brevo.key'));
+        });
+
         self::warnIfSessionDriverIsFile();
 
         $this->registerRateLimiters();

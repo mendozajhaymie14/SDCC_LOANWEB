@@ -152,4 +152,81 @@ class RepaymentConsistencyTest extends TestCase
             $this->assertEqualsWithDelta(max(0, $runningBalance), $payment->remaining_balance_after, 0.01);
         }
     }
+
+    /** @test */
+    public function recompute_loan_state_keeps_both_tables_in_sync(): void
+    {
+        $member = User::factory()->create(['usertype' => 'member']);
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'       => $member->id,
+            'amount'        => 10000,
+            'term_months'   => 12,
+            'status'        => 'approved',
+            'reviewed_at'   => '2024-01-01',
+        ]);
+
+        $application = Application::factory()->create([
+            'loan_application_id' => $loan->id,
+            'app_id'              => 'APP-0001',
+            'amount'              => 10000,
+            'term_months'         => 12,
+            'status'              => 'Approved',
+        ]);
+
+        $service = app(\App\Services\PaymentService::class);
+
+        // Record payments directly (bypassing HTTP) and recompute state.
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $member->id,
+            'amount_paid'         => 2500,
+            'payment_date'        => '2024-02-01',
+            'payment_method'      => 'Cash',
+        ]);
+
+        $service->recomputeLoanState($loan);
+
+        $loan->refresh();
+        $application->refresh();
+
+        // Both tables must show the same remaining_balance and next_due_date.
+        $this->assertEqualsWithDelta(
+            $loan->remaining_balance,
+            $application->remaining_balance,
+            0.01,
+            'loan_applications and applications remaining_balance must match after recompute'
+        );
+        $this->assertSame(
+            $loan->next_due_date?->format('Y-m-d'),
+            $application->next_due_date?->format('Y-m-d'),
+            'loan_applications and applications next_due_date must match after recompute'
+        );
+
+        // Second payment — drift must not appear after a second recompute.
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $member->id,
+            'amount_paid'         => 3000,
+            'payment_date'        => '2024-03-01',
+            'payment_method'      => 'Cash',
+        ]);
+
+        $service->recomputeLoanState($loan);
+
+        $loan->refresh();
+        $application->refresh();
+
+        $this->assertEqualsWithDelta(
+            $loan->remaining_balance,
+            $application->remaining_balance,
+            0.01,
+            'loan_applications and applications remaining_balance must match after second recompute'
+        );
+        $this->assertSame(
+            $loan->next_due_date?->format('Y-m-d'),
+            $application->next_due_date?->format('Y-m-d'),
+            'loan_applications and applications next_due_date must match after second recompute'
+        );
+    }
 }

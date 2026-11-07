@@ -25,9 +25,9 @@ module.exports = defineConfig({
         headless: true,
     },
     webServer: {
-        command: 'php artisan serve --port=8001',
-        url: 'http://127.0.0.1:8001/register',
-        reuseExistingServer: false,
+        command: 'php artisan serve --port=8002',
+        url: 'http://127.0.0.1:8002/register',
+        reuseExistingServer: true,
         timeout: 60_000,
         env: {
             APP_ENV: 'scratch',

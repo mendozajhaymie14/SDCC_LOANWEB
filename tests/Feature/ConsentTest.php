@@ -43,20 +43,20 @@ class ConsentTest extends TestCase
 
         $response = $this->actingAs($member)
             ->post(route('user.loans.store'), [
-                'full_name'                  => 'Test Borrower',
-                'email'                      => $member->email,
-                'contact_number'             => '09123456789',
-                'source_of_income'           => 'Salary',
-                'monthly_income'             => 20000,
+                '_token'             => csrf_token(),
+                'full_name'          => 'Test Borrower',
+                'email'             => $member->email,
+                'contact_number'    => '09123456789',
+                'source_of_income'  => 'Salary',
+                'monthly_income'    => 20000,
                 'existing_monthly_obligations' => 0,
-                'purpose_of_loan'            => 'Personal',
-                'loan_type'                  => 'regular',
-                'amount'                     => 10000,
-                'term_months'                => 36,
-                'required_documents'         => [$file],
-                'employer_name'              => 'Test Employer',
+                'purpose_of_loan'   => 'Personal',
+                'loan_type'         => 'regular',
+                'amount'            => 10000,
+                'term_months'       => 36,
+                'required_documents' => [$file],
                 // consentGemini NOT provided
-                'agree'                      => true,
+                'agree'             => true,
             ]);
 
         // Form submission with files but no consent redirects back with session errors
@@ -75,20 +75,20 @@ class ConsentTest extends TestCase
 
         $response = $this->actingAs($member)
             ->post(route('user.loans.store'), [
-                'full_name'                  => 'Test Borrower',
-                'email'                      => $member->email,
-                'contact_number'             => '09123456789',
-                'source_of_income'           => 'Salary',
-                'monthly_income'             => 20000,
+                '_token'             => csrf_token(),
+                'full_name'          => 'Test Borrower',
+                'email'             => $member->email,
+                'contact_number'    => '09123456789',
+                'source_of_income'  => 'Salary',
+                'monthly_income'    => 20000,
                 'existing_monthly_obligations' => 0,
-                'purpose_of_loan'            => 'Personal',
-                'loan_type'                  => 'regular',
-                'amount'                     => 10000,
-                'term_months'                => 36,
-                'required_documents'         => [$file],
-                'document_consent'           => true,
-                'agree'                      => true,
-                'employer_name'              => 'Test Employer',
+                'purpose_of_loan'   => 'Personal',
+                'loan_type'         => 'regular',
+                'amount'            => 10000,
+                'term_months'       => 36,
+                'required_documents' => [$file],
+                'document_consent'  => true,
+                'agree'             => true,
             ]);
 
         // Should succeed (redirect to dashboard)
@@ -104,21 +104,40 @@ class ConsentTest extends TestCase
             'email'    => 'admin@example.com',
         ]);
 
+        $member = CoopMember::factory()->create([
+            'user_id'       => null,
+            'status'        => CoopMember::STATUS_ACTIVE,
+            'full_name'     => 'Test Applicant',
+            'email'         => 'test@example.com',
+            'monthly_income'=> 30000,
+            'existing_monthly_obligations' => 0,
+            'share_capital' => 30000,
+            'savings_balance' => 20000,
+            'approved_credit_limit' => 50000,
+            'address'      => '12 Rizal St, Brgy.centro',
+            'occupation'   => 'Farmer',
+        ]);
+
         $file = \Illuminate\Http\UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
 
         $response = $this->actingAs($admin)
-            ->post(route('applications.store'), [
-                'applicant'          => 'Test Applicant',
+            ->post(route('applications.encode.store'), [
+                '_token'             => csrf_token(),
+                'member_id'          => $member->id,
                 'loan_type'          => 'regular',
                 'amount'             => 10000,
+                'term_months'        => 36,
+                'purpose'            => 'Test loan',
+                'monthly_income'     => 30000,
+                'existing_monthly_obligations' => 0,
+                'source_of_income'   => 'Salary',
                 'required_documents' => [$file],
                 // document_consent NOT provided
             ]);
 
         // Form submission with files but no consent redirects back with session errors
-        $response->assertStatus(302);
-        $response->assertRedirect();
         $response->assertSessionHasErrors(['document_consent']);
+        $this->assertSame(0, LoanApplication::where('encoded_by', $admin->id)->count());
     }
 
     /** @test */
@@ -129,20 +148,45 @@ class ConsentTest extends TestCase
             'email'    => 'admin@example.com',
         ]);
 
+        $member = CoopMember::factory()->create([
+            'user_id'       => null,
+            'status'        => CoopMember::STATUS_ACTIVE,
+            'full_name'     => 'Test Applicant',
+            'email'         => 'test@example.com',
+            'monthly_income'=> 30000,
+            'existing_monthly_obligations' => 0,
+            'share_capital' => 30000,
+            'savings_balance' => 20000,
+            'approved_credit_limit' => 50000,
+            'address'      => '12 Rizal St, Brgy.centro',
+            'occupation'   => 'Farmer',
+        ]);
+
         $file = \Illuminate\Http\UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
 
         $response = $this->actingAs($admin)
-            ->post(route('applications.store'), [
-                'applicant'           => 'Test Applicant',
-                'loan_type'           => 'regular',
-                'amount'              => 10000,
+            ->post(route('applications.encode.store'), [
+                '_token'             => csrf_token(),
+                'member_id'          => $member->id,
+                'loan_type'          => 'regular',
+                'amount'             => 10000,
+                'term_months'        => 36,
+                'purpose'            => 'Test loan',
+                'monthly_income'     => 30000,
+                'existing_monthly_obligations' => 0,
+                'source_of_income'   => 'Salary',
                 'required_documents'  => [$file],
                 'document_consent'    => true,
             ]);
 
-        // Should succeed
+        // Should succeed — redirect to applications.index
         $response->assertRedirect(route('applications.index'));
         $response->assertSessionHas('success');
+
+        $loanApp = LoanApplication::where('encoded_by', $admin->id)->latest()->first();
+        $this->assertNotNull($loanApp, 'Application was not stored via encode path.');
+        $this->assertEquals('Test Applicant', $loanApp->full_name);
+        $this->assertEquals(10000, $loanApp->amount);
     }
 
     /** @test */
@@ -153,6 +197,7 @@ class ConsentTest extends TestCase
         // No files uploaded, consent not checked
         $response = $this->actingAs($member)
             ->post(route('user.loans.store'), [
+                '_token'             => csrf_token(),
                 'full_name'                  => 'Test Borrower',
                 'email'                      => $member->email,
                 'contact_number'             => '09123456789',
@@ -164,11 +209,54 @@ class ConsentTest extends TestCase
                 'amount'                     => 10000,
                 'term_months'                => 36,
                 'agree'                      => true,
-                'employer_name'              => 'Test Employer',
                 // No consentGemini, no documents
             ]);
 
         // Should succeed
         $response->assertRedirect(route('user.dashboard'));
+    }
+
+    /** @test */
+    public function loan_form_submits_without_employer_name(): void
+    {
+        $member = $this->makeMember();
+
+        $file = \Illuminate\Http\UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
+
+        $response = $this->actingAs($member)
+            ->post(route('user.loans.store'), [
+                '_token'             => csrf_token(),
+                'full_name'                  => 'Test Borrower',
+                'email'                      => $member->email,
+                'contact_number'             => '09123456789',
+                'source_of_income'           => 'Salary',
+                'monthly_income'             => 20000,
+                'existing_monthly_obligations' => 0,
+                'purpose_of_loan'            => 'Personal',
+                'loan_type'                  => 'regular',
+                'amount'                     => 10000,
+                'term_months'                => 36,
+                'required_documents'         => [$file],
+                'document_consent'           => true,
+                'agree'                      => true,
+                // employer_name intentionally omitted — field removed
+            ]);
+
+        $response->assertRedirect(route('user.dashboard'));
+        $response->assertSessionHas('success');
+
+        $this->assertEquals(1, LoanApplication::where('user_id', $member->id)->count());
+    }
+
+    /** @test */
+    public function loan_form_does_not_contain_employer_field(): void
+    {
+        $member = $this->makeMember();
+
+        $response = $this->actingAs($member)->get(route('user.loans.create'));
+
+        $response->assertOk();
+        $response->assertDontSee('employer_name');
+        $response->assertDontSee('Employer');
     }
 }

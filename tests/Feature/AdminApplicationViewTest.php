@@ -70,7 +70,7 @@ class AdminApplicationViewTest extends TestCase
 
         $loanApplication = LoanApplication::factory()->create(array_merge([
             'user_id'         => $member->id,
-            'full_name'       => 'Test Borrower',
+            'full_name'       => '',
             'email'           => $member->email,
             'loan_type'       => 'regular',
             'amount'          => 5000,

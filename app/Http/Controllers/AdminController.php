@@ -12,6 +12,7 @@ use App\Mail\LoanApprovedMail;
 use App\Mail\LoanRejectedMail;
 use Illuminate\Support\Facades\Mail;
 use App\Models\AuditLog;
+use Illuminate\Support\Facades\Log;
 use App\Models\Borrowers;
 use App\Models\CoopMember;
 use App\Models\LoanApplication;
@@ -25,13 +26,13 @@ use App\Support\Permissions;
 use App\Services\AmortizationService;
 use App\Services\DuplicateMemberService;
 use App\Services\LoanEvaluationService;
+use App\Services\LoanSubmissionService;
 use App\Services\PaymentReminderService;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -168,37 +169,170 @@ class AdminController extends Controller
         return view('admin.application', compact('applications'));
     }
 
-    // 3. Save Form Action to Database
-    public function store(Request $request)
+    // 3. Staff Encode Application — encode an application for an existing member
+    public function encodeApplication()
     {
-        $validated = $request->validate([
-            'applicant' => 'required|string|max:255',
-            'loan_type' => 'required|string',
-            'amount'    => 'required|numeric|min:0',
+        $members = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->latest()->get();
+        return view('admin.encode-application', compact('members'));
+    }
+
+    public function storeEncodedApplication(Request $request)
+    {
+        // Validate all required fields for staff encoding
+        $validator = Validator::make($request->all(), [
+            'member_id'                    => 'required|numeric|exists:coop_members,id',
+            'loan_type'                    => 'required|in:' . implode(',', array_keys(config('loan_matrix.loan_types'))),
+            'amount'                       => 'required|numeric|min:1',
+            'term_months'                  => 'required|integer|min:1',
+            'purpose'                      => 'required|string|max:500',
+            'monthly_income'               => 'required|numeric|min:0',
+            'existing_monthly_obligations' => 'required|numeric|min:0',
+            'source_of_income'             => 'required|string|in:' . implode(',', config('loan_matrix.form_options.source_of_income')),
+            'required_documents'           => 'nullable|array|max:10',
+            'required_documents.*'         => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'document_consent'             => 'boolean',
         ]);
+
+        if ($validator->fails()) {
+            Log::warning('Staff encode validation failed (stage 1)', [
+                'errors'   => $validator->errors()->toArray(),
+                'request'  => array_keys($request->all()),
+                'user_id'  => Auth::id(),
+            ]);
+            return back()->withInput()->withErrors($validator);
+        }
+
+        $validated = $validator->validated();
+
+        $member = CoopMember::findOrFail($validated['member_id']);
+
+        if ($member->status !== CoopMember::STATUS_ACTIVE) {
+            return back()->withInput()->with('error', 'Cannot encode an application for an inactive member.');
+        }
 
         // Consent validation: require document_consent when documents are uploaded
         if ($request->hasFile('required_documents') && ! $request->boolean('document_consent')) {
             return back()->withInput()->withErrors([
-                'document_consent' => 'You must consent to document scanning for this application to be processed.',
+                'document_consent' => 'You must consent to your uploaded documents being scanned for verification. The AI check is advisory; recommended amounts and risk levels are rule-based and unchanged.',
             ]);
         }
 
-        $lastId = Application::max('id') ?? 0;
-        $appId = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+        // Resolve the user linked to this member (if any)
+        $user = $member->user;
 
-        $application = Application::create([
-            'app_id'    => $appId,
-            'applicant' => $validated['applicant'],
-            'loan_type' => $validated['loan_type'],
-            'amount'    => (float) $validated['amount'],
-            'status'    => 'Pending',
-            'ai_score'  => null,
-        ]);
+        // Validate loan product terms
+        $loanTypeConfig = config('loan_matrix.matrix.' . $validated['loan_type']);
+        if (! $loanTypeConfig) {
+            return back()->withInput()->withErrors(['loan_type' => 'Invalid loan product selected.']);
+        }
 
-        AuditLog::log('Application Created', "New application created: {$application->app_id} for {$application->applicant}");
+        // Validate amount against product max
+        $maxAmount = UserController::maxAmountFor($validated['loan_type']);
+        if ($loanTypeConfig['max_amount'] === 'share_capital_x2') {
+            $maxAmount = 2000000;
+        }
+        if ($loanTypeConfig['max_amount'] === 'share_capital_plus_savings') {
+            $maxAmount = 2000000;
+        }
+        $maxAmount = min($maxAmount ?? 2000000, 2000000);
+        $maxAmountRule = ['max:' . $maxAmount];
+        $amountMinRule = $maxAmount < 1000 ? ['min:1'] : ['min:1000'];
 
-        return redirect()->route('applications.index')->with('success', 'Application submitted successfully!');
+        // Validate term is offered by this product
+        $termRule = ['required', 'integer', 'in:' . implode(',', $loanTypeConfig['terms'])];
+
+        $rules = [
+            'amount'      => ['required', 'numeric', ...$amountMinRule, ...$maxAmountRule],
+            'term_months' => $termRule,
+        ];
+
+        $validator2 = Validator::make($request->all(), $rules);
+
+        if ($validator2->fails()) {
+            Log::warning('Staff encode validation failed (stage 2: amount/term)', [
+                'errors'   => $validator2->errors()->toArray(),
+                'request'  => array_keys($request->all()),
+                'user_id'  => Auth::id(),
+            ]);
+            return back()->withInput()->withErrors($validator2);
+        }
+
+        // Block if member already has a pending application (only if linked to a user)
+        if ($user) {
+            $hasPending = LoanApplication::where('user_id', $user->id)
+                ->where('status', 'pending')
+                ->exists();
+
+            if ($hasPending) {
+                return back()->withInput()
+                    ->with('error', 'This member already has an application under review. Wait for it to be decided before applying again.');
+            }
+        }
+
+        // Store uploaded supporting documents
+        $documentPaths = [];
+        if ($request->hasFile('required_documents')) {
+            foreach ($request->file('required_documents') as $document) {
+                $path = $document->store('loan-documents', 'public');
+                $documentPaths[] = $path;
+            }
+        }
+
+        // Build data for LoanSubmissionService
+        $data = [
+            'user_id'                    => $user?->id,
+            'reference'                  => LoanApplication::makeReference(),
+            'full_name'                  => $member->full_name,
+            'email'                      => $member->email,
+            'contact_number'             => $member->contact_number ?? $user?->phone ?? 'N/A',
+            'address'                    => $member->address ?? $user?->address ?? 'N/A',
+            'birth_date'                 => $member->date_of_birth ?? null,
+            'employment_status'          => $member->occupation ?? 'Employed',
+            'source_of_income'           => $validated['source_of_income'],
+            'monthly_income'             => $validated['monthly_income'],
+            'existing_monthly_obligations' => $validated['existing_monthly_obligations'],
+            'loan_type'                  => $validated['loan_type'],
+            'purpose_of_loan'            => $validated['purpose'],
+            'amount'                     => $validated['amount'],
+            'term_months'                => $validated['term_months'],
+            'status'                     => 'pending',
+            'encoded_by'                 => Auth::id(),
+            'documents'                  => $documentPaths,
+        ];
+
+        try {
+            // Submit via shared service (creates LoanApplication, evaluates, mirrors)
+            $application = app(LoanSubmissionService::class)->submit($data);
+
+            // Dispatch document analysis job if documents were uploaded
+            if (!empty($documentPaths)) {
+                try {
+                    \App\Jobs\ProcessLoanDocuments::dispatch(
+                        $application->id,
+                        (float) $validated['monthly_income'],
+                        (float) $validated['amount'],
+                        $documentPaths
+                    );
+                } catch (\Throwable $e) {
+                    \Log::warning('Could not start document analysis: ' . $e->getMessage());
+                }
+            }
+
+            AuditLog::log('Application Encoded', "Staff-encoded application {$application->reference} for {$member->full_name}");
+
+            return redirect()
+                ->route('applications.index')
+                ->with('success', 'Application encoded successfully.');
+        } catch (\Throwable $e) {
+            Log::error('Staff encode exception: ' . $e->getMessage(), [
+                'exception' => get_class($e),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+                'user_id'   => Auth::id(),
+                'member_id' => $member->id ?? null,
+            ]);
+            return back()->withInput()->with('error', 'An error occurred while encoding the application: ' . $e->getMessage());
+        }
     }
 
     // 4. Approve an application
@@ -234,6 +368,8 @@ class AdminController extends Controller
             $application->approved_amount = $approvedAmount ?? $application->recommended_amount ?? 0.00;
             $application->next_due_date = $disbursementDate->copy()->addMonth();
             $application->remaining_balance = $totalPayable;
+            // Track which staff user approved this application.
+            $application->approved_by = Auth::id();
             $application->save();
 
             if ($application->loan_application_id) {
@@ -242,6 +378,7 @@ class AdminController extends Controller
                     'reviewed_at'       => now(),
                     'remaining_balance' => $totalPayable,
                     'next_due_date'     => $disbursementDate->copy()->addMonth(),
+                    'approved_by'       => Auth::id(),
                 ]);
             }
 
@@ -521,8 +658,14 @@ class AdminController extends Controller
     // 11. Store New Member manually
     public function storeBorrower(Request $request)
     {
+        // Normalise the Member ID first so "sdcc-2026-0016 " is accepted as SDCC-2026-0016
+        $request->merge([
+            'member_id' => strtoupper(preg_replace('/\s+/', '', (string) $request->input('member_id'))),
+        ]);
+
         $validated = $request->validate([
-            'member_id'     => 'required|string|max:255|unique:coop_members,member_id',
+            // Format: SDCC-YYYY-0000 (e.g. SDCC-2026-0016)
+            'member_id'     => ['required', 'string', 'max:14', 'regex:/^SDCC-(19|20)\d{2}-\d{4}$/', 'unique:coop_members,member_id'],
             'full_name'     => 'required|string|max:255',
             'email'         => 'required|email|unique:coop_members,email',
             'phone'         => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
@@ -532,10 +675,12 @@ class AdminController extends Controller
             'monthly_income' => 'nullable|numeric|min:0',
             'existing_monthly_obligations' => 'nullable|numeric|min:0',
             'savings_balance' => 'nullable|numeric|min:0',
-            'share_capital' => 'nullable|numeric|min:0',
             'approved_credit_limit' => 'nullable|numeric|min:0',
             'is_registered' => 'boolean',
             'status'        => 'required|string|in:' . implode(',', CoopMember::STATUSES),
+        ], [
+            'member_id.regex'  => 'The Member ID must follow the format SDCC-YYYY-0000, for example SDCC-2026-0016.',
+            'member_id.unique' => 'That Member ID is already in use by another member.',
         ]);
 
         // Duplicate detection: block on email or contact number match, warn on name-only match.
@@ -548,7 +693,8 @@ class AdminController extends Controller
 
         if ($check['isDuplicate']) {
             return redirect()->route('active-members.index')
-                ->withErrors(['email' => $check['message']]);
+                ->withErrors(['email' => $check['message']])
+                ->withInput();
         }
 
         if ($check['isWarning'] && $request->filled('confirm_continue')) {
@@ -570,7 +716,6 @@ class AdminController extends Controller
             'monthly_income' => $validated['monthly_income'] ?? null,
             'existing_monthly_obligations' => $validated['existing_monthly_obligations'] ?? null,
             'savings_balance' => $validated['savings_balance'] ?? null,
-            'share_capital'  => $validated['share_capital'] ?? null,
             'approved_credit_limit' => $validated['approved_credit_limit'] ?? null,
             'is_registered'  => $request->boolean('is_registered'),
             'status'         => $validated['status'] ?? CoopMember::STATUS_ACTIVE,
@@ -607,6 +752,84 @@ class AdminController extends Controller
         $member->delete();
 
         return response()->json(['success' => true, 'id' => $id]);
+    }
+
+    // 14b. Update Member Profile
+    public function updateBorrower(Request $request, $id)
+    {
+        $member = CoopMember::findOrFail($id);
+
+        $validated = $request->validate([
+            'full_name'     => 'required|string|max:255',
+            'email'         => 'required|email|max:255',
+            'phone'         => ['nullable', 'string', new \App\Rules\PhilippineMobileNumber, 'max:20'],
+            'date_of_birth' => 'nullable|date',
+            'address'       => 'nullable|string|max:255',
+            'occupation'    => 'nullable|string|max:255',
+            'monthly_income' => 'nullable|numeric|min:0',
+            'existing_monthly_obligations' => 'nullable|numeric|min:0',
+            'savings_balance' => 'nullable|numeric|min:0',
+            'approved_credit_limit' => 'nullable|numeric|min:0',
+            'status'        => 'required|string|in:' . implode(',', CoopMember::STATUSES),
+        ]);
+
+        // Unique email check ignoring this member's current email
+        // Manual check to avoid ValidationException redirect to referer;
+        // this mirrors Rule::unique('coop_members', 'email')->ignore($member->id)
+        if (CoopMember::where('email', $validated['email'])
+            ->where('id', '!=', $member->id)
+            ->exists()) {
+            return redirect()->route('active-members.index')
+                ->withErrors(['email' => 'The email has already been taken by another member.'])
+                ->withInput();
+        }
+
+        // Duplicate detection: block on email or contact match with another member
+        $check = app(DuplicateMemberService::class)->check(
+            $validated['full_name'],
+            $validated['email'],
+            $validated['phone'] ?? null,
+            $member->id // exclude this member from the check
+        );
+
+        if ($check['isDuplicate']) {
+            return redirect()->route('active-members.index')
+                ->withErrors(['email' => $check['message']])
+                ->withInput();
+        }
+
+        if ($check['isWarning'] && !$request->filled('confirm_continue')) {
+            return redirect()->route('active-members.index')
+                ->withInput()
+                ->with('warning', $check['message']);
+        }
+
+        $member->full_name = $validated['full_name'];
+        $member->email = $validated['email'];
+        $member->contact_number = $validated['phone'] ?? null;
+        $member->date_of_birth = $validated['date_of_birth'] ?? $member->date_of_birth;
+        $member->address = $validated['address'] ?? $member->address;
+        $member->occupation = $validated['occupation'] ?? $member->occupation;
+        $member->monthly_income = $validated['monthly_income'] ?? $member->monthly_income;
+        $member->existing_monthly_obligations = $validated['existing_monthly_obligations'] ?? $member->existing_monthly_obligations;
+        $member->savings_balance = $validated['savings_balance'] ?? $member->savings_balance;
+        $member->approved_credit_limit = $validated['approved_credit_limit'] ?? $member->approved_credit_limit;
+        $member->status = $validated['status'] ?? $member->status;
+        $member->save();
+
+        // Also update the linked user's email and name if it exists
+        if ($member->user_id) {
+            $user = User::find($member->user_id);
+            if ($user) {
+                $user->email = $validated['email'];
+                $user->name = $validated['full_name'];
+                $user->save();
+            }
+        }
+
+        AuditLog::log('Member Updated', "Member {$member->member_id} ({$member->full_name}) updated by " . Auth::user()->name);
+
+        return redirect()->route('active-members.index')->with('success', 'Member updated successfully!');
     }
 
     // 15. Staff Users Page — lists all four staff roles (admin, branch_manager,
@@ -684,7 +907,7 @@ class AdminController extends Controller
         $oldRole = $user->role;
 
         $user->name  = $validated['name'];
-        $user->email = $validated['email'];
+        $user->email = $validated['email'] ?? $user->email;
         $user->phone = $validated['phone'] ?? null;
         // Both columns move together: a staff account is never a registered
         // non-member in either column.
@@ -785,15 +1008,34 @@ class AdminController extends Controller
                 $coopMember = CoopMember::create([
                     'member_id'      => $memberId,
                     'full_name'      => $application->fullName,
-                    'date_of_birth'  => $application->birthdate ?? now(),
                     'email'          => $application->email,
                     'contact_number' => $application->contact_number,
-                    'is_registered'  => (bool) $userId,
+                    'occupation'     => $application->occupation ?? '',
+                    'is_registered'  => true,
                     'user_id'        => $userId,
                     'status'         => CoopMember::STATUS_ACTIVE,
+                    'monthly_income' => $application->monthly_income,
+                    'existing_monthly_obligations' => $application->existing_monthly_obligations,
                 ]);
             } else {
-                $coopMember->status = CoopMember::STATUS_ACTIVE;
+                // Copy contact details from the application where the member row
+                // is empty, then activate the member regardless of whether an
+                // account is linked (the Active Members page counts is_registered).
+                if (empty($coopMember->email) && $application->email) {
+                    $coopMember->email = $application->email;
+                }
+                if (empty($coopMember->contact_number) && $application->contact_number) {
+                    $coopMember->contact_number = $application->contact_number;
+                }
+                if (empty($coopMember->monthly_income) && $application->monthly_income) {
+                    $coopMember->monthly_income = $application->monthly_income;
+                }
+                if (empty($coopMember->existing_monthly_obligations) && $application->existing_monthly_obligations) {
+                    $coopMember->existing_monthly_obligations = $application->existing_monthly_obligations;
+                }
+
+                $coopMember->status        = CoopMember::STATUS_ACTIVE;
+                $coopMember->is_registered  = true;
 
                 if ($userId && ! $coopMember->user_id) {
                     $coopMember->user_id = $userId;
@@ -847,6 +1089,16 @@ class AdminController extends Controller
             return $coopMember;
         });
 
+	try {
+            Mail::to($application->email)->send(new \App\Mail\MemberApprovedMail(
+                $member->full_name,
+                $member->member_id,
+                (bool) $member->user_id
+            ));
+        } catch (\Throwable $e) {
+            \Log::error('Member approval email failed: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success'   => true,
             'id'        => $id,
@@ -868,6 +1120,19 @@ class AdminController extends Controller
             $application->reviewed_at = now();
             $application->reviewed_by = Auth::id();
             $application->save();
+
+            // Deactivate the linked cooperative membership so a rejected
+            // application is not shown as an active member. Idempotent: a row
+            // that is already non-active is left alone.
+            $member = CoopMember::where('id', $application->approved_member_id)
+                ->orWhere('email', $application->email)
+                ->first();
+
+            if ($member && $member->status === CoopMember::STATUS_ACTIVE) {
+                $member->status       = CoopMember::STATUS_PENDING;
+                $member->is_registered = false;
+                $member->save();
+            }
 
             $userId = $application->user_id
                 ?: User::where('email', $application->email)->value('id');
@@ -902,77 +1167,119 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'id' => $id, 'status' => 'rejected']);
     }
 
-    // 22. Update a membership application
-    public function updateMember(Request $request, $id)
+    // 24. Member Profile — Show (profile, financials, loans, payments, balance)
+    public function memberShow($memberId)
     {
-        $application = MemberApplication::findOrFail($id);
+        $member = CoopMember::with('user')->findOrFail($memberId);
 
-        $validated = $request->validate([
-            'first_name'        => 'required|string|max:255',
-            'middle_name'       => 'nullable|string|max:255',
-            'surname'           => 'required|string|max:255',
-            'email'             => 'required|email|max:255',
-            'contact_number'    => 'nullable|string|max:20',
-            'tin'               => 'nullable|string|max:20',
-            'nationality'       => 'nullable|string|max:100',
-            'place_of_birth'    => 'nullable|string|max:255',
-            'gender'            => 'nullable|string|max:20',
-            'occupation'        => 'nullable|string|max:255',
-            'civil_status'      => 'nullable|string|max:50',
-            'residency_type'    => 'nullable|string|max:50',
-            'perm_house_no'     => 'nullable|string|max:50',
-            'perm_street'       => 'nullable|string|max:255',
-            'perm_barangay'     => 'nullable|string|max:255',
-            'perm_municipality' => 'nullable|string|max:255',
-            'perm_zip_code'     => 'nullable|string|max:20',
-            'perm_stay_years'   => 'nullable|integer|min:0',
-            'perm_stay_months'  => 'nullable|integer|min:0|max:11',
-        ]);
+        if (! $member->user_id) {
+            $loans = collect();
+        } else {
+            $loans = LoanApplication::where('user_id', $member->user_id)
+                ->latest()
+                ->get();
+        }
 
-        $application->surname           = $validated['surname'];
-        $application->first_name        = $validated['first_name'];
-        $application->middle_name       = $validated['middle_name'] ?? '';
-        $application->email             = $validated['email'];
-        $application->contact_number    = $validated['contact_number'] ?? null;
-        $application->tin               = $validated['tin'] ?? null;
-        $application->nationality       = $validated['nationality'] ?? null;
-        $application->place_of_birth    = $validated['place_of_birth'] ?? null;
-        $application->gender            = $validated['gender'] ?? null;
-        $application->occupation        = $validated['occupation'] ?? null;
-        $application->civil_status      = $validated['civil_status'] ?? null;
-        $application->residency_type    = $validated['residency_type'] ?? null;
-        $application->perm_house_no     = $validated['perm_house_no'] ?? null;
-        $application->perm_street       = $validated['perm_street'] ?? null;
-        $application->perm_barangay     = $validated['perm_barangay'] ?? null;
-        $application->perm_municipality = $validated['perm_municipality'] ?? null;
-        $application->perm_zip_code     = $validated['perm_zip_code'] ?? null;
-        $application->perm_stay_years   = $validated['perm_stay_years'] ?? null;
-        $application->perm_stay_months  = $validated['perm_stay_months'] ?? null;
-        $application->save();
+        // Mirror applications for app_id display
+        $mirrors = Application::whereIn('loan_application_id', $loans->pluck('id'))
+            ->get()
+            ->keyBy('loan_application_id');
 
-        return response()->json(['success' => true, 'id' => $id]);
+        // Calculate outstanding balance
+        $outstanding = $loans
+            ->filter(fn($a) => $a->status === 'approved')
+            ->sum('remaining_balance');
+
+        // Get overdue loans
+        $overdue = $loans
+            ->filter(fn($a) => $a->status === 'approved' && $a->next_due_date && $a->next_due_date < now())
+            ->values();
+
+        // Get payments
+        $payments = Payment::whereIn('loan_application_id', $loans->pluck('id'))
+            ->latest()
+            ->get();
+
+        // Total paid
+        $totalPaid = $payments->sum('amount_paid');
+
+        // Active loans
+        $activeLoans = $loans->filter(fn($a) => $a->status === 'approved');
+
+        // Next due date
+        $nextDue = $loans
+            ->filter(fn($a) => $a->status === 'approved' && $a->next_due_date)
+            ->sortBy('next_due_date')
+            ->first();
+
+        return view('admin.member-profile', compact(
+            'member', 'loans', 'mirrors', 'overdue', 'payments',
+            'totalPaid', 'activeLoans', 'outstanding', 'nextDue'
+        ));
     }
 
-    // 23. Delete a membership application
-    public function destroyMember($id)
+    // 25. Member Profile — Update (profile and financials)
+    public function memberUpdate(Request $request, $memberId)
     {
-        $application = MemberApplication::findOrFail($id);
+        $member = CoopMember::findOrFail($memberId);
 
-        if ($application->approved_member_id) {
-            $member = CoopMember::find($application->approved_member_id);
-            if ($member && !$member->is_registered && !$member->user_id) {
-                $member->delete();
+        $validated = $request->validate([
+            'full_name'     => 'nullable|string|max:255',
+            'email'         => 'nullable|email|max:255',
+            'contact_number' => 'nullable|string|max:20',
+            'address'       => 'nullable|string|max:500',
+            'occupation'    => 'nullable|string|max:255',
+            'monthly_income' => 'nullable|numeric|min:0',
+            'existing_monthly_obligations' => 'nullable|numeric|min:0',
+            'savings_balance' => 'nullable|numeric|min:0',
+            'approved_credit_limit' => 'nullable|numeric|min:0',
+        ]);
+
+        $member->full_name = $validated['full_name'] ?? $member->full_name;
+        $member->email = $validated['email'] ?? $member->email;
+        $member->contact_number = $validated['contact_number'] ?? $member->contact_number;
+        $member->address = $validated['address'] ?? $member->address;
+        $member->occupation = $validated['occupation'] ?? $member->occupation;
+        $member->monthly_income = $validated['monthly_income'] ?? $member->monthly_income;
+        $member->existing_monthly_obligations = $validated['existing_monthly_obligations'] ?? $member->existing_monthly_obligations;
+        $member->savings_balance = $validated['savings_balance'] ?? $member->savings_balance;
+        $member->approved_credit_limit = $validated['approved_credit_limit'] ?? $member->approved_credit_limit;
+        $member->save();
+
+        // Also update the linked user's email if it exists
+        if ($member->user_id) {
+            $user = User::find($member->user_id);
+            if ($user) {
+                $user->email = $validated['email'] ?? $user->email;
+                $user->name = $validated['full_name'] ?? $user->name;
+                $user->save();
             }
         }
 
-        $application->delete();
-        return response()->json(['success' => true, 'id' => $id]);
+        return redirect()->route('admin.members.show', $member->id)->with('success', 'Member profile updated successfully.');
     }
 
-    // 24. Navigation Routes
+    // 26. Member Financial Profile — JSON endpoint for modal
+    public function memberFinancial($memberId)
+    {
+        $member = CoopMember::findOrFail($memberId);
+
+        return response()->json([
+            'success' => true,
+            'member_name' => $member->full_name,
+            'financial' => [
+                'monthly_income' => $member->monthly_income,
+                'existing_monthly_obligations' => $member->existing_monthly_obligations,
+                'savings_balance' => $member->savings_balance,
+                'approved_credit_limit' => $member->approved_credit_limit,
+            ],
+        ]);
+    }
+
+    // 27. Navigation Routes
     public function repayments()
     {
-        $repayments = Payment::with('loanApplication.user', 'application')
+        $repayments = Payment::with('loanApplication.user')
             ->latest()
             ->get();
         $totalRepayments = Payment::sum('amount_paid');
@@ -1107,7 +1414,10 @@ class AdminController extends Controller
 
         $dateWhere = null;
         if ($startDate && $endDate) {
-            $dateWhere = fn ($q) => $q->whereBetween('created_at', [$startDate, $endDate]);
+            // Issue B: inclusive of the end date (whereBetween treats date-only
+            // end as midnight, dropping records created on the end date itself).
+            $dateWhere = fn ($q) => $q->whereDate('created_at', '>=', $startDate)
+                ->whereDate('created_at', '<=', $endDate);
         } elseif ($startDate) {
             $dateWhere = fn ($q) => $q->whereDate('created_at', '>=', $startDate);
         } elseif ($endDate) {
@@ -1235,7 +1545,7 @@ class AdminController extends Controller
     private function approvedLoanRecordsData(array $filters): \Illuminate\Support\Collection
     {
         $query = LoanApplication::whereIn('status', ['approved'])
-            ->with(['user.coopMember']);
+            ->with(['user.coopMember', 'application.approver']);
 
         $query = $this->applyReportFilters($query, $filters);
 
@@ -1245,9 +1555,15 @@ class AdminController extends Controller
                 $member = $app->user?->coopMember;
                 $approvedAmt = $app->approved_amount ?? $app->amount;
 
+                // Approver name (falls back to "—").
+                $approverName = null;
+                if ($app->application && $app->application->approver) {
+                    $approverName = $app->application->approver->name ?? null;
+                }
+
                 return (object)[
-                    'member_name'     => $member?->full_name ?? 'Applicant',
-                    'member_id'       => $member?->id ?? null,
+                    'member_name'     => $app->fullName(),
+                    'member_id'       => $app->user?->id ?? null,
                     'loan_type'       => $app->loan_type,
                     'loan_type_label' => $app->getLoanTypeLabelAttribute(),
                     'approved_amount' => Format::money($approvedAmt),
@@ -1255,8 +1571,8 @@ class AdminController extends Controller
                     'risk_level'      => $app->risk_level,
                     'recommended_amt' => Format::money($app->recommended_amount ?? 0),
                     'approved_date'   => $app->reviewed_at ? $app->reviewed_at->format('M d, Y') : 'N/A',
-                    'approved_by'     => $app->admin_remarks ?? 'N/A',
-                    'app_id'          => $app->app_id,
+                    'approved_by'     => $approverName ?? '—',
+                    'app_id'          => $app->application?->app_id ?? $app->reference,
                 ];
             });
     }
@@ -1278,12 +1594,11 @@ class AdminController extends Controller
         return $query->latest('reviewed_at')
             ->get()
             ->map(function ($app) {
-                $member = $app->user?->coopMember;
                 $overdueDays = (int) now()->startOfDay()->diff(Carbon::parse($app->next_due_date)->startOfDay())->days;
 
                 return (object)[
-                    'member_name'   => $member?->full_name ?? 'Applicant',
-                    'member_id'     => $member?->id ?? null,
+                    'member_name'   => $app->fullName(),
+                    'member_id'     => $app->user?->id ?? null,
                     'loan_type'     => $app->loan_type,
                     'loan_type_label' => $app->getLoanTypeLabelAttribute(),
                     'amount'         => Format::money((float) $app->remaining_balance),
@@ -1314,30 +1629,56 @@ class AdminController extends Controller
             $loanApps = $loanAppsQuery->get();
 
             $totalPaid = 0;
-            $totalLoanAmount = 0;
+            $totalApprovedAmount = 0;
+            $outstandingBalance = 0;
             $onTime = 0;
             $late = 0;
             $overdue = 0;
 
             foreach ($loanApps as $la) {
-                $totalLoanAmount += (float) ($la->amount ?? 0);
+                // Issue C: only count approved loans for approved amount
+                if ($la->status === LoanStatus::APPROVED) {
+                    $totalApprovedAmount += (float) ($la->amount ?? 0);
+                    $outstandingBalance += (float) ($la->remaining_balance ?? 0);
+                }
 
-                $payments = Payment::where('loan_application_id', $la->id)
-                    ->when($filters['start_date'] && $filters['end_date'], fn ($q) =>
-                        $q->whereBetween('payment_date', [$filters['start_date'], $filters['end_date']])
-                    )
+                // Get ALL payments ordered chronologically for correct ordinal positions
+                $allPayments = Payment::where('loan_application_id', $la->id)
+                    ->orderBy('payment_date', 'asc')
                     ->get();
+                $paymentCount = $allPayments->count();
+                $nextDue = $la->next_due_date ?? null;
 
-                foreach ($payments as $p) {
+                foreach ($allPayments as $index => $p) {
+                    // Issue B: inclusive end-date filter on payment_date
+                    if ($filters['start_date'] && $filters['end_date']) {
+                        $pd = $p->payment_date;
+                        if (!$pd || !$pd->startOfDay()->gte($filters['start_date']) || !$pd->startOfDay()->lte($filters['end_date'])) {
+                            continue;
+                        }
+                    }
+
                     $totalPaid += (float) ($p->amount_paid ?? 0);
-                    $dueDate = $la->next_due_date ?? null;
+
+                    // Issue A: anchor per-payment due date backwards from next_due_date
+                    // next_due_date = due date for installment ($paymentCount + 1).
+                    // Payment (#$index+1) due date = next_due_date - ($paymentCount - $index) months.
+                    $dueDate = null;
+                    if ($nextDue) {
+                        $dueDate = Carbon::parse($nextDue)->subMonths($paymentCount - $index)->startOfDay();
+                    }
+
                     if ($dueDate && $p->payment_date) {
-                        $diffDays = (int) $p->payment_date->diff($dueDate)->days;
-                        if ($diffDays <= 0) {
+                        // diffInDays(signed): payment_date - dueDate
+                        //   >= 0 = payment on or before due date → on-time
+                        //   < 0  = payment after due date → late
+                        // Overdue when > 30 days late (diffDays < -30)
+                        $diffDays = (int) $p->payment_date->startOfDay()->diffInDays($dueDate, false);
+                        if ($diffDays >= 0) {
                             $onTime++;
                         } else {
                             $late++;
-                            if ($diffDays > 30) {
+                            if ($diffDays < -30) {
                                 $overdue++;
                             }
                         }
@@ -1345,14 +1686,10 @@ class AdminController extends Controller
                 }
             }
 
-            $outstanding = (float) $totalLoanAmount - (float) $totalPaid;
-
             $label = 'Good';
             if ($overdue > 0) {
                 $label = 'Poor';
-            } elseif ($late > $onTime && ($onTime + $late) > 0) {
-                $label = 'Fair';
-            } elseif ($late > 0) {
+            } elseif ($late > $onTime) {
                 $label = 'Fair';
             }
 
@@ -1360,9 +1697,9 @@ class AdminController extends Controller
                 'member_name'   => $member->full_name ?? 'Unknown',
                 'member_id'     => $member->id,
                 'total_loans'   => $loanApps->count(),
-                'total_approved_amount' => Format::money($totalLoanAmount),
+                'total_approved_amount' => Format::money($totalApprovedAmount),
                 'total_paid'    => Format::money($totalPaid),
-                'outstanding'   => Format::money($outstanding),
+                'outstanding'   => Format::money($outstandingBalance),
                 'on_time_count' => $onTime,
                 'late_count'    => $late,
                 'overdue_count' => $overdue,
@@ -1579,7 +1916,7 @@ class AdminController extends Controller
         $oldValues = $repayment->toArray();
 
         DB::transaction(function () use ($repayment, $validated, $newAmount, $oldAmount, $loanApplication, $oldValues) {
-            // Update only editable fields
+            // Update only editable fields.
             $repayment->update([
                 'amount_paid' => $newAmount,
                 'payment_method' => $validated['payment_method'] ?? null,
@@ -1913,7 +2250,7 @@ class AdminController extends Controller
                 'full_name' => $loanApp?->fullName() ?? ($application->applicant ?? 'Applicant'),
                 'monthly_income' => $loanApp ? (float) $loanApp->monthly_income : 0,
                 'existing_monthly_obligations' => $loanApp ? (float) $loanApp->existing_monthly_obligations : 0,
-                'share_capital' => $loanApp ? (float) $loanApp->share_capital : 0,
+                'savings_balance' => $loanApp ? (float) $loanApp->savings_balance : 0,
             ],
         ]);
     }
@@ -1998,6 +2335,36 @@ class AdminController extends Controller
 
         return view('admin.backup', compact('backups'));
     }
+
+public function createBackup(Request $request)
+{
+    try {
+        $backupDir = base_path('storage/app/backups');
+        if (! is_dir($backupDir)) {
+            mkdir($backupDir, 0755, true);
+        }
+
+        $database = \Illuminate\Support\Facades\DB::connection()->getDatabaseName();
+        $filename = "backup_{$database}_" . now()->format('Y-m-d_H-i-s') . '.sql.gz';
+
+        \App\Support\DatabaseDumper::dumpToGzip($backupDir . '/' . $filename);
+
+        // Keep only the 14 newest backups
+        $files = glob($backupDir . '/backup_*.sql.gz') ?: [];
+        usort($files, fn ($a, $b) => filemtime($b) <=> filemtime($a));
+        foreach (array_slice($files, 14) as $old) {
+            @unlink($old);
+        }
+
+        return redirect()->route('admin.backup')
+            ->with('status', "Backup created: {$filename}");
+    } catch (\Throwable $e) {
+        \Log::error('Manual backup failed: ' . $e->getMessage());
+
+        return redirect()->route('admin.backup')
+            ->with('error', 'Backup failed: ' . $e->getMessage());
+    }
+}
 
     /**
      * Download a stored backup file.
@@ -2205,13 +2572,16 @@ class AdminController extends Controller
         $monthlyIncome = (float) ($loanApp?->monthly_income ?? 0);
         $amount = (float) ($application?->amount ?? 0);
         $termMonths = (int) ($loanApp?->term_months ?? 12);
-        $shareCapital = (float) ($loanApp?->share_capital ?? 0);
-        $savings = (float) ($loanApp?->savings ?? 0);
+        $memberSavings = (float) ($loanApp?->savings_balance ?? 0);
+        $existingOblig = (float) ($loanApp?->existing_monthly_obligations ?? 0);
+        $monthlyIncome = (float) ($loanApp?->monthly_income ?? 0);
+        $amount = (float) ($application?->amount ?? 0);
+        $termMonths = (int) ($loanApp?->term_months ?? 12);
 
         // Delegate EMI calculation to AmortizationService
         $emi = $amount > 0 && $termMonths > 0 ? app(AmortizationService::class)->emi($amount, $termMonths) : 0;
         $dti = $monthlyIncome > 0 ? round(($emi / $monthlyIncome) * 100, 2) : null;
-        $savingsPool = $shareCapital + $savings;
+        $savingsPool = $memberSavings;  // savings balance replaces share capital + savings
         $savingsToLoan = $amount > 0 ? round(($savingsPool / $amount) * 100, 2) : null;
 
         $delinquencyStatus = 'Clean';

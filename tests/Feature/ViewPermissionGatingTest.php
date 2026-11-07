@@ -276,9 +276,9 @@ class ViewPermissionGatingTest extends TestCase
     }
 
     /**
-     * "Add Staff" is manage_users; "Add Membership Application" is approve_memberships.
-     * Both pages are only reachable by the role that owns them, so this asserts
-     * the button and the page permission agree rather than 403-ing.
+     * Staff add members through "+ Add Member" on Active Members; membership
+     * applications only come from the online form. The memberships page must
+     * therefore NOT show a "+ Add Membership Application" button to any role.
      *
      * @dataProvider staffRoleProvider
      */
@@ -297,9 +297,80 @@ class ViewPermissionGatingTest extends TestCase
         $memberships = $this->actingAs($user)->get('/memberships');
         if (Permissions::has($user, Permissions::APPROVE_MEMBERSHIPS)) {
             $memberships->assertOk();
-            $this->assertStringContainsString('+ Add Membership Application', $memberships->getContent());
+            $this->assertStringNotContainsString('+ Add Membership Application', $memberships->getContent());
         } else {
             $memberships->assertForbidden();
+        }
+    }
+
+    /**
+     * The "+ New Application" button and the encode form (action to applications.encode.store)
+     * must be visible to roles with encode_applications permission (loan_officer, admin, branch_manager).
+     * Credit Investigator has view_applications but NOT encode_applications.
+     *
+     * @dataProvider staffRoleProvider
+     */
+    public function test_applications_index_shows_modal_and_encode_form_for_loan_officer(string $role): void
+    {
+        $user = User::factory()->create(['usertype' => $role]);
+
+        $response = $this->actingAs($user)->get(route('applications.index'));
+
+        if (! Permissions::has($user, Permissions::VIEW_APPLICATIONS)) {
+            $response->assertForbidden();
+            return;
+        }
+
+        $response->assertOk();
+        $html = $response->getContent();
+
+        $hasEncodePermission = Permissions::has($user, Permissions::ENCODE_APPLICATIONS);
+
+        // The "+ New Application" button triggers openEncodeModal() — check for the text
+        $this->assertSame(
+            $hasEncodePermission,
+            str_contains($html, '+ New Application'),
+            "Role '{$role}' visibility for '+ New Application' button does not follow encode_applications"
+        );
+
+        // The encode form action must follow encode_applications permission
+        $encodeFormAction = route('applications.encode.store');
+        $this->assertSame(
+            $hasEncodePermission,
+            str_contains($html, $encodeFormAction),
+            "Role '{$role}' encode form action does not follow encode_applications"
+        );
+    }
+
+    /**
+     * The "+ New Application" button must be absent for roles without encode_applications.
+     * This is the inverse of the above test, explicitly asserting absence.
+     *
+     * @dataProvider staffRoleProvider
+     */
+    public function test_applications_index_hides_new_application_button_without_permission(string $role): void
+    {
+        $user = User::factory()->create(['usertype' => $role]);
+
+        $response = $this->actingAs($user)->get(route('applications.index'));
+
+        if (! Permissions::has($user, Permissions::VIEW_APPLICATIONS)) {
+            $response->assertForbidden();
+            return;
+        }
+
+        $response->assertOk();
+        $html = $response->getContent();
+
+        $hasEncodePermission = Permissions::has($user, Permissions::ENCODE_APPLICATIONS);
+
+        // Roles without encode_applications must NOT see the button
+        if (! $hasEncodePermission) {
+            $this->assertStringNotContainsString(
+                '+ New Application',
+                $html,
+                "Role '{$role}' without encode_applications must not see '+ New Application' button"
+            );
         }
     }
 }

@@ -67,3 +67,7 @@ Plain `php artisan migrate` (without `ALLOW_PROTECTED_DB=1`) on the `sdcc` datab
 - `phpunit.xml` forces `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:`
 - Tests must never use MySQL by accident (checked in `tests/TestCase.php`)
 - Run: `vendor/bin/phpunit`
+
+## Plugins
+Always use the Ponytail and Graphify plugins when working in this project, whenever they apply.
+If one is unavailable, tell the user before continuing.

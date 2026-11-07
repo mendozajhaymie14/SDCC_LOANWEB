@@ -36,7 +36,17 @@ class UserController extends Controller
             'borrowed' => $applications->where('status', 'approved')->sum('amount'),
         ];
 
-        return view('user.index', compact('user', 'applications', 'summary'));
+        // Unread payment reminders for the bell badge and the
+        // "Active Payment Reminders" panel (created by reminders:send-due).
+        $unreadNotifications = AppNotification::where('user_id', $user->id)
+            ->where(function ($q) {
+                $q->where('is_read', false)->orWhereNull('is_read');
+            })
+            ->latest()
+            ->take(10)
+            ->get();
+
+        return view('user.index', compact('user', 'applications', 'summary', 'unreadNotifications'));
     }
 
     /**
@@ -48,6 +58,12 @@ class UserController extends Controller
     public function membership()
     {
         $user = Auth::user();
+
+        // If the user already has the 'member' role, redirect to dashboard
+        if ($user->isActiveCoopMember()) {
+            return redirect()->route('user.dashboard')
+                ->with('info', 'You are already a member.');
+        }
 
         $application = MemberApplication::where('user_id', $user->id)
             ->latest('id')
@@ -63,19 +79,33 @@ class UserController extends Controller
     {
         $user = Auth::user();
 
-        // Only an active cooperative member may borrow. A registered
-        // non-member is sent to the membership page with a clear message.
-        if (! $user->isActiveCoopMember()) {
+        // If user already has the 'member' role (active coop membership), proceed
+        if ($user->isActiveCoopMember()) {
+            return view('user.loan', [
+                'user'      => $user,
+                'loanTypes' => Config::get('loan_matrix.loan_types'),
+                'coopMember' => $user->coopMember,
+            ]);
+        }
+
+        // If user has APPLY_MEMBERSHIP permission (role 'user'), send to membership page
+        if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_MEMBERSHIP)) {
             return redirect()
                 ->route('user.membership')
                 ->with('error', 'You must become an active cooperative member first before you can apply for a loan. Click “Become a member” to start your membership application.');
         }
 
-        return view('user.loan', [
-            'user'      => $user,
-            'loanTypes' => Config::get('loan_matrix.loan_types'),
-            'coopMember' => $user->coopMember,
-        ]);
+        // Inactive coop member or member without active record: redirect to membership page
+        // so they can reactivate/renew their membership rather than going to dashboard.
+        if ($user->usertype === 'member') {
+            return redirect()
+                ->route('user.membership')
+                ->with('error', 'Your membership is currently inactive. Please reactivate your membership before applying for a loan.');
+        }
+
+        // Registered non-member with no membership link
+        return redirect()->route('user.dashboard')
+            ->with('error', 'Your account is not linked to an active membership record. Please contact the cooperative office.');
     }
 
     /**
@@ -99,10 +129,16 @@ class UserController extends Controller
         // Defense-in-depth: never accept a loan submission from somebody who
         // is not an active cooperative member, even if the form page is
         // bypassed by a direct POST.
-        if (! Auth::user()->isActiveCoopMember()) {
-            return redirect()
-                ->route('user.membership')
-                ->with('error', 'You must become an active cooperative member first before you can apply for a loan.');
+        $user = Auth::user();
+        if (! $user->isActiveCoopMember()) {
+            if (\App\Support\Permissions::has($user, \App\Support\Permissions::APPLY_MEMBERSHIP)) {
+                return redirect()
+                    ->route('user.membership')
+                    ->with('error', 'You must become an active cooperative member first before you can apply for a loan.');
+            }
+
+            return redirect()->route('user.dashboard')
+                ->with('error', 'Your account is not linked to an active membership record. Please contact the cooperative office.');
         }
 
         $loanType = $request->input('loan_type');
@@ -133,7 +169,6 @@ class UserController extends Controller
             'address'                    => ['nullable', 'string', 'max:500'],
             'birth_date'                 => ['nullable', 'date'],
             'source_of_income'           => ['required', 'in:' . implode(',', Config::get('loan_matrix.form_options.source_of_income'))],
-            'employer_name'              => ['nullable', 'string', 'max:255'],
             'monthly_income'             => ['required', 'numeric', 'min:1'],
             'existing_monthly_obligations' => ['required', 'numeric', 'min:0'],
             'purpose_of_loan'            => ['required', 'in:Educational,Business,Personal,Emergency'],
@@ -154,6 +189,11 @@ class UserController extends Controller
 
         $data = $request->validate($rules, $messages);
 
+        // Override full_name and email from member profile — these are read-only
+        // on the form for logged-in members, so the server trusts the profile.
+        $data['full_name'] = Auth::user()->coopMember ? Auth::user()->coopMember->full_name : Auth::user()->name;
+        $data['email'] = Auth::user()->coopMember ? Auth::user()->coopMember->email : Auth::user()->email;
+
         // Consent validation: require document_consent when documents are uploaded
         if ($request->hasFile('required_documents') && ! $request->boolean('document_consent')) {
             return back()->withInput()->withErrors([
@@ -162,21 +202,14 @@ class UserController extends Controller
             ]);
         }
 
-        // Auto-fill removed fields from member application record
+        // Auto-fill from member application record
         $memberApp = Auth::user()->memberApplication;
         $data['contact_number'] = ($memberApp?->contact_number ?? Auth::user()->phone ?? 'N/A');
         $data['address'] = ($memberApp?->street ?? Auth::user()->address ?? 'N/A');
-        $data['birth_date'] = ($memberApp?->birthdate ?? Auth::user()->birthdate ?? null);
+        $data['birth_date'] = (Auth::user()->birthdate ?? null);
 
         // Set employment_status from memberApplication's occupation field
         $data['employment_status'] = ($memberApp?->occupation ?? 'Employed');
-
-        // Employer name is required for Employed and Business Owner
-        if (\in_array($data['employment_status'], ['Employed', 'Business Owner'], true) && empty($data['employer_name'])) {
-            return back()
-                ->withInput()
-                ->withErrors(['employer_name' => 'Employer or business name is required for this employment status.']);
-        }
 
         // Block a second application while one is still under review.
         $hasPending = LoanApplication::where('user_id', Auth::id())

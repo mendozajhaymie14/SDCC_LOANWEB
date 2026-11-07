@@ -115,13 +115,19 @@ class DuplicateMemberService
 
         $message = $this->buildMessage($isDuplicate, $isWarning, $matchedFields, $existingMember);
 
-        return [
-            'isDuplicate' => $isDuplicate,
-            'isWarning' => $isWarning,
-            'message' => $message,
-            'matchedFields' => $matchedFields,
-            'existingMember' => $existingMember,
-        ];
+// Safe text for the public: never names another member or says which field matched.
+$publicMessage = ($isDuplicate || $isWarning)
+    ? 'We could not process this application because some of the details you entered are already on file. If you are already a member, please register or sign in using your Member ID. Otherwise, please contact the cooperative office.'
+    : '';
+
+return [
+    'isDuplicate'   => $isDuplicate,
+    'isWarning'     => $isWarning,
+    'message'       => $message,          // staff-only, includes details
+    'publicMessage' => $publicMessage,    // safe for applicants
+    'matchedFields' => $matchedFields,
+    'existingMember' => $existingMember,
+];
     }
 
     /**

@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Application;
+use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -645,13 +647,14 @@ class RepaymentTest extends TestCase
             'name' => 'Juan Dela Cruz',
         ]);
 
-        $loanApplication = LoanApplication::factory()->create([
+        $loanApplication = LoanApplication::factory()->create(array_merge([
             'user_id' => $branchManager->id,
+            'full_name' => '',
             'amount' => 10000,
             'term_months' => 12,
             'status' => 'approved',
             'remaining_balance' => 8000,
-        ]);
+        ]));
 
         $application = Application::factory()->create([
             'loan_application_id' => $loanApplication->id,
@@ -709,13 +712,14 @@ class RepaymentTest extends TestCase
     {
         $admin = User::factory()->create(['usertype' => 'admin', 'role' => 'admin', 'name' => 'Maria Santos']);
 
-        $loanApplication = LoanApplication::factory()->create([
+        $loanApplication = LoanApplication::factory()->create(array_merge([
             'user_id' => $admin->id,
+            'full_name' => "Santos, Maria",
             'amount' => 15000,
             'term_months' => 24,
             'status' => 'approved',
             'remaining_balance' => 12000,
-        ]);
+        ]));
 
         $application = Application::factory()->create([
             'loan_application_id' => $loanApplication->id,
@@ -757,13 +761,14 @@ class RepaymentTest extends TestCase
             'name' => "Sean O'Brien",
         ]);
 
-        $loanApplication = LoanApplication::factory()->create([
+        $loanApplication = LoanApplication::factory()->create(array_merge([
             'user_id' => $branchManager->id,
+            'full_name' => "O'Brien, Sean",
             'amount' => 5000,
             'term_months' => 6,
             'status' => 'approved',
             'remaining_balance' => 4000,
-        ]);
+        ]));
 
         $application = Application::factory()->create([
             'loan_application_id' => $loanApplication->id,
@@ -791,5 +796,53 @@ class RepaymentTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee("O'Brien, Sean");
         $response->assertSee('#APP-OBRIEN');
+    }
+
+    /** @test */
+    public function repayments_list_shows_recorded_by_name(): void
+    {
+        $recorder = User::factory()->create([
+            'usertype' => Permissions::ROLE_LOAN_OFFICER,
+            'name' => 'Staff Recorder',
+        ]);
+
+        $borrower = User::factory()->create(['usertype' => Permissions::ROLE_MEMBER]);
+        CoopMember::factory()->create(['user_id' => $borrower->id, 'full_name' => 'Borrower Name']);
+
+        $loanApplication = LoanApplication::factory()->create(array_merge([
+            'user_id' => $borrower->id,
+            'full_name' => 'Borrower Name',
+            'amount' => 10000,
+            'term_months' => 12,
+            'status' => 'approved',
+            'remaining_balance' => 8000,
+        ]));
+
+        $application = Application::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'app_id' => 'APP-0001',
+            'amount' => 10000,
+            'term_months' => 12,
+            'status' => 'Approved',
+            'remaining_balance' => 8000,
+        ]);
+
+        Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'user_id' => $borrower->id,
+            'amount_paid' => 2000,
+            'remaining_balance_after' => 8000,
+            'reference_no' => 'REF-001',
+            'payment_method' => 'Cash',
+            'payment_date' => now(),
+            'encoded_by' => $recorder->id,
+            'recorded_by' => $recorder->id,
+            'notes' => 'Test payment',
+        ]);
+
+        $response = $this->actingAs($recorder)->get('/repayments');
+
+        $response->assertStatus(200);
+        $response->assertSee('Staff Recorder');
     }
 }

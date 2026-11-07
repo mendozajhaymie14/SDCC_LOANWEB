@@ -2,17 +2,10 @@
 
 namespace App\Providers;
 
-use App\Events\LoanApplicationApproved;
-use App\Events\LoanApplicationDisbursed;
-use App\Events\PaymentReceived;
-use App\Listeners\NotifyMemberOfApproval;
-use App\Listeners\NotifyMemberOfDisbursement;
-use App\Listeners\NotifyMemberOfPayment;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
-use Illuminate\Support\Facades\Event;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -32,19 +25,6 @@ class EventServiceProvider extends ServiceProvider
         Logout::class => [
             // Add listeners for user logout if needed
         ],
-
-        // Loan application lifecycle events
-        LoanApplicationApproved::class => [
-            NotifyMemberOfApproval::class,
-        ],
-
-        LoanApplicationDisbursed::class => [
-            NotifyMemberOfDisbursement::class,
-        ],
-
-        PaymentReceived::class => [
-            NotifyMemberOfPayment::class,
-        ],
     ];
 
     /**
@@ -52,19 +32,6 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Event::listen(
-            LoanApplicationApproved::class,
-            NotifyMemberOfApproval::class
-        );
-
-        Event::listen(
-            LoanApplicationDisbursed::class,
-            NotifyMemberOfDisbursement::class
-        );
-
-        Event::listen(
-            PaymentReceived::class,
-            NotifyMemberOfPayment::class
-        );
+        //
     }
 }

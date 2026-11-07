@@ -446,7 +446,7 @@ use App\Models\Setting;
               <td class="font-medium text-gray-600 text-sm">{{ $log->created_at->format('M d, Y H:i') }}</td>
               <td class="font-medium text-gray-600 text-sm">{{ $log->recipient_email }}</td>
               <td class="font-medium text-gray-600 text-sm" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $log->subject }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ $log->user_id ? '<a href="#" class="text-accent hover:underline">' . $log->user_id . '</a>' : '—' }}</td>
+              <td class="font-medium text-gray-600 text-sm">{{ $log->user_id ?: '—' }}</td>
               <td class="font-medium text-gray-600 text-sm">{{ $log->loan_application_id ? 'APP-' . str_pad($log->loan_application_id, 4, '0', STR_PAD_LEFT) : '—' }}</td>
               <td class="font-medium text-gray-600 text-sm">{{ ucfirst($log->notification_type) }}</td>
               <td class="font-medium text-gray-600 text-sm">{{ ucfirst($log->channel) }}</td>

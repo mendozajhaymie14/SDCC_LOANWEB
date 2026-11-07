@@ -31,7 +31,6 @@
                 <option value="{{ $m->id }}"
                         data-income="{{ $m->monthly_income ?? '' }}"
                         data-obligations="{{ $m->existing_monthly_obligations ?? '' }}"
-                        data-share="{{ $m->share_capital ?? '' }}"
                         data-savings="{{ $m->savings_balance ?? '' }}"
                         data-credit="{{ $m->approved_credit_limit ?? '' }}">
                   {{ $m->full_name }} ({{ $m->member_id }})
@@ -55,7 +54,7 @@
             @error('amount')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
           </label>
           <div id="incomeWarning" style="display:none; margin-top:4px; padding:6px 10px; border:1px solid #f59e0b; background:#fffbeb; color:#92400e; border-radius:6px; font-size:0.75rem;">
-            ⚠️ <span id="incomeWarningText"></span>
+            <i class="fa-solid fa-triangle-exclamation nav-icon"></i> <span id="incomeWarningText"></span>
           </div>
 
           <label style="font-size:0.75rem;">Payment Term (months)
@@ -67,6 +66,37 @@
             <input class="form-input" type="text" name="purpose" maxlength="255" value="{{ old('purpose') }}" required />
             @error('purpose')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
           </label>
+
+          <label style="font-size:0.75rem;">Monthly Income (₱)
+            <input class="form-input" type="number" step="0.01" min="0" name="monthly_income" value="{{ old('monthly_income') }}" data-validate="positive" id="encodeMonthlyIncome" />
+            @error('monthly_income')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </label>
+
+          <label style="font-size:0.75rem;">Existing Monthly Obligations (₱)
+            <input class="form-input" type="number" step="0.01" min="0" name="existing_monthly_obligations" value="{{ old('existing_monthly_obligations') }}" data-validate="positive" id="encodeObligations" />
+            @error('existing_monthly_obligations')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </label>
+
+          <label style="font-size:0.75rem;">Source of Income
+            <select class="form-select" name="source_of_income" id="encodeSourceOfIncome">
+              @foreach(config('loan_matrix.form_options.source_of_income', []) as $option)
+                <option value="{{ $option }}" {{ (string) old('source_of_income') === (string) $option ? 'selected' : '' }}>{{ $option }}</option>
+              @endforeach
+            </select>
+            @error('source_of_income')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </label>
+
+          <label style="font-size:0.75rem;">Required Documents
+            <input type="file" class="form-input" name="required_documents[]" multiple accept=".jpg,.jpeg,.png,.pdf" id="encodeDocuments" />
+            @error('required_documents')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </label>
+
+          <label style="font-size:0.75rem; display:block; margin-top:6px; line-height:1.3;">Uploaded documents will be AI-scanned. The scan is advisory; recommended amounts and risk levels are rule-based.</label>
+
+          <label style="font-size:0.75rem;">I consent to the AI scanning of my uploaded documents. The AI check is advisory and does not affect approval amounts or risk levels.
+            <input type="checkbox" name="document_consent" id="encodeConsent" style="margin-left:6px;" {{ (string) old('document_consent') === '1' ? 'checked' : '' }}/>
+            @error('document_consent')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </label>
         </div>
 
         <h3 style="font-size:0.95rem; margin: 16px 0 6px;">Member Financial Profile (read from the member record)</h3>
@@ -74,7 +104,6 @@
           <tbody>
             <tr><td><strong>Monthly income</strong></td><td id="mIncome">—</td></tr>
             <tr><td><strong>Existing monthly obligations</strong></td><td id="mObligations">—</td></tr>
-            <tr><td><strong>Share capital</strong></td><td id="mShare">—</td></tr>
             <tr><td><strong>Savings balance</strong></td><td id="mSavings">—</td></tr>
             <tr><td><strong>Approved credit limit</strong></td><td id="mCredit">—</td></tr>
           </tbody>

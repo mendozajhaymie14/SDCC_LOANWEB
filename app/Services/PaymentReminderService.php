@@ -43,9 +43,9 @@ class PaymentReminderService
             $today,
             AppNotification::TYPE_DUE_SOON,
             'Upcoming Payment Due Soon',
-            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_due_soon', "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
-                . " is due on {$loan->next_due_date->format('M d, Y')} ({$loan->next_due_date->diffInDays($today)} day(s) from today). "
-                . "Please ensure sufficient funds are available."),
+            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_due_soon',
+                "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
+                    . $this->dueSoonText($loan, $today) . " Please ensure sufficient funds are available."),
             $totals
         );
 
@@ -65,10 +65,11 @@ class PaymentReminderService
             $today,
             AppNotification::TYPE_OVERDUE,
             'Overdue Payment Reminder',
-            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_overdue', "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
-                . " was due " . intval(abs($loan->next_due_date->diffInDays($today))) . " day(s) ago ({$loan->next_due_date->format('M d, Y')}). "
-                . "Outstanding balance: " . \App\Support\Format::money((float) $loan->remaining_balance)
-                . ". Please remit payment immediately to avoid further penalties."),
+            fn(LoanApplication $loan) => $this->buildMessage($loan, 'template_overdue',
+                "Your payment of " . \App\Support\Format::money((float) $loan->monthly_payment)
+                    . $this->overdueText($loan, $today)
+                    . " Outstanding balance: " . \App\Support\Format::money((float) $loan->remaining_balance)
+                    . ". Please remit payment immediately to avoid further penalties."),
             $totals
         );
 
@@ -139,25 +140,45 @@ class PaymentReminderService
             try {
                 $message = $messageBuilder($loan);
 
-                // In-app notification
-                AppNotification::create([
-                    'user_id'             => $loan->user_id,
-                    'loan_application_id' => $loan->id,
-                    'title'               => $title,
-                    'message'             => $message,
-                    'type'                => $type,
-                    'is_read'             => false,
-                    'sent_at'             => now(),
-                ]);
+                // In-app notification: skip if user_id is null (staff-encoded loans)
+                if ($loan->user_id) {
+                    AppNotification::create([
+                        'user_id'             => $loan->user_id,
+                        'loan_application_id' => $loan->id,
+                        'title'               => $title,
+                        'message'             => $message,
+                        'type'                => $type,
+                        'is_read'             => false,
+                        'sent_at'             => now(),
+                    ]);
+                }
 
-                // Send email
-                $this->sendEmail($loan, $title, $message);
+                // Send email; check the return value to avoid false "Sent" log
+                $emailSent = $this->sendEmail($loan, $title, $message);
 
-                // Only log Sent AFTER a successful send attempt
-                AppNotificationLog::log((string) ($loan->user?->email ?? config('mail.from.address')), $title, $type, 'Sent', 'email', $loan->user_id, $loan->id);
+                if ($emailSent) {
+                    // Only log Sent after a successful send attempt
+                    // Use the same fallback chain as sendEmail() so the logged
+                    // recipient_email matches the actual email that was sent.
+                    $logEmail = $loan->user?->coopMember?->email
+                        ?? $loan->user?->email
+                        ?? $loan->email
+                        ?? config('mail.from.address');
+                    AppNotificationLog::log($logEmail, $title, $type, 'Sent', 'email', $loan->user_id, $loan->id);
 
-                $sent++;
-                $totals['sent']++;
+                    $sent++;
+                    $totals['sent']++;
+                } else {
+                    // Email was not sent because there's no email on file — log as Skipped
+                    $skipEmail = $loan->user?->coopMember?->email
+                        ?? $loan->user?->email
+                        ?? $loan->email
+                        ?? config('mail.from.address');
+
+                    AppNotificationLog::log($skipEmail, $title, $type, 'Skipped', 'email', $loan->user_id, $loan->id);
+
+                    $totals['skipped']++;
+                }
 
             } catch (\Throwable $e) {
                 Log::error('Payment reminder failed for loan', [
@@ -167,7 +188,13 @@ class PaymentReminderService
                 ]);
 
                 // Log email failure with the error message
-                AppNotificationLog::logFailed((string) ($loan->user?->email ?? config('mail.from.address')), $title, $type, $e->getMessage(), 'email', $loan->user_id, $loan->id);
+                // Use the same fallback chain for the error log
+                $email = $loan->user?->coopMember?->email
+                    ?? $loan->user?->email
+                    ?? $loan->email;
+                $errorEmail = $email ?? config('mail.from.address');
+
+                AppNotificationLog::logFailed($errorEmail, $title, $type, $e->getMessage(), 'email', $loan->user_id, $loan->id);
 
                 $totals['errors']++;
             }
@@ -198,19 +225,71 @@ class PaymentReminderService
     }
 
     /**
-     * Send the reminder email to the borrower.
-     * Failures are caught and logged by the caller.
+     * Whole calendar days from $today to the loan's due date.
+     * Positive = due in the future, 0 = today, negative = overdue.
+     *
+     * The due date is rebuilt as a plain calendar day in the same timezone as
+     * $today. Converting a UTC midnight into Manila time shifts it by 8 hours,
+     * which turned 3 overdue days into "2" and 2 days ahead into "2.33".
      */
-    private function sendEmail(LoanApplication $loan, string $title, string $message): void
+    private function daysFromToday(LoanApplication $loan, Carbon $today): int
     {
-        $email = $loan->user?->email;
+        $dueDay = Carbon::parse($loan->next_due_date->format('Y-m-d'), $today->getTimezone())->startOfDay();
+
+        return (int) round($today->copy()->startOfDay()->diffInDays($dueDay, false));
+    }
+
+    /**
+     * Build whole-day phrasing for the "due soon" category.
+     * Never prints a negative or fractional number.
+     */
+    private function dueSoonText(LoanApplication $loan, Carbon $today): string
+    {
+        $date = $loan->next_due_date->format('M d, Y');
+        $days = $this->daysFromToday($loan, $today);
+
+        if ($days <= 0) {
+            return " is due today ({$date}).";
+        }
+        if ($days === 1) {
+            return " is due tomorrow ({$date}).";
+        }
+        return " is due in {$days} days ({$date}).";
+    }
+
+    /**
+     * Build whole-day phrasing for the "overdue" category.
+     */
+    private function overdueText(LoanApplication $loan, Carbon $today): string
+    {
+        $date = $loan->next_due_date->format('M d, Y');
+        $daysOverdue = max(1, abs($this->daysFromToday($loan, $today)));
+        $label = $daysOverdue === 1 ? '1 day ago' : "{$daysOverdue} days ago";
+
+        return " was due on {$date} ({$label}).";
+    }
+
+    /**
+     * Send the reminder email to the borrower.
+     * Returns true when dispatched, false when no email address available.
+     * The caller must NOT log "Sent" unconditionally — check the return value.
+     */
+    private function sendEmail(LoanApplication $loan, string $title, string $message): bool
+    {
+        // Fallback chain: coop member email → user email → loan-stored email → no email
+        $email = $loan->user?->coopMember?->email
+            ?? $loan->user?->email
+            ?? $loan->email
+            ?? null;
+
         if (!$email) {
-            Log::warning('Payment reminder email skipped — borrower has no email', [
+            Log::warning('Payment reminder email skipped — no email on file for loan', [
                 'loan_id' => $loan->id,
             ]);
-            return;
+            return false;
         }
 
         Mail::to($email)->send(new PaymentReminderMail($loan, '', $title, $message));
+        return true;
     }
 }

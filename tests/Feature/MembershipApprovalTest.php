@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\AppNotification;
 use App\Models\AuditLog;
+use App\Models\CoopMember;
 use App\Models\MemberApplication;
 use App\Models\User;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
 /**
@@ -44,7 +46,6 @@ class MembershipApprovalTest extends TestCase
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
             'contact_number'=> '09171234567',
-            'birthdate'     => now()->subYears(30)->format('Y-m-d'),
             'status'        => 'pending',
         ]);
 
@@ -55,7 +56,9 @@ class MembershipApprovalTest extends TestCase
         $manager = User::factory()->asBranchManager()->create();
         $this->actingAs($manager);
 
-        $response = $this->post(route('memberships.approve', $application->id));
+        $response = $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
 
         $response->assertOk()->assertJson(['success' => true]);
 
@@ -79,6 +82,57 @@ class MembershipApprovalTest extends TestCase
             ->where('type', AppNotification::TYPE_MEMBERSHIP_APPROVED)->count());
     }
 
+    public function test_loan_officer_can_approve_membership_application(): void
+    {
+        $application = MemberApplication::create([
+            'surname'       => 'Doe',
+            'first_name'    => 'Jane',
+            'email'         => 'jane@gmail.com',
+            'contact_number'=> '09171234567',
+            'status'        => 'pending',
+        ]);
+
+        // Loan Officer holds APPROVE_MEMBERSHIPS alongside Branch Manager.
+        $officer = User::factory()->create(['usertype' => Permissions::ROLE_LOAN_OFFICER]);
+        $this->actingAs($officer);
+
+        $response = $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+
+        $application->refresh();
+        $this->assertEquals('approved', $application->status);
+        $this->assertNotNull($application->reviewed_at);
+        $this->assertEquals($officer->id, $application->reviewed_by);
+    }
+
+    public function test_credit_investigator_cannot_approve_membership_application(): void
+    {
+        $application = MemberApplication::create([
+            'surname'       => 'Doe',
+            'first_name'    => 'Jane',
+            'email'         => 'jane@gmail.com',
+            'contact_number'=> '09171234567',
+            'status'        => 'pending',
+        ]);
+
+        // Credit Investigator may encode applications but not decide memberships.
+        $investigator = User::factory()->create(['usertype' => Permissions::ROLE_CREDIT_INVESTIGATOR]);
+        $this->actingAs($investigator);
+
+        $response = $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
+
+        $response->assertForbidden();
+
+        // State untouched.
+        $application->refresh();
+        $this->assertEquals('pending', $application->status);
+    }
+
     public function test_rejection_keeps_usertype_as_user(): void
     {
         $application = MemberApplication::create([
@@ -92,7 +146,9 @@ class MembershipApprovalTest extends TestCase
         $manager = User::factory()->asBranchManager()->create();
         $this->actingAs($manager);
 
-        $response = $this->post(route('memberships.reject', $application->id));
+        $response = $this->post(route('memberships.reject', $application->id), [
+            '_token' => csrf_token(),
+        ]);
 
         $response->assertOk()->assertJson(['success' => true, 'status' => 'rejected']);
 
@@ -109,6 +165,134 @@ class MembershipApprovalTest extends TestCase
             ->where('type', AppNotification::TYPE_MEMBERSHIP_REJECTED)->count());
     }
 
+    /**
+     * The Active Members page counts by is_registered, not just status.
+     * An approved application whose member row was created without a linked
+     * account (is_registered=false) must be flipped on approval.
+     */
+    public function test_approval_makes_member_active_and_counted_on_active_members_page(): void
+    {
+        $application = MemberApplication::create([
+            'surname'        => 'Doe',
+            'first_name'     => 'Jane',
+            'email'         => 'jane@gmail.com',
+            'contact_number'=> '09171234567',
+            'status'        => 'pending',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+
+        $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ])->assertOk()->assertJson(['success' => true]);
+
+        $member = CoopMember::where('email', 'jane@gmail.com')->first();
+        $this->assertNotNull($member);
+        $this->assertEquals(CoopMember::STATUS_ACTIVE, $member->status);
+        $this->assertTrue($member->is_registered);
+
+        // The Active Members page filters status=active and counts is_registered.
+        $response = $this->get(route('active-members.index'));
+        $response->assertOk();
+        $response->assertSee('Approved Members: 1');
+        $response->assertSee($member->member_id);
+        $response->assertSee('Approved');
+    }
+
+    public function test_rejection_deactivates_linked_member_row(): void
+    {
+        $application = MemberApplication::create([
+            'surname'        => 'Doe',
+            'first_name'     => 'Jane',
+            'email'         => 'jane@gmail.com',
+            'contact_number'=> '09171234567',
+            'status'        => 'pending',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+
+        // Approve first so a member row exists, then reject it.
+        $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
+
+        $member = CoopMember::where('email', 'jane@gmail.com')->first();
+        $this->assertNotNull($member);
+        $this->assertEquals(CoopMember::STATUS_ACTIVE, $member->status);
+
+        $this->post(route('memberships.reject', $application->id), [
+            '_token' => csrf_token(),
+        ])->assertOk()->assertJson(['success' => true, 'status' => 'rejected']);
+
+        $member->refresh();
+        $this->assertEquals(CoopMember::STATUS_PENDING, $member->status);
+        $this->assertFalse($member->is_registered);
+
+        // The member is no longer counted on the Active Members page.
+        $this->get(route('active-members.index'))
+            ->assertSee('Approved Members: 0');
+    }
+
+    public function test_approving_twice_is_idempotent(): void
+    {
+        $application = MemberApplication::create([
+            'surname'        => 'Doe',
+            'first_name'     => 'Jane',
+            'email'         => 'jane@gmail.com',
+            'contact_number'=> '09171234567',
+            'status'        => 'pending',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+
+        $this->post(route('memberships.approve', $application->id), ['_token' => csrf_token()])->assertOk();
+        $first = CoopMember::where('email', 'jane@gmail.com')->first();
+        $firstId = $first->id;
+
+        // Second approval must not create a duplicate member row.
+        $this->post(route('memberships.approve', $application->id), ['_token' => csrf_token()])->assertOk();
+        $this->assertDatabaseCount('coop_members', 1);
+        $this->assertNotNull(CoopMember::find($firstId));
+    }
+
+    public function test_sync_approved_dry_run_changes_nothing_and_real_run_fixes_stale_row(): void
+    {
+        // Approved application with a stale (pending) member row.
+        $application = MemberApplication::create([
+            'surname'        => 'Doe',
+            'first_name'     => 'Jane',
+            'email'         => 'jane@gmail.com',
+            'contact_number'=> '09171234567',
+            'status'        => 'approved',
+        ]);
+
+        $staleMember = CoopMember::create([
+            'member_id'      => 'SDCC-2026-0099',
+            'full_name'      => 'Jane Doe',
+            'email'         => 'jane@gmail.com',
+            'contact_number' => '09171234567',
+            'is_registered'  => false,
+            'status'         => CoopMember::STATUS_PENDING,
+        ]);
+        $application->approved_member_id = $staleMember->id;
+        $application->save();
+
+        // Dry run: nothing changes.
+        Artisan::call('members:sync-approved', ['--dry-run' => true]);
+        $staleMember->refresh();
+        $this->assertEquals(CoopMember::STATUS_PENDING, $staleMember->status);
+        $this->assertFalse($staleMember->is_registered);
+
+        // Real run: fixes the stale row.
+        Artisan::call('members:sync-approved');
+        $staleMember->refresh();
+        $this->assertEquals(CoopMember::STATUS_ACTIVE, $staleMember->status);
+        $this->assertTrue($staleMember->is_registered);
+    }
+
     public function test_only_one_pending_application_per_user(): void
     {
         $this->actingAs($this->applicant);
@@ -122,13 +306,12 @@ class MembershipApprovalTest extends TestCase
         ]);
 
         $response = $this->post(route('member.applications.store'), [
-            'last_name'     => 'Doe',
-            'first_name'    => 'Jane',
-            'email'         => 'jane@gmail.com',
-            'contact_number'=> '09171234567',
-            'sex'           => 'female',
-            'civil_status'  => 'single',
-            'birthdate'     => now()->subYears(30)->format('Y-m-d'),
+            '_token'             => csrf_token(),
+            'last_name'          => 'Doe',
+            'first_name'         => 'Jane',
+            'email'              => 'jane@gmail.com',
+            'contact_number'     => '09171234567',
+            'data_privacy_consent' => true,
         ]);
 
         $this->assertNotNull(session('errors')->get('email')[0]);
@@ -156,13 +339,12 @@ class MembershipApprovalTest extends TestCase
         $this->actingAs(User::find($this->applicant->id));
 
         $this->post(route('member.applications.store'), [
-            'last_name'     => 'Doe',
-            'first_name'    => 'Jane',
-            'email'         => 'jane@gmail.com',
-            'contact_number'=> '09171234567',
-            'sex'           => 'female',
-            'civil_status'  => 'single',
-            'birthdate'     => now()->subYears(30)->format('Y-m-d'),
+            '_token'             => csrf_token(),
+            'last_name'          => 'Doe',
+            'first_name'         => 'Jane',
+            'email'              => 'jane@gmail.com',
+            'contact_number'     => '09171234567',
+            'data_privacy_consent' => true,
         ])->assertForbidden();
     }
 
@@ -180,17 +362,107 @@ class MembershipApprovalTest extends TestCase
         $this->actingAs($this->applicant);
 
         $this->post(route('member.applications.store'), [
-            'last_name'     => 'Doe',
-            'first_name'    => 'Jane',
-            'email'         => 'jane@gmail.com',
-            'contact_number'=> '09171234567',
-            'sex'           => 'female',
-            'civil_status'  => 'single',
-            'birthdate'     => now()->subYears(30)->format('Y-m-d'),
+            '_token'             => csrf_token(),
+            'last_name'          => 'Doe',
+            'first_name'         => 'Jane',
+            'email'              => 'jane@gmail.com',
+            'contact_number'     => '09171234567',
+            'data_privacy_consent' => true,
         ]);
 
         $this->assertNotNull(session('errors')->get('email')[0]);
         $this->assertSame('Your membership application has already been approved.',
             session('errors')->get('email')[0]);
+    }
+
+    /** @test */
+    public function membership_form_renders_only_allowed_fields(): void
+    {
+        $response = $this->get(route('member.applications.create'));
+        $response->assertOk();
+        $response->assertSee('occupation');          // new required field
+        $response->assertSee('last_name');
+        $response->assertSee('first_name');
+        $response->assertSee('middle_name');
+        $response->assertSee('contact_number');
+        $response->assertSee('email');
+        $response->assertSee('province');
+        $response->assertSee('municipality');
+        $response->assertSee('barangay');
+        $response->assertSee('address_line');
+        $response->assertSee('zip_code');
+    }
+
+    /** @test */
+    public function membership_form_does_not_render_removed_fields(): void
+    {
+        $response = $this->get(route('member.applications.create'));
+        $response->assertOk();
+        // Use name= attributes to avoid substring false-positives (e.g. "tin" in "text-muted")
+        $response->assertDontSee('name="birthdate"');
+        $response->assertDontSee('name="tin"');
+        $response->assertDontSee('name="suffix"');
+        $response->assertDontSee('name="sex"');
+        $response->assertDontSee('name="civil_status"');
+        $response->assertDontSee('name="country_of_birth"');
+        $response->assertDontSee('name="city_of_birth"');
+        $response->assertDontSee('name="id_picture"');
+        $response->assertDontSee('name="proof_of_billing"');
+        $response->assertDontSee('name="character_references"');
+        $response->assertDontSee('name="gender"');
+    }
+
+    /** @test */
+    public function occupation_is_required_on_membership_application(): void
+    {
+        $response = $this->post(route('member.applications.store'), [
+            '_token'             => csrf_token(),
+            'last_name'          => 'Doe',
+            'first_name'         => 'Jane',
+            'email'             => 'jane@gmail.com',
+            'contact_number'    => '09171234567',
+            'data_privacy_consent' => true,
+            // occupation omitted
+        ]);
+
+        $response->assertSessionHasErrors(['occupation']);
+    }
+
+    /** @test */
+    public function valid_membership_application_stores_occupation_and_copies_to_member_on_approval(): void
+    {
+        $this->actingAs($this->applicant);
+
+        $response = $this->post(route('member.applications.store'), [
+            '_token'             => csrf_token(),
+            'last_name'          => 'Doe',
+            'first_name'         => 'Jane',
+            'email'              => 'jane@gmail.com',
+            'contact_number'     => '09171234567',
+            'data_privacy_consent' => true,
+            'occupation'         => 'Teacher',
+            'address_line'       => '123 Main St',
+            'barangay'           => 'Poblacion',
+            'municipality'       => 'San Dionisio',
+            'province'           => 'Parañaque',
+            'zip_code'           => '1700',
+        ]);
+
+        $response->assertRedirect();
+        $application = MemberApplication::where('email', 'jane@gmail.com')->first();
+        $this->assertNotNull($application);
+        $this->assertSame('Teacher', $application->occupation);
+
+        // Approve and verify occupation copies to CoopMember.
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+        $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
+
+        $user = User::find($this->applicant->id);
+        $member = $user->coopMember()->first();
+        $this->assertNotNull($member);
+        $this->assertSame('Teacher', $member->occupation);
     }
 }

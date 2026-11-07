@@ -40,7 +40,6 @@ class CoopMember extends Model
         'status',
         'user_id',
         'approved_credit_limit',
-        'share_capital',
         'savings_balance',
         'is_migs',
         'address',
@@ -61,6 +60,14 @@ class CoopMember extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Loan applications associated with this member
+     */
+    public function loanApplications()
+    {
+        return $this->hasMany(LoanApplication::class, 'user_id');
     }
 
     /**

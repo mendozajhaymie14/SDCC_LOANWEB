@@ -19,15 +19,19 @@ class LoanApplication extends Model
 
     protected $fillable = [
         'user_id', 'reference', 'full_name', 'email', 'contact_number', 'address',
-        'birth_date', 'employment_status', 'employer_name',
+        'birth_date', 'employment_status',
         'source_of_income', 'monthly_income', 'existing_monthly_obligations',
-        'loan_type', 'purpose_of_loan', 'amount', 'share_capital',
+        'loan_type', 'purpose_of_loan', 'amount',
         'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
         'remaining_balance', 'next_due_date',
         'recommended_amount', 'risk_level', 'risk_score', 'risk_factors',
         'document_check',
         // AI scoring fields (added for synchronous fallback)
         'ai_score', 'ai_analysis_notes', 'extracted_document_data', 'document_processing_status',
+        // Staff encoding
+        'encoded_by',
+        // Approval tracking
+        'approved_by',
     ];
 
     protected $casts = [
@@ -35,7 +39,6 @@ class LoanApplication extends Model
         'reviewed_at'       => 'datetime',
         'documents'         => 'array',
         'amount'            => 'decimal:2',
-        'share_capital'     => 'decimal:2',
         'monthly_income'    => 'decimal:2',
         'remaining_balance' => 'decimal:2',
         'recommended_amount'=> 'decimal:2',
@@ -45,6 +48,14 @@ class LoanApplication extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The admin Application row linked via this LoanApplication.
+     */
+    public function application(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Application::class, 'loan_application_id');
     }
 
     /**
@@ -97,10 +108,14 @@ class LoanApplication extends Model
     /**
      * Human-readable applicant name, formatted as "Last, First Middle".
      * Handles Filipino compound surnames (Dela Cruz, Van der, Mc, etc.)
-     * Falls back to applicant field if no user relationship.
+     *
+     * Priority: (a) linked user's formatted name, (b) stored full_name
+     * column, (c) 'Applicant'.
      */
     public function fullName(): string
     {
+        // (a) If the application has a linked user, use the formatted
+        // "Last, First Middle" derived from the user's name accessors.
         $user = $this->user;
         if ($user) {
             $last = $user->last_name ?? '';
@@ -130,7 +145,14 @@ class LoanApplication extends Model
             if ($last) return $last;
             if ($firstMiddle) return $firstMiddle;
         }
-        return $this->applicant ?? 'Applicant';
+
+        // (b) Stored full_name column (set at submission time from the member profile).
+        if (!empty($this->full_name)) {
+            return $this->full_name;
+        }
+
+        // (c) Last resort.
+        return 'Applicant';
     }
 
     /**

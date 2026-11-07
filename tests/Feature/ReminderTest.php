@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AppNotification;
+use App\Models\AppNotificationLog;
 use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\User;
@@ -284,6 +285,38 @@ class ReminderTest extends TestCase
         ]);
     }
 
+    /** @test
+     * Issue E: Approving a loan sends exactly ONE approval notification (no duplicates from stale listeners).
+     */
+    public function approving_a_loan_sends_single_notification_no_duplicates()
+    {
+        $member = $this->makeMember();
+        $loan   = $this->makePendingLoan($member);
+        $app    = $this->makePendingAdminApp($loan);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->post(route('applications.approve', $app->id), [
+                'approved_amount' => 10000,
+                'reason'          => 'Good history',
+            ]);
+
+        // Should have exactly ONE app_notification_log entry for this approval
+        $this->assertSame(1, AppNotificationLog::where('loan_application_id', $loan->id)
+            ->where('notification_type', 'approved')
+            ->where('status', 'Sent')
+            ->count());
+
+        // Should have exactly ONE email sent
+        Mail::assertSent(\App\Mail\LoanApprovedMail::class, 1);
+
+        // Should have exactly ONE in-app notification (AppNotification) for the borrower
+        $this->assertSame(1, AppNotification::where('loan_application_id', $loan->id)
+            ->where('type', 'approved')
+            ->count());
+    }
+
     /** @test */
     public function rejecting_a_loan_sends_email_to_borrower()
     {
@@ -344,5 +377,328 @@ class ReminderTest extends TestCase
             'notification_type' => 'payment_received',
             'status'            => 'Sent',
         ]);
+    }
+
+    /** @test */
+    public function reminder_messages_use_whole_non_negative_day_wording(): void
+    {
+        $member = $this->makeMember();
+
+        // Loan due tomorrow (within the 3-day due-soon window)
+        $dueSoon = $this->makeLoan($member, 'approved', $this->getManilaDate(1), 800);
+        // Loan overdue (due 5 days ago)
+        $overdue = $this->makeLoan($member, 'approved', $this->getManilaDate(-5), 800);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $dueSoonNotif = AppNotification::where('loan_application_id', $dueSoon->id)
+            ->where('type', 'due_soon')
+            ->first();
+
+        $overdueNotif = AppNotification::where('loan_application_id', $overdue->id)
+            ->where('type', 'overdue')
+            ->first();
+
+        $this->assertNotNull($dueSoonNotif, 'due-soon notification should exist');
+        $this->assertNotNull($overdueNotif, 'overdue notification should exist');
+
+        // The message must contain whole-day wording, never fractional.
+        // "-2.3333333333333 day(s)" style output is the bug we fixed.
+        $this->assertMatchesRegularExpression(
+            '/\b(?:due tomorrow|due in \d+ days?)\b/',
+            $dueSoonNotif->message,
+            'Due-soon message should say "due tomorrow" or "due in N days"'
+        );
+
+        // Overdue must be a whole non-negative number of days
+        $this->assertMatchesRegularExpression(
+            '/was due.*\d+ days? ago/',
+            $overdueNotif->message,
+            'Overdue message should say "was due N day(s) ago" with whole N'
+        );
+
+        // No negative or fractional values anywhere in either message
+        $this->assertStringNotContainsString('-2.', $dueSoonNotif->message);
+        $this->assertStringNotContainsString('-2.', $overdueNotif->message);
+        $this->assertStringNotContainsString('1.3333', $dueSoonNotif->message);
+        $this->assertStringNotContainsString('1.3333', $overdueNotif->message);
+    }
+
+    /** @test */
+    public function loan_without_borrower_email_logs_skipped_not_sent(): void
+    {
+        // Create a member with empty email (NOT NULL constraint on users.email allows empty string)
+        $member = $this->makeMember();
+        $member->update(['email' => '']);
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => $member->id,
+            'full_name'           => 'No Email Borrower',
+            'email'               => '',  // No email stored on loan
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $response = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data = $response->json();
+        $this->assertEquals(0, $data['sent'], 'No email should be sent when borrower has no email');
+        $this->assertEquals(1, $data['skipped'], 'Should count as skipped when no email');
+
+        // Verify notification log shows "Skipped" status
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Skipped',
+            'channel'             => 'email',
+        ]);
+
+        // No mail should have been sent
+        Mail::assertNothingSent();
+    }
+
+    /** @test
+ * Issue D: loan with coop_member email (not on loan record) uses fallback.
+ * Email lives ONLY on coop_members.email, not on loan_applications.email.
+ */
+    public function loan_with_coop_member_email_only_uses_fallback(): void
+    {
+        // Member with linked CoopMember that has email.
+        // Loan has user_id set so $loan->user works; email is NOT on loan->email.
+        $member = User::factory()->create([
+            'usertype' => 'member',
+            'email'    => 'member@example.com',
+        ]);
+
+        $coopMember = CoopMember::factory()->create([
+            'user_id'       => $member->id,
+            'full_name'     => 'Test Borrower',
+            'email'         => 'coop.member@example.com', // email ONLY on CoopMember
+            'status'        => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // Link User.coop_member_id to CoopMember.id so $loan->user->coopMember works
+        $member->update(['coop_member_id' => $coopMember->id]);
+        $member = $member->fresh();
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => $member->id,
+            'full_name'           => 'Test Borrower',
+            'email'               => '',         // NO email on loan record
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        // Email found via $loan->user->coopMember->email (not $loan->email)
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Sent',
+            'channel'             => 'email',
+            'recipient_email'     => 'coop.member@example.com',
+        ]);
+
+        Mail::assertSent(\App\Mail\PaymentReminderMail::class, 1);
+    }
+
+    /** @test
+     * Issue D: borrower with email → logged Sent; no email anywhere → logged Skipped.
+     */
+    public function borrower_with_email_logs_sent(): void
+    {
+        $member = User::factory()->create([
+            'usertype' => 'member',
+            'email'    => 'borrower@example.com',
+        ]);
+
+        $coopMember = CoopMember::factory()->create([
+            'user_id'       => $member->id,
+            'full_name'   => 'Test Borrower',
+            'email'         => 'borrower@example.com',
+            'status'      => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // Link User.coop_member_id to CoopMember.id so $loan->user->coopMember works
+        $member->update(['coop_member_id' => $coopMember->id]);
+        $member = $member->fresh();
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => $member->id,
+            'full_name'           => 'Test Borrower',
+            'email'               => '',  // No email on loan record
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $response = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data = $response->json();
+        $this->assertEquals(1, $data['sent'], 'Email should be sent when borrower has email via coop_member');
+        $this->assertEquals(0, $data['skipped'], 'Should not be skipped when email available');
+
+        // Verify notification log shows "Sent" status
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Sent',
+            'channel'             => 'email',
+            'recipient_email'     => 'borrower@example.com',
+        ]);
+
+        Mail::assertSent(\App\Mail\PaymentReminderMail::class, 1);
+    }
+
+    /** @test
+     * Issue D: no email anywhere → logged Skipped and not counted as sent.
+     */
+    public function no_email_anywhere_logs_skipped(): void
+    {
+        $member = User::factory()->create([
+            'usertype' => 'member',
+            'email'    => '',  // No email anywhere
+        ]);
+
+        CoopMember::factory()->create([
+            'user_id'       => $member->id,
+            'full_name'   => 'Test Borrower',
+            // NO email on CoopMember either (factory default would add one)
+            'email'         => '',
+            'status'        => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => $member->id,
+            'full_name'           => 'Test Borrower',
+            'email'               => '',  // No email on loan
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $response = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data = $response->json();
+        $this->assertEquals(0, $data['sent'], 'No email should be sent when no email anywhere');
+        $this->assertEquals(1, $data['skipped'], 'Should count as skipped when no email');
+
+        // Verify notification log shows "Skipped" status
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Skipped',
+            'channel'             => 'email',
+        ]);
+
+        Mail::assertNothingSent();
+    }
+
+    /** @test
+     * Issue D: duplicate guard — second run same day sends nothing new.
+     */
+    public function duplicate_guard_second_run_no_new_send(): void
+    {
+        $member = User::factory()->create([
+            'usertype' => 'member',
+            'email'    => 'dup@example.com',
+        ]);
+
+        CoopMember::factory()->create([
+            'user_id'       => $member->id,
+            'full_name'   => 'Test Borrower',
+            'email'         => 'dup@example.com', // same email as member
+            'status'        => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => $member->id,
+            'full_name'           => 'Test Borrower',
+            'email'               => '',
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        // First run
+        $response1 = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data1 = $response1->json();
+        $this->assertEquals(1, $data1['sent']);
+
+        // Second run same day
+        $response2 = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data2 = $response2->json();
+
+        // Totals should not have changed: still 1 sent, 0 new skipped (duplicate suppressed)
+        $this->assertEquals(0, $data2['sent'], 'Second same-day run should send nothing new');
+        $this->assertEquals(1, $data2['skipped'], 'Second same-day run should count the duplicate as skipped');
     }
 }

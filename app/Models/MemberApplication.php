@@ -21,16 +21,13 @@ class MemberApplication extends Model
         'last_name',
         'first_name',
         'middle_name',
-        'suffix',
-        'sex',
-        'civil_status',
-        'country_of_birth',
-        'city_of_birth',
         'house_no',
         'street',
         'barangay',
         'municipality',
         'zip_code',
+        'monthly_income',
+        'existing_monthly_obligations',
         'stay_years',
         'stay_months',
         'perm_house_no',
@@ -43,15 +40,9 @@ class MemberApplication extends Model
         'residency_type',
         'contact_number',
         'email',
-        'birthdate',
         'nationality',
         'place_of_birth',
-        'gender',
         'occupation',
-        'tin',
-        'id_picture',
-        'proof_of_billing',
-        'character_references',
         'status',
         'reviewed_at',
         'reviewed_by',
@@ -67,13 +58,11 @@ class MemberApplication extends Model
     protected function casts(): array
     {
         return [
-            'birthdate' => 'date',
             'reviewed_at' => 'datetime',
             'stay_years' => 'int',
             'stay_months' => 'int',
             'perm_stay_years' => 'int',
             'perm_stay_months' => 'int',
-            'character_references' => 'array',
         ];
     }
 

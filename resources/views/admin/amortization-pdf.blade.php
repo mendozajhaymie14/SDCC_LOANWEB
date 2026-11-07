@@ -42,7 +42,7 @@
 <body>
   <div class="no-print" style="text-align: center; margin-bottom: 20px;">
     <button onclick="window.print()" style="background: #0891b2; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer;">
-      🖨️ Print / Save as PDF
+      <i class="fa-solid fa-print nav-icon"></i> Print / Save as PDF
     </button>
   </div>
 

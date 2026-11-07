@@ -1,0 +1,55 @@
+/* SDCC field validation: states drawn by public/js/field-validation.js
+   valid   -> green border + checkmark
+   invalid -> red border + message under the field
+   warn    -> amber border + non-blocking message (e.g. 70% of income rule) */
+
+:root {
+  --fv-ok: #16a34a;
+  --fv-bad: #dc2626;
+  --fv-warn: #d97706;
+  --fv-warn-text: #92400e;
+}
+
+/* The duplicate-member check paints its own red border inline. When it does,
+   the :not([style*="border-color"]) guard drops our green so the two never fight. */
+input.fv-valid:not([style*="border-color"]),
+select.fv-valid:not([style*="border-color"]),
+textarea.fv-valid:not([style*="border-color"]) {
+  border-color: var(--fv-ok) !important;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+input.fv-valid:not([type="date"]):not([type="time"]):not([type="datetime-local"]):not([type="month"]):not([type="week"]):not([style*="border-color"]),
+textarea.fv-valid:not([style*="border-color"]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3.2 3.2L13 4.8' fill='none' stroke='%2316a34a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+}
+
+input.fv-invalid,
+select.fv-invalid,
+textarea.fv-invalid {
+  border-color: var(--fv-bad) !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+input.fv-warn,
+select.fv-warn,
+textarea.fv-warn {
+  border-color: var(--fv-warn) !important;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
+}
+
+.fv-msg {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--fv-bad);
+}
+
+.fv-msg.is-warn {
+  color: var(--fv-warn-text);
+}

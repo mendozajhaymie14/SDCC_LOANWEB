@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -21,9 +21,9 @@
     <div class="topbar-title" id="topbarTitle">Repayments <span>/ Payment Management</span></div>
     <div class="topbar-actions">
       <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
-        <span>🔔</span><span class="notif-dot" id="notifDot"></span>
+        <i class="fa-solid fa-bell nav-icon"></i><span class="notif-dot" id="notifDot"></span>
       </div>
-      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings">⚙️</div>
+      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings"><i class="fa-solid fa-gear nav-icon"></i></div>
     </div>
   </div>
 
@@ -228,13 +228,13 @@
       <!-- Info strip: Current outstanding balance -->
       <div class="form-group" style="margin-top: 1rem; padding: 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
         <div style="font-size:0.85rem;color:#64748b;">Current outstanding balance</div>
-        <div style="font-weight:700;color:#1e293b;font-size:1.1rem;">₱<span id="currentBalanceDisplay">—</span></div>
+        <div style="font-weight:700;color:#1e293b;font-size:1.1rem;"><span id="currentBalanceDisplay">—</span></div>
       </div>
 
       <!-- Info strip: Remaining balance after this payment -->
       <div class="form-group" style="margin-top: 0.5rem; padding: 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
         <div style="font-size:0.85rem;color:#64748b;">Remaining balance after this payment</div>
-        <div style="font-weight:700;color:#1e293b;font-size:1.1rem;">₱<span id="balancePreview">—</span></div>
+        <div style="font-weight:700;color:#1e293b;font-size:1.1rem;"><span id="balancePreview">—</span></div>
         <small id="balanceError" style="color:#ef4444;display:none;">Amount exceeds current balance</small>
       </div>
 
@@ -309,7 +309,7 @@
 
       <div class="form-group" style="margin-top: 1rem; padding: 0 1.5rem;">
         <div style="font-size:0.85rem;color:#64748b;">Balance after this edit</div>
-        <div style="font-weight:700;color:#1e293b;font-size:1.1rem;">₱<span id="editBalancePreview">0.00</span></div>
+        <div style="font-weight:700;color:#1e293b;font-size:1.1rem;"><span id="editBalancePreview">0.00</span></div>
         <small style="color:#64748b;">calculated as: balance - new amount + old amount</small>
       </div>
 
@@ -357,7 +357,7 @@
       <div class="form-row" style="margin-bottom:0.75rem;">
         <div class="form-group" style="flex:1;">
           <label class="form-label">Amount Paid</label>
-          <div id="viewRepaymentAmount" style="font-weight:600;color:#1e293b;">₱0.00</div>
+          <div id="viewRepaymentAmount" style="font-weight:600;color:#1e293b;">0.00</div>
         </div>
         <div class="form-group" style="flex:1;">
           <label class="form-label">Payment Method</label>
@@ -379,7 +379,7 @@
       <div class="form-row" style="margin-bottom:0.75rem;">
         <div class="form-group" style="flex:1;">
           <label class="form-label">Balance After</label>
-          <div id="viewRepaymentBalance" style="font-weight:600;color:#1e293b;">₱0.00</div>
+          <div id="viewRepaymentBalance" style="font-weight:600;color:#1e293b;">0.00</div>
         </div>
         <div class="form-group" style="flex:1;">
           <label class="form-label">Recorded By</label>
@@ -434,7 +434,7 @@
     // Format money with thousands separators and 2 decimals
     function formatMoney(amount) {
       const n = parseFloat(amount || 0);
-      return '₱' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return n.toLocaleString('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     // Record a NEW repayment
@@ -571,7 +571,7 @@
             <div class="form-row" style="margin-top:0.5rem;">
               <div class="form-group" style="flex:1;">
                 <label class="form-label" style="font-size:0.75rem;color:#64748b;">Outstanding Balance</label>
-                <div style="font-weight:600;color:#1e293b;">₱${parseFloat(data.loanBalance || data.remainBalance || 0).toFixed(2)}</div>
+                <div style="font-weight:600;color:#1e293b;" id="editLoanOutstandingBalance">0.00</div>
               </div>
               <div class="form-group" style="flex:1;">
                 <label class="form-label" style="font-size:0.75rem;color:#64748b;">Next Due Date</label>
@@ -581,6 +581,12 @@
           </div>
         </div>
       `;
+
+      // Populate outstanding balance in loan summary
+      const outstandingBalanceEl = document.getElementById('editLoanOutstandingBalance');
+      if (outstandingBalanceEl) {
+        outstandingBalanceEl.textContent = formatMoney(data.loanBalance || data.remainBalance || 0);
+      }
 
       // Form setup
       const form = document.getElementById('editRepaymentForm');
@@ -656,7 +662,7 @@
       // Show current outstanding balance
       const currentBalanceDisplay = document.getElementById('currentBalanceDisplay');
       if (currentBalanceDisplay) {
-        currentBalanceDisplay.textContent = balance.toFixed(2);
+        currentBalanceDisplay.textContent = formatMoney(balance);
       }
 
       // Recalculate remaining balance preview
@@ -694,7 +700,7 @@
       }
 
       const remaining = Math.max(0, loanBalance - amount);
-      preview.textContent = remaining.toFixed(2);
+      preview.textContent = formatMoney(remaining);
 
       // Block amount above balance
       if (amount > loanBalance && amount > 0) {

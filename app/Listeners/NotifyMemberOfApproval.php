@@ -34,20 +34,7 @@ class NotifyMemberOfApproval
             'is_read'            => false,
         ]);
 
-        // Send email notification to borrower
-        if ($loan->user?->email) {
-            try {
-                Mail::to($loan->user->email)->send(new LoanApprovedMail($loan));
-                AppNotificationLog::log(
-                $loan->user->email, 'Your Loan Application Has Been Approved', 'approved', 'Sent',
-                'email', $loan->user_id, $loan->id
-            );
-            } catch (\Throwable $e) {
-                AppNotificationLog::logFailed(
-                    $loan->user->email, 'Your Loan Application Has Been Approved', 'approved', $e->getMessage(),
-                    'email', $loan->user_id, $loan->id
-                );
-            }
-        }
+        // Note: email and email log are handled by the AdminController directly
+        // to avoid duplicate notifications. See Issue E.
     }
 }

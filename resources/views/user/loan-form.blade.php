@@ -107,11 +107,6 @@
             </select>
             @error('source_of_income') <span class="error-text">{{ $message }}</span> @enderror
           </div>
-
-          <div class="field" id="employerNameField">
-            <label for="employer_name">Employer or business name</label>
-            <input type="text" id="employer_name" name="employer_name" value="{{ old('employer_name') }}">
-          </div>
         </div>
       </fieldset>
 
@@ -182,7 +177,7 @@
       </fieldset>
 
       <div class="field checkbox-field">
-        <input type="checkbox" id="agree" name="agree" value="1" @checked(old('agree'))>
+        <input type="checkbox" id="agree" name="agree" value="1" required>
         <label for="agree">I confirm that my details are true and correct.</label>
         @error('agree') <span class="error-text">{{ $message }}</span> @enderror
       </div>
@@ -272,6 +267,6 @@
       <div class="estimate-line total"><span>Total payable</span><span id="estTotal">₱0.00</span></div>
     </div>
 
-    <p class="estimate-foot">Indicative only. Your final rate depends on your loan product, membership standing, and share capital.</p>
+    <p class="estimate-foot">Indicative only. Your final rate depends on your loan product, membership standing, and savings balance.</p>
   </aside>
 </form>

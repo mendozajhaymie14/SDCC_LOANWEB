@@ -19,16 +19,16 @@
     <div class="topbar-title" id="topbarTitle"> Loan Applications <span>/ Loan Management</span></div>
     <div class="search-wrap">
       <div class="search-box">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon"><i class="fa-solid fa-magnifying-glass nav-icon"></i></span>
         <input type="text" id="searchInput" placeholder="Search applications…" oninput="handleSearch(this.value)" onfocus="showSearchResults()" onblur="setTimeout(hideSearchResults,200)"/>
       </div>
       <div class="search-results" id="searchResults"></div>
     </div>
     <div class="topbar-actions">
       <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
-        🔔<span class="notif-dot" id="notifDot"></span>
+        <i class="fa-solid fa-bell nav-icon"></i><span class="notif-dot" id="notifDot"></span>
       </div>
-      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings">⚙️</div>
+      <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings"><i class="fa-solid fa-gear nav-icon"></i></div>
     </div>
   </div>
 
@@ -41,12 +41,31 @@
 
   <!-- PAGE CONTENT -->
   <div class="content-body">
+    @if($errors->any())
+      <div style="padding:10px 12px; border:1px solid #fca5a5; background:#fef2f2; color:#991b1b; border-radius:6px; margin-bottom:12px;">
+        <strong>Validation error(s):</strong>
+        <ul style="margin:4px 0 0 0; padding-left:20px;">
+          @foreach($errors->all() as $error)
+            <li>{{ $error }}</li>
+          @endforeach
+        </ul>
+      </div>
+    @endif
+    @if(session('error'))
+      <div style="padding:10px 12px; border:1px solid #fca5a5; background:#fef2f2; color:#991b1b; border-radius:6px; margin-bottom:12px;">{{ session('error') }}</div>
+    @endif
+    @if(session('success'))
+      <div style="padding:10px 12px; border:1px solid #86efac; background:#f0fdf4; color:#166534; border-radius:6px; margin-bottom:12px;">{{ session('success') }}</div>
+    @endif
     <div class="panel app-panel">
       <div class="page-header">
         <div>
           <h2 class="panel-title">All Loan Applications</h2>
           <span class="records-count">Total Records: {{ $applications->count() }}</span>
         </div>
+        @can('encode_applications')
+        <button class="btn-new" type="button" onclick="openEncodeModal(null)">+ New Application</button>
+        @endcan
       </div>
 
       <div class="filter-row">
@@ -92,10 +111,10 @@
     </td>
     <td class="td-mono">
       @php
-        $aiScore = $app->ai_score ?? ($app->loanApplication ? $app->loanApplication->ai_score : null);
-        $aiColor = $aiScore !== null && $aiScore >= 51 ? 'var(--accent3)' : ($aiScore !== null ? 'var(--red)' : 'var(--muted)');
+        $score = $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null);
+        $aiColor = $score !== null && $score >= 51 ? 'var(--accent3)' : ($score !== null ? 'var(--red)' : 'var(--muted)');
       @endphp
-      <span style="font-weight:700; color: {{ $aiColor }}">{{ $aiScore ?? 'N/A' }}</span>
+      <span style="font-weight:700; color: {{ $aiColor }}">{{ $score ?? 'N/A' }}</span>
     </td>
     <td class="td-date">{{ \Carbon\Carbon::parse($app->created_at)->format('M d, Y') }}</td>
     <td>

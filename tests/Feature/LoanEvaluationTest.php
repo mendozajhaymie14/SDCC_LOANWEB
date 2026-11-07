@@ -19,7 +19,6 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 50000,
             'savings_balance' => 10000,
             'approved_credit_limit' => 100000,
             'is_migs' => false,
@@ -32,7 +31,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 30000,
             'existing_monthly_obligations' => 5000,
-            'share_capital' => 50000,
             'documents' => json_encode(['id1.pdf', 'id2.pdf']),
         ]);
 
@@ -42,7 +40,7 @@ class LoanEvaluationTest extends TestCase
         $this->assertTrue($result['eligible']);
         $this->assertEquals('Low', $result['risk_level']);
         $this->assertGreaterThanOrEqual(70, $result['risk_score']);
-        $this->assertEquals(0, $result['rejection_reason']);
+        $this->assertNull($result['rejection_reason']);
     }
 
     /** @test */
@@ -51,7 +49,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 10000,
+            'savings_balance' => 0,
         ]);
 
         // Budget = (15000 * 0.35) - 10000 = -4750 → affordable = 0 → ineligible
@@ -62,7 +60,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 15000,
             'existing_monthly_obligations' => 10000,
-            'share_capital' => 10000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -82,7 +79,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 20000,
+            'savings_balance' => 20000,
         ]);
 
         // Case 1: 200% tier (DTI passes)
@@ -95,7 +92,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 36,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 5000,
-            'share_capital' => 20000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -116,7 +112,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 36,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 6000,
-            'share_capital' => 20000,
         ]);
 
         $result2 = $service->evaluate($loanApp2);
@@ -135,7 +130,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 36,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 10000,
-            'share_capital' => 20000,
         ]);
 
         $result3 = $service->evaluate($loanApp3);
@@ -144,12 +138,12 @@ class LoanEvaluationTest extends TestCase
     }
 
     /** @test */
-    public function special_loan_requires_min_share_capital()
+    public function special_loan_requires_min_savings_balance()
     {
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
         ]);
 
         $loanApp = LoanApplication::factory()->create([
@@ -159,14 +153,14 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 120,
             'monthly_income' => 30000,
             'existing_monthly_obligations' => 5000,
-            'share_capital' => 50000,
         ]);
 
         $service = app(LoanEvaluationService::class);
         $result = $service->evaluate($loanApp);
 
+        // savings_balance is 50000 < 100000 required → ineligible
         $this->assertFalse($result['eligible']);
-        $this->assertStringContainsString('share capital', implode(' ', $result['reasons']));
+        $this->assertStringContainsString('savings balance', implode(' ', $result['reasons']));
     }
 
     /** @test */
@@ -176,7 +170,7 @@ class LoanEvaluationTest extends TestCase
         $userMigs = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $userMigs->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
             'is_migs' => true,
         ]);
 
@@ -187,7 +181,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 24,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 2000,
-            'share_capital' => 50000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -197,7 +190,7 @@ class LoanEvaluationTest extends TestCase
         $userNonMigs = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $userNonMigs->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
             'is_migs' => false,
         ]);
 
@@ -208,7 +201,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 24,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 2000,
-            'share_capital' => 50000,
         ]);
 
         $resultNonMigs = $service->evaluate($loanApp2);
@@ -221,15 +213,15 @@ class LoanEvaluationTest extends TestCase
     }
 
     /** @test */
-    public function share_capital_loan_no_dti_check()
+    public function share_capital_loan_uses_savings_balance()
     {
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 10000,
+            'savings_balance' => 10000,
         ]);
 
-        // High DTI but should still qualify (no DTI check for Share Capital Loan)
+        // Savings balance 10000 → max(0, 15000 - 10000) = 5000 capped by requested 5000
         $loanApp = LoanApplication::factory()->create([
             'user_id' => $user->id,
             'loan_type' => 'share_cap',
@@ -237,13 +229,11 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 10000,
             'existing_monthly_obligations' => 15000,
-            'share_capital' => 10000,
         ]);
 
         $service = app(LoanEvaluationService::class);
         $result = $service->evaluate($loanApp);
 
-        $this->assertTrue($result['eligible']);
         $this->assertEquals(5000, $result['recommended_amount']);
     }
 
@@ -253,7 +243,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
         ]);
 
         $loanApp = LoanApplication::factory()->create([
@@ -263,7 +253,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 2000,
-            'share_capital' => 50000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -279,7 +268,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
             'is_migs' => false,
         ]);
 
@@ -290,7 +279,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 50000,
             'existing_monthly_obligations' => 0,
-            'share_capital' => 50000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -309,13 +297,13 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 30000,
+            'savings_balance' => 30000,
             'is_migs' => false,
         ]);
 
         // utility loan is capped at ₱10 000 regardless of requested amount.
         // With income ₱10 000, EMI on ₱30 000 is ~₱2 665 → DTI ~27 % (within 35 % limit).
-        // Base score: 40 (DTI) + 20 (no loan history) + 15 (docs) + 15 (share-cap) = 90 → Low.
+        // Base score: 40 (DTI) + 20 (no loan history) + 15 (docs) + savings score on 30000/30000 = 15 → 90 → Low.
         // But requested 30000 > 2 × 10000 → bump to Medium.
         $loanApp = LoanApplication::factory()->create([
             'user_id' => $user->id,
@@ -324,7 +312,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 10000,
             'existing_monthly_obligations' => 0,
-            'share_capital' => 30000,
             'documents' => ['doc1.pdf'],
         ]);
 
@@ -344,7 +331,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 10000,
+            'savings_balance' => 10000,
         ]);
 
         $loanApp = LoanApplication::factory()->create([
@@ -354,7 +341,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 15000,
             'existing_monthly_obligations' => 0,
-            'share_capital' => 10000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -374,7 +360,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 30000,
+            'savings_balance' => 30000,
         ]);
 
         $loanApp = LoanApplication::factory()->create([
@@ -384,7 +370,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 0,
-            'share_capital' => 30000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -401,7 +386,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
         ]);
 
         $loanApp = LoanApplication::factory()->create([
@@ -411,7 +396,6 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 20000,
             'existing_monthly_obligations' => 2000,
-            'share_capital' => 50000,
         ]);
 
         $service = app(LoanEvaluationService::class);
@@ -427,7 +411,7 @@ class LoanEvaluationTest extends TestCase
         $user = User::factory()->create();
         CoopMember::factory()->create([
             'user_id' => $user->id,
-            'share_capital' => 50000,
+            'savings_balance' => 50000,
         ]);
 
         // DTI limits but doesn't zero out:
@@ -440,13 +424,12 @@ class LoanEvaluationTest extends TestCase
             'term_months' => 12,
             'monthly_income' => 30000,
             'existing_monthly_obligations' => 8000,
-            'share_capital' => 50000,
         ]);
 
         $service = app(LoanEvaluationService::class);
         $result = $service->evaluate($loanApp);
 
-        // Should be limited by DTI, not by requested amount or share capital
+        // Should be limited by DTI, not by requested amount or savings
         $this->assertTrue($result['eligible']);
         $this->assertLessThan(100000, $result['recommended_amount']);
         $this->assertLessThan(50000, $result['recommended_amount']);

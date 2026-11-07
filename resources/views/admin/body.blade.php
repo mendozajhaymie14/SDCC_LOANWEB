@@ -33,11 +33,11 @@
   <div class="topbar-actions">
     @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::STAFF_ACTIVITY))
     <div class="icon-btn" id="notifBtn" onclick="toggleNotif()" data-tip="Notifications">
-      🔔<span class="notif-dot" id="notifDot"></span>
+      <i class="fa-solid fa-bell nav-icon"></i><span class="notif-dot" id="notifDot"></span>
     </div>
     @endif
     <div class="icon-btn" id="settingsBtn" onclick="toggleSettingsDropdown()" data-tip="Settings">
-      ⚙️
+      <i class="fa-solid fa-gear nav-icon"></i>
     </div>
   </div>
 
@@ -56,14 +56,14 @@
   <!-- 1. TOP: Dynamic Rule-Based Risk Warning Banner (Phase 1) -->
   @if($hasFlags)
   <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
-    <span style="color: #dc2626; font-weight: 600; font-size: 0.95rem;">⚠️ Attention Required • {{ $riskFlagsCount }} Rule-Based Risk Flag(s) Detected</span>
+    <span style="color: #dc2626; font-weight: 600; font-size: 0.95rem;"><i class="fa-solid fa-triangle-exclamation nav-icon"></i> Attention Required • {{ $riskFlagsCount }} Rule-Based Risk Flag(s) Detected</span>
     @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))
     <a href="{{ route('risk-flags.index') }}" style="background-color: #dc2626; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
     @endif
   </div>
   @else
   <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
-    <span style="color: #16a34a; font-weight: 600; font-size: 0.95rem;">🛡️ System Healthy • 0 Rule-Based Risk Flags Detected</span>
+    <span style="color: #16a34a; font-weight: 600; font-size: 0.95rem;"><i class="fa-solid fa-shield-halved nav-icon"></i> System Healthy • 0 Rule-Based Risk Flags Detected</span>
     @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))
     <a href="{{ route('risk-flags.index') }}" style="background-color: #16a34a; color: #ffffff; padding: 0.4rem 0.85rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s;">Review Now &rarr;</a>
     @endif
@@ -215,7 +215,7 @@
                 </td>
                 <td class="td-mono">
                   @php
-                    $score = $app->ai_score;
+                    $score = $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null);
                     if ($score !== null && $score >= 80) {
                         $badgeStyle = 'background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;';
                     } elseif ($score !== null && $score >= 50) {
@@ -227,7 +227,7 @@
                     }
                   @endphp
                   <span class="px-2.5 py-1 text-xs font-bold rounded-full" style="{{ $badgeStyle }} padding: 0.2rem 0.6rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; display: inline-block;">
-                      {{ $app->ai_score ?? 'N/A' }}
+                      {{ $score ?? 'N/A' }}
                   </span>
                 </td>
                 <td class="td-date">{{ isset($app->created_at) ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : 'Oct 13, 2026' }}</td>
@@ -414,7 +414,7 @@
                   <span class="status-dot"></span>{{ ucfirst($app->status) }}
                 </span>
               </td>
-              <td class="td-mono">{{ $app->ai_score ?? 'N/A' }}</td>
+              <td class="td-mono">{{ $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null) ?? 'N/A' }}</td>
               <td>{{ $app->created_at?->format('M d') ?? '—' }}</td>
               <td>
                 <button class="btn-review" type="button" onclick="openApplicationModal({{ json_encode($formattedApp) }})">View</button>
@@ -431,10 +431,10 @@
   </div>
 </div>
 
-<div class="page" id="page-repayments"><div class="page-header"><div class="page-heading">Repayments</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔄</div><div style="margin-top:.8rem;">Repayment schedule and history. Connect to backend to populate.</div></div></div>
+<div class="page" id="page-repayments"><div class="page-header"><div class="page-heading">Repayments</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔄</div></div></div>
 <div class="page" id="page-credit"><div class="page-header"><div class="page-heading">Credit Assessment</div></div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">🔍</div><div style="margin-top:.8rem;">AI-powered credit scoring engine. Connect to backend to view reports.</div></div></div>
-<div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;">⚠️ {{ $riskFlagsCount }} active risk flags require attention.</p><div class="feed">@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))<a href="{{ route('risk-flags.index') }}" style="background:transparent;color:inherit;padding:0.2rem 0.5rem;border-radius:4px;text-decoration:none;font-weight:600;" onclick="event.stopPropagation()">View All Risk Flags</a>@endif</div></div></div>
-<div class="page" id="page-settings"><div class="page-header"><div class="page-heading">Settings</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">General</div><div class="form-group"><label class="form-label">Organization Name</label><input class="form-input" value="San Dionisio Credit Cooperative"/></div><div class="form-group"><label class="form-label">Support Email</label><input class="form-input" value="support@scc.ai"/></div><div class="form-group"><label class="form-label">Default Currency</label><select class="form-select"><option>PHP (₱)</option><option>USD ($)</option></select></div><button class="btn-submit" onclick="showToast('success','Settings saved successfully','✅')">Save Settings</button></div><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">Loan Defaults</div><div class="form-group"><label class="form-label">Max Personal Loan</label><input class="form-input" value="500000"/></div><div class="form-group"><label class="form-label">Default Interest Rate (%)</label><input class="form-input" value="1.5"/></div><div class="form-group"><label class="form-label">AI Credit Threshold</label><input class="form-input" value="600"/></div><button class="btn-submit" onclick="showToast('success','Loan defaults updated','✅')">Save Defaults</button></div></div></div>
+<div class="page" id="page-risk"><div class="page-header"><div class="page-heading">Risk Flags</div></div><div class="panel"><p style="color:var(--red);font-size:.9rem;margin-bottom:1rem;"><i class="fa-solid fa-triangle-exclamation nav-icon"></i> {{ $riskFlagsCount }} active risk flags require attention.</p><div class="feed">@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VERIFY_DOCUMENTS))<a href="{{ route('risk-flags.index') }}" style="background:transparent;color:inherit;padding:0.2rem 0.5rem;border-radius:4px;text-decoration:none;font-weight:600;" onclick="event.stopPropagation()">View All Risk Flags</a>@endif</div></div></div>
+<div class="page" id="page-settings"><div class="page-header"><div class="page-heading">Settings</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">General</div><div class="form-group"><label class="form-label">Organization Name</label><input class="form-input" value="San Dionisio Credit Cooperative"/></div><div class="form-group"><label class="form-label">Support Email</label><input class="form-input" value="support@scc.ai"/></div><div class="form-group"><label class="form-label">Default Currency</label><select class="form-select"><option>PHP (₱)</option><option>USD ($)</option></select></div><button class="btn-submit" onclick="showToast('success','Settings saved successfully','<i class="fa-solid fa-check nav-icon"></i>')">Save Settings</button></div><div class="panel"><div class="panel-title" style="margin-bottom:1.2rem;">Loan Defaults</div><div class="form-group"><label class="form-label">Max Personal Loan</label><input class="form-input" value="500000"/></div><div class="form-group"><label class="form-label">Default Interest Rate (%)</label><input class="form-input" value="1.5"/></div><div class="form-group"><label class="form-label">AI Credit Threshold</label><input class="form-input" value="600"/></div><button class="btn-submit" onclick="showToast('success','Loan defaults updated','<i class="fa-solid fa-check nav-icon"></i>')">Save Defaults</button></div></div></div>
 <div class="page" id="page-reports"><div class="page-header"><div class="page-heading">Reports</div>@if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::VIEW_REPORTS))<button class="btn-new" onclick="openModal('generateReport')">Generate Report</button>@endif</div><div class="panel" style="text-align:center;padding:3rem;color:var(--muted)"><div style="font-size:3rem;">📄</div><div style="margin-top:.8rem;">Download monthly, quarterly, and annual reports.</div></div></div>
 
 <!-- Chart.js CDN + Chart Rendering (Phase 2) -->

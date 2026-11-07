@@ -1,3 +1,5 @@
+<link rel="stylesheet" href="{{ asset('css/field-validation.css') }}">
+<script src="{{ asset('js/field-validation.js') }}" defer></script>
 {{-- Loads the landing page stylesheet first, then member-only styles on top. --}}
 @include('home.css')
 

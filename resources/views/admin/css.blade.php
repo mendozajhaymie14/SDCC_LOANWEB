@@ -1,3 +1,5 @@
+<link rel="stylesheet" href="{{ asset('css/field-validation.css') }}">
+<script src="{{ asset('js/field-validation.js') }}" defer></script>
 <style>
 *, *::before, *::after {
   box-sizing: border-box;
@@ -1314,6 +1316,7 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   .btn-new { font-size: 0.75rem; padding: 0.5rem 1rem; }
   .topbar-title { font-size: 0.95rem; }
   .page-header { flex-wrap: wrap; gap: 0.5rem; }
+  .form-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {

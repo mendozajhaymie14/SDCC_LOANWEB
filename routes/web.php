@@ -56,12 +56,6 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('loans.cancel');
     });
 
-    // 'Become a member' — the membership form and the applicant's own status.
-    // Registered users only; a guest uses the public /member-application form.
-    Route::middleware(['role:' . Permissions::APPLY_MEMBERSHIP])->prefix('user')->name('user.')->group(function () {
-        Route::get('/membership', [UserController::class, 'membership'])->name('membership');
-    });
-
     // Member's own loans - view only, gated separately from the rest of the portal
     Route::middleware(['role:' . Permissions::VIEW_OWN_LOANS])->prefix('user')->name('user.')->group(function () {
         Route::get('/loans/{application}/amortization', [UserController::class, 'amortizationSchedule'])
@@ -99,6 +93,8 @@ Route::middleware(['auth', 'role'])->group(function () {
     Route::middleware(['role:' . Permissions::MANAGE_BACKUPS])->group(function () {
         Route::get('/admin/backup', [AdminController::class, 'backup'])
             ->name('admin.backup');
+	Route::post('/admin/backup', [AdminController::class, 'createBackup'])
+    ->name('admin.backup.create');
         Route::get('/admin/backup/download/{filename}', [AdminController::class, 'downloadBackup'])
             ->name('admin.backup.download')
             ->where('filename', 'backup_[a-zA-Z0-9_]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.sql\.gz');
@@ -149,10 +145,6 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('memberships.approve');
         Route::post('/memberships/{id}/reject', [AdminController::class, 'rejectMember'])
             ->name('memberships.reject');
-        Route::delete('/memberships/{id}', [AdminController::class, 'destroyMember'])
-            ->name('memberships.destroy');
-        Route::put('/memberships/{id}', [AdminController::class, 'updateMember'])
-            ->name('memberships.update');
     });
 
     // ------------------------------------------------------------------
@@ -163,9 +155,16 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::get('/applications', [AdminController::class, 'application'])
             ->name('applications.index');
 
-        // Route to handle form submission and store application in database
-        Route::post('/applications', [AdminController::class, 'store'])
-            ->name('applications.store');
+        // Staff encoding of applications for existing members. This is the only
+        // way to create an application from the staff side: it validates an
+        // active cooperative member, runs the shared evaluation engine, and
+        // mirrors into the admin applications table. The old bare-record
+        // applications.store path is gone — it created an orphan row that was
+        // never evaluated.
+        Route::get('/applications/encode', [AdminController::class, 'encodeApplication'])
+            ->name('applications.encode');
+        Route::post('/applications/encode', [AdminController::class, 'storeEncodedApplication'])
+            ->name('applications.encode.store');
 
         Route::delete('/applications/{appId}', [AdminController::class, 'destroy'])
             ->whereNumber('appId')
@@ -220,7 +219,23 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('active-members.index');
     });
 
+    // Member profile pages for staff
+    Route::middleware(['role:' . Permissions::VIEW_MEMBER_PROFILES])->group(function () {
+        Route::get('/admin/members/{member}', [AdminController::class, 'memberShow'])
+            ->name('admin.members.show');
+        Route::get('/admin/members/{member}/financial', [AdminController::class, 'memberFinancial'])
+            ->name('admin.members.financial');
+    });
+
     Route::middleware(['role:' . Permissions::EDIT_MEMBER_PROFILES])->group(function () {
+        Route::put('/admin/members/{member}', [AdminController::class, 'memberUpdate'])
+            ->name('admin.members.update');
+    });
+
+    Route::middleware(['role:' . Permissions::EDIT_MEMBER_PROFILES])->group(function () {
+        Route::put('/active-members/{id}', [AdminController::class, 'updateBorrower'])
+            ->name('active-members.update');
+
         Route::post('/active-members', [AdminController::class, 'storeBorrower'])
             ->name('active-members.store');
 
@@ -260,6 +275,17 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('admin.check-duplicate');
     });
 });
+
+// 'Become a member' — the membership form and the applicant's own status.
+// Registered users only; a guest uses the public /member-application form.
+// Uses VIEW_MEMBERSHIP_PAGE (granted to 'user' and 'member' only, not staff)
+// so the controller can redirect active members to their dashboard.
+Route::middleware(['auth', 'role:' . Permissions::VIEW_MEMBERSHIP_PAGE])
+    ->prefix('user')
+    ->name('user.')
+    ->group(function () {
+        Route::get('/membership', [UserController::class, 'membership'])->name('membership');
+    });
 
 // Public routes - no auth required
 //

@@ -11,7 +11,7 @@
         edit: {{ $perm(\App\Support\Permissions::EDIT_MEMBER_PROFILES) ? 'true' : 'false' }},
     };
 
-    // ─── DUPLICATE MEMBER LIVE CHECK ───
+    // â”€â”€â”€ DUPLICATE MEMBER LIVE CHECK â”€â”€â”€
     // Blur on name/email/contact calls POST /admin/check-duplicate.
     // Red error for email/contact match; amber warning for name-only match.
     // Blocks submit on error. exclude_id avoids flagging the edited member.
@@ -99,7 +99,7 @@
       form.addEventListener('submit', function (e) {
         if (hasError) {
           e.preventDefault();
-          if (typeof showToast === 'function') showToast('error', 'Please fix the duplicate member error before submitting.', '❌');
+          if (typeof showToast === 'function') showToast('error', 'Please fix the duplicate member error before submitting.', '<i class="fa-solid fa-xmark nav-icon"></i>');
         }
       });
     }
@@ -115,30 +115,16 @@
           excludeIdEl: document.getElementById('addAMemberExcludeId'),
         });
       }
-      const addMAppForm = document.querySelector('#modal-addMember form');
-      if (addMAppForm) {
-        setupDuplicateCheck({
-          form: addMAppForm,
-          nameFields: [
-            document.getElementById('addMAppFirstName'),
-            document.getElementById('addMAppMiddleName'),
-            document.getElementById('addMAppSurname'),
-          ],
-          emailEl: document.getElementById('addMAppEmail'),
-          contactEl: document.getElementById('addMAppContact'),
-          excludeIdEl: document.getElementById('addMAppExcludeId'),
-        });
-      }
     });
 </script>
 
 <!-- PROFILE & SETTINGS DROPDOWN -->
 <div class="profile-dropdown" id="profileDropdown">
     @if($perm(\App\Support\Permissions::MANAGE_USERS))
-    <a href="{{ route('admins.index') }}" class="pd-item">👥 Staff Users</a>
+    <a href="{{ route('admins.index') }}" class="pd-item"><i class="fa-solid fa-users nav-icon"></i> Staff Users</a>
     <div class="pd-divider"></div>
     @endif
-    <div class="pd-item danger" onclick="confirmLogout()">🚪 Log Out</div>
+    <div class="pd-item danger" onclick="confirmLogout()"><i class="fa-solid fa-door-open nav-icon"></i> Log Out</div>
 
     <!-- Hidden form for Laravel authentication -->
     <form id="logout-form" action="{{ route('logout') }}" method="POST" style="display: none;">
@@ -146,7 +132,70 @@
     </form>
 </div>
 
-<div class="toast-container" id="toastContainer"></div>
+<style>
+  /* ── Toast notifications ── */
+  #toastContainer {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 340px;
+    max-width: calc(100vw - 40px);
+    pointer-events: none;
+  }
+  #toastContainer .toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #3b82f6;
+    border-radius: 10px;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    animation: toastIn 0.25s ease-out;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  #toastContainer .toast.hiding { opacity: 0; transform: translateX(20px); }
+  #toastContainer .toast .toast-icon {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    background: #dbeafe;
+    color: #1d4ed8;
+  }
+  #toastContainer .toast .toast-msg { flex: 1; padding-top: 3px; font-weight: 500; word-break: break-word; }
+  #toastContainer .toast .toast-close {
+    flex: 0 0 auto;
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 3px 2px 0 6px;
+    font-size: 0.8rem;
+  }
+  #toastContainer .toast .toast-close:hover { color: #334155; }
+  #toastContainer .toast.success { border-left-color: #10b981; }
+  #toastContainer .toast.success .toast-icon { background: #dcfce7; color: #15803d; }
+  #toastContainer .toast.error { border-left-color: #ef4444; }
+  #toastContainer .toast.error .toast-icon { background: #fee2e2; color: #b91c1c; }
+  #toastContainer .toast.info { border-left-color: #3b82f6; }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(24px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+</style>
+<div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
 <!-- OVERLAY CONTAINER -->
 <div class="overlay" id="overlay" onclick="closeAllModals()">
@@ -154,37 +203,115 @@
   <!-- SHARED APPLICATION DETAIL MODAL -->
   @include('admin.partials.application-modal')
 
-  <!-- New Loan Application Modal -->
+  <!-- Encode Loan Application Modal — inline form for staff with ENCODE_APPLICATIONS.
+       Submits to applications.encode.store (shared engine + mirror). -->
   @if($perm(\App\Support\Permissions::ENCODE_APPLICATIONS))
   <div class="modal" id="modal-newApp" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">📋 New Loan Application</div>
-      <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
+      <div class="modal-title"><i class="fa-solid fa-file-lines nav-icon"></i> Encode Loan Application</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
-    <form action="{{ route('applications.store') }}" method="POST">
+
+    <form id="encodeAppForm" action="{{ route('applications.encode.store') }}" method="POST" enctype="multipart/form-data">
       @csrf
+
+      <!-- Validation errors will be injected here by JS -->
+      <div id="encodeAppErrors" class="modal-errors" style="display:none;"></div>
+
       <div class="form-group">
-        <label class="form-label">Applicant Name</label>
-        <input type="text" name="applicant" placeholder="e.g. Maria Reyes" required class="form-input"/>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Loan Type</label>
-        <select name="loan_type" required class="form-select">
-          <option value="">Select Loan Type</option>
-          <option value="Personal Loan">Personal Loan</option>
-          <option value="Business Loan">Business Loan</option>
-          <option value="Salary Loan">Salary Loan</option>
-          <option value="Home Loan">Home Loan</option>
-          <option value="Auto Loan">Auto Loan</option>
-          <option value="Emergency Loan">Emergency Loan</option>
+        <label class="form-label">Member <span style="color:var(--red);">*</span></label>
+        <select class="form-select" name="member_id" id="encodeMemberPicker" required style="margin-top:6px;">
+          <option value="">— Select an active member —</option>
+          @foreach(\App\Models\CoopMember::where('status', 'active')->latest()->get() as $m)
+            <option value="{{ $m->id }}"
+                    data-income="{{ $m->monthly_income ?? '' }}"
+                    data-obligations="{{ $m->existing_monthly_obligations ?? '' }}"
+                    data-savings="{{ $m->savings_balance ?? '' }}"
+                    data-credit="{{ $m->approved_credit_limit ?? '' }}">
+              {{ $m->full_name }} ({{ $m->member_id }})
+            </option>
+          @endforeach
         </select>
+        @error('member_id')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
       </div>
+
       <div class="form-group">
-        <label class="form-label">Loan Amount (₱)</label>
-        <input type="number" step="0.01" name="amount" placeholder="150000" required class="form-input" data-validate="positive"/>
+        <label class="form-label">Loan Product <span style="color:var(--red);">*</span></label>
+        <select class="form-select" name="loan_type" id="encodeLoanType" required>
+          @foreach(config('loan_matrix.loan_types') as $key => $label)
+            <option value="{{ $key }}">{{ $label }}</option>
+          @endforeach
+        </select>
+        @error('loan_type')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
       </div>
-      <button class="btn-submit" type="submit">Submit Application</button>
-      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Amount (₱) <span style="color:var(--red);">*</span></label>
+          <input class="form-input" type="number" step="0.01" min="1" name="amount" value="{{ old('amount') }}" required data-validate="positive" id="encodeAmount" />
+          @error('amount')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          <div id="encodeIncomeWarning" style="display:none; margin-top:4px; padding:6px 10px; border:1px solid #f59e0b; background:#fffbeb; color:#92400e; border-radius:6px; font-size:0.75rem;">
+            ⚠️ <span id="encodeIncomeWarningText"></span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Term (months) <span style="color:var(--red);">*</span></label>
+          <select class="form-select" name="term_months" id="encodeTermSelect" required></select>
+          @error('term_months')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Purpose <span style="color:var(--red);">*</span></label>
+        <input class="form-input" type="text" name="purpose" maxlength="500" value="{{ old('purpose') }}" required placeholder="e.g. Capital for farm inputs" />
+        @error('purpose')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+      </div>
+
+      <div style="margin-top:0.5rem; padding:0.75rem; background:#f8fafc; border:1px solid var(--border); border-radius:8px;">
+        <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.5rem;">Member Financial Profile (editable)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Monthly Income (₱)</label>
+            <input type="number" name="monthly_income" id="encodeMonthlyIncome" class="form-input" step="0.01" min="0" placeholder="e.g. 30000" data-validate="money" required />
+            @error('monthly_income')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </div>
+          <div class="form-group">
+            <label class="form-label">Existing Monthly Obligations (₱)</label>
+            <input type="number" name="existing_monthly_obligations" id="encodeExistingObligations" class="form-input" step="0.01" min="0" placeholder="e.g. 5000" data-validate="money" required />
+            @error('existing_monthly_obligations')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </div>
+          <div class="form-group">
+            <label class="form-label">Source of Income</label>
+            <select class="form-select" name="source_of_income" id="encodeSourceOfIncome" required>
+              @foreach(config('loan_matrix.form_options.source_of_income') as $label)
+                <option value="{{ $label }}">{{ $label }}</option>
+              @endforeach
+            </select>
+            @error('source_of_income')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:0.5rem; padding:0.75rem; background:#f8fafc; border:1px solid var(--border); border-radius:8px;">
+        <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.5rem;">Supporting Documents (optional)</div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Required Documents</label>
+          <input type="file" name="required_documents[]" id="encodeDocuments" class="form-input" accept=".jpg,.jpeg,.png,.pdf" multiple style="padding:0.5rem;" />
+          <div style="font-size:0.7rem; color:var(--muted); margin-top:4px;">PDF, JPG, PNG — max 5MB each, up to 10 files.</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0; margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:500; font-size:0.85rem;">
+            <input type="checkbox" name="document_consent" id="encodeDocumentConsent" value="1" style="width:18px; height:18px; accent-color:var(--accent);" />
+            I consent to uploaded documents being scanned by AI for verification. <span style="color:var(--muted); font-weight:400;">The AI check is advisory; recommended amounts and risk levels are rule-based and unchanged.</span>
+          </label>
+          @error('document_consent')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+        </div>
+      </div>
+
+      <div class="form-actions" style="margin-top:1.2rem;">
+        <button type="submit" class="btn-submit">Encode Application</button>
+        <button type="button" class="btn-cancel" onclick="closeAllModals()">Cancel</button>
+      </div>
     </form>
   </div>
   @endif
@@ -193,20 +320,22 @@
   <div class="modal" id="modal-activeMemberDetail" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title" id="activeMemberDetailTitle">Member Detail</div>
-      <div class="modal-close" type="button" onclick="closeAllModals()">✕</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div id="activeMemberDetailBody"></div>
   </div>
 
-  <!-- 2. Add Active Member Modal -->
+  <!-- 2. Add/Edit Active Member Modal -->
   @if($perm(\App\Support\Permissions::EDIT_MEMBER_PROFILES))
   <div class="modal" id="modal-addActiveMember" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">👤 Add New Member</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
+      <div class="modal-title" id="addActiveMemberTitle"><i class="fa-solid fa-user nav-icon"></i> Add New Member</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
-    <form action="{{ route('active-members.store') }}" method="POST">
+    <form id="addActiveMemberForm" action="{{ route('active-members.store') }}" method="POST">
       @csrf
+      <input type="hidden" name="_method" id="addAMemberMethod" value=""/>
+      <input type="hidden" name="exclude_id" id="addAMemberExcludeId" value=""/>
 
       <div class="form-group">
         <label class="form-label">Member ID</label>
@@ -215,38 +344,38 @@
 
       <div class="form-group">
         <label class="form-label">Full Name</label>
-        <input type="text" name="full_name" id="addAMemberName" class="form-input" placeholder="e.g. Juan Santos" required/>
+        <input type="text" name="full_name" id="addAMemberName" class="form-input" placeholder="e.g. Juan Santos" required data-validate="name"/>
       </div>
 
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email Address</label>
-          <input type="email" name="email" id="addAMemberEmail" class="form-input" placeholder="juan@email.com" required/>
+          <input type="email" name="email" id="addAMemberEmail" class="form-input" placeholder="juan@email.com" required data-validate="email"/>
         </div>
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" name="phone" id="addAMemberPhone" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
+          <input type="text" name="phone" id="addAMemberPhone" class="form-input" placeholder="09XX XXX XXXX" data-validate="phone"/>
         </div>
       </div>
 
-      <input type="hidden" name="exclude_id" id="addAMemberExcludeId" value=""/>
-
       <div class="form-group">
         <label class="form-label">Date of Birth</label>
-        <input type="date" name="date_of_birth" class="form-input" required/>
+        <input type="date" name="date_of_birth" id="addAMemberDateOfBirth" class="form-input"/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Address</label>
+        <input type="text" name="address" id="addAMemberAddress" class="form-input" placeholder="e.g. 12 Rizal St, Brgy. Centro"/>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Website Account</label>
-          <select name="is_registered" class="form-select">
-            <option value="0">No</option>
-            <option value="1">Yes</option>
-          </select>
+          <label class="form-label">Occupation</label>
+          <input type="text" name="occupation" id="addAMemberOccupation" class="form-input" placeholder="e.g. Farmer"/>
         </div>
         <div class="form-group">
           <label class="form-label">Status</label>
-          <select name="status" class="form-select">
+          <select name="status" id="addAMemberStatus" class="form-select">
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
             <option value="suspended">Suspended</option>
@@ -254,7 +383,39 @@
         </div>
       </div>
 
-      <button class="btn-submit" type="submit">Register Member</button>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Monthly Income (₱)</label>
+          <input type="number" name="monthly_income" id="addAMemberMonthlyIncome" class="form-input" step="0.01" min="0" placeholder="e.g. 15000" data-validate="money"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Existing Monthly Obligations (₱)</label>
+          <input type="number" name="existing_monthly_obligations" id="addAMemberExistingMonthlyObligations" class="form-input" step="0.01" min="0" placeholder="e.g. 2000" data-validate="money"/>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Savings Balance (₱)</label>
+          <input type="number" name="savings_balance" id="addAMemberSavingsBalance" class="form-input" step="0.01" min="0" placeholder="e.g. 5000" data-validate="money"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Approved Credit Limit (₱)</label>
+          <input type="number" name="approved_credit_limit" id="addAMemberApprovedCreditLimit" class="form-input" step="0.01" min="0" placeholder="e.g. 25000" data-validate="money"/>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Website Account</label>
+          <select name="is_registered" id="addAMemberIsRegistered" class="form-select">
+            <option value="0">No</option>
+            <option value="1">Yes</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn-submit" type="submit" id="addAMemberSubmitBtn">Register Member</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
@@ -264,8 +425,8 @@
   @if($perm(\App\Support\Permissions::MANAGE_USERS))
   <div class="modal" id="modal-addAdmin" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">👤 Add Staff User</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
+      <div class="modal-title"><i class="fa-solid fa-user nav-icon"></i> Add Staff User</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <form id="addAdminForm" action="/admin/users" method="POST">
       @csrf
@@ -282,7 +443,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" name="phone" id="addAdminPhone" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
+          <input type="text" name="phone" id="addAdminPhone" class="form-input" placeholder="09XX XXX XXXX" data-validate="phone"/>
         </div>
         <div class="form-group">
           <label class="form-label">Role</label>
@@ -312,7 +473,7 @@
   <div class="modal" id="modal-editAdmin" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title">✏️ Edit Staff User</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <form id="editAdminForm" method="POST" action="">
       @csrf
@@ -332,7 +493,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Phone Number</label>
-          <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
+          <input type="text" id="editAdminPhone" name="phone" class="form-input" placeholder="09XX XXX XXXX" data-validate="phone"/>
         </div>
         <div class="form-group">
           <label class="form-label">Role</label>
@@ -359,7 +520,7 @@
   <div class="modal" id="modal-adminDetail" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title" id="adminDetailTitle">Staff Detail</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div id="adminDetailBody"></div>
   </div>
@@ -370,200 +531,9 @@
   <div class="modal" id="modal-memberDetail" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div class="modal-title" id="memberDetailTitle">Membership Application Detail</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div id="memberDetailBody"></div>
-  </div>
-  @endif
-
-  <!-- 2c. Edit Membership Application Modal -->
-  @if($perm(\App\Support\Permissions::APPROVE_MEMBERSHIPS))
-  <div class="modal" id="modal-editMember" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <div class="modal-title">✏️ Edit Membership Application</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
-    </div>
-    <form id="editMemberForm" method="POST" action="">
-      @csrf
-      @method('PUT')
-      <input type="hidden" name="_method" value="PUT">
-      <input type="hidden" id="editMemberId" name="id" value="">
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">First Name</label>
-          <input type="text" id="editFirstName" name="first_name" class="form-input" required/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Middle Name</label>
-          <input type="text" id="editMiddleName" name="middle_name" class="form-input"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Surname</label>
-          <input type="text" id="editSurname" name="surname" class="form-input" required/>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Email Address</label>
-          <input type="email" id="editEmail" name="email" class="form-input" required/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Contact Number</label>
-          <input type="text" id="editContact" name="contact_number" class="form-input" data-validate="phone"/>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">TIN</label>
-          <input type="text" id="editTin" name="tin" class="form-input"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Nationality</label>
-          <input type="text" id="editNationality" name="nationality" class="form-input"/>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Place of Birth</label>
-          <input type="text" id="editPlaceOfBirth" name="place_of_birth" class="form-input"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Gender</label>
-          <select id="editGender" name="gender" class="form-select">
-            <option value="">—</option>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Occupation</label>
-          <input type="text" id="editOccupation" name="occupation" class="form-input"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Civil Status</label>
-          <select id="editCivilStatus" name="civil_status" class="form-select">
-            <option value="">—</option>
-            <option value="single">Single</option>
-            <option value="married">Married</option>
-            <option value="divorced">Divorced</option>
-            <option value="widowed">Widowed</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Residency Type</label>
-        <select id="editResidency" name="residency_type" class="form-select">
-          <option value="">—</option>
-          <option value="renter">Renter</option>
-          <option value="homeowner">Homeowner</option>
-          <option value="family_home">With Family</option>
-        </select>
-      </div>
-
-      <div style="margin-top:1rem;">
-        <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Permanent Address</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">House No.</label>
-            <input type="text" id="editPermHouseNo" name="perm_house_no" class="form-input"/>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Street</label>
-            <input type="text" id="editPermStreet" name="perm_street" class="form-input"/>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Barangay</label>
-            <input type="text" id="editPermBarangay" name="perm_barangay" class="form-input" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Municipality</label>
-            <input type="text" id="editPermMunicipality" name="perm_municipality" class="form-input"/>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Zip Code</label>
-            <input type="text" id="editPermZipCode" name="perm_zip_code" class="form-input"/>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Stay (Years)</label>
-            <input type="number" id="editPermStayYears" name="perm_stay_years" class="form-input" min="0"/>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Stay (Months)</label>
-            <input type="number" id="editPermStayMonths" name="perm_stay_months" class="form-input" min="0" max="11"/>
-          </div>
-        </div>
-      </div>
-
-      <button class="btn-submit" type="button" onclick="submitEditMember()">Save Changes</button>
-      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
-    </form>
-  </div>
-  @endif
-
-  <!-- 2b. Add Membership Application Modal -->
-  @if($perm(\App\Support\Permissions::APPROVE_MEMBERSHIPS))
-  <div class="modal" id="modal-addMember" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <div class="modal-title">📋 Add Membership Application</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
-    </div>
-    <form id="addMemberForm" action="/memberships" method="POST">
-      @csrf
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">First Name</label>
-          <input type="text" name="first_name" id="addMAppFirstName" class="form-input" placeholder="e.g. Juan" required/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Middle Name</label>
-          <input type="text" name="middle_name" id="addMAppMiddleName" class="form-input" placeholder="e.g. Dela"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Surname</label>
-          <input type="text" name="surname" id="addMAppSurname" class="form-input" placeholder="e.g. Cruz" required/>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Email Address</label>
-          <input type="email" name="email" id="addMAppEmail" class="form-input" placeholder="juan@email.com" required/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Contact Number</label>
-          <input type="text" name="contact_number" id="addMAppContact" class="form-input" placeholder="+63 9XX XXX XXXX" data-validate="phone"/>
-        </div>
-      </div>
-
-      <input type="hidden" name="exclude_id" id="addMAppExcludeId" value=""/>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">TIN</label>
-          <input type="text" name="tin" class="form-input" placeholder="1234567890"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Status</label>
-          <select name="status" class="form-select">
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn-submit" type="submit">Save Application</button>
-      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
-    </form>
   </div>
   @endif
 
@@ -571,8 +541,8 @@
   @if($perm(\App\Support\Permissions::VIEW_REPORTS))
   <div class="modal" id="modal-generateReport" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <div class="modal-title">📊 Generate Report</div>
-      <div class="modal-close" onclick="closeAllModals()">✕</div>
+      <div class="modal-title"><i class="fa-solid fa-chart-bar nav-icon"></i> Generate Report</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div class="form-group">
       <label class="form-label">Report Type</label>
@@ -605,7 +575,7 @@
 </div>
 
 <script>
-  // ─── DATA ───
+  // â”€â”€â”€ DATA â”€â”€â”€
   const apps = {
     @foreach (\App\Models\Application::with('loanApplication')->latest()->get() as $a)
       @php
@@ -630,7 +600,14 @@
     @foreach (\App\Models\CoopMember::with('user')->latest()->get() as $m)
       @php
         $latestBorrower = \App\Models\Borrowers::where('full_name', $m->full_name)->latest()->first();
-        $income = $latestBorrower ? number_format($latestBorrower->monthly_income, 2) : '';
+        // Monthly income: the member's own record first, then the latest borrower record
+        $rawIncome = $m->monthly_income;
+        if ($rawIncome === null || $rawIncome === '') {
+            $rawIncome = $latestBorrower?->monthly_income;
+        }
+        $income = ($rawIncome !== null && $rawIncome !== '' && (float) $rawIncome > 0)
+            ? '₱' . number_format((float) $rawIncome, 2)
+            : '';
         $aiScore = $latestBorrower ? $latestBorrower->ai_credit_score : null;
         $rawScore = $aiScore !== null ? round((($aiScore - 300) * 100) / 550) : null;
       @endphp
@@ -722,7 +699,7 @@
     const badges = documents.map(doc => {
       const fileName = doc.split('/').pop();
       return `<span style="display:inline-flex;align-items:center;gap:0.2rem;background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;padding:0.35rem 0.65rem;font-size:0.75rem;margin:0.2rem;">
-        📄 <a href="/storage/${doc}" target="_blank" style="color:inherit;text-decoration:none;">${fileName}</a>
+        <i class="fa-solid fa-file nav-icon"></i> <a href="/storage/${doc}" target="_blank" style="color:inherit;text-decoration:none;">${fileName}</a>
       </span>`;
     }).join('');
 
@@ -732,7 +709,7 @@
     </div>`;
   }
 
-  // ─── PAGE SWITCHING ───
+  // â”€â”€â”€ PAGE SWITCHING â”€â”€â”€
   function switchPage(id, el) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const pg = document.getElementById('page-' + id);
@@ -755,7 +732,7 @@
     closeAllDropdowns();
   }
 
-  // ─── DELETE APPLICATION ACTION ───
+  // â”€â”€â”€ DELETE APPLICATION ACTION â”€â”€â”€
   function deleteApp(id) {
     if (!confirm(`Are you sure you want to permanently delete application #${id}?`)) {
       return;
@@ -773,22 +750,22 @@
         return res.json();
       })
       .then(() => {
-        showToast('error', `Application #${id} deleted`, '🗑️');
+        showToast('error', `Application #${id} deleted`, '<i class="fa-solid fa-trash-can nav-icon"></i>');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
       })
       .catch(() => {
-        showToast('error', `Failed to delete application #${id}.`, '❌');
+        showToast('error', `Failed to delete application #${id}.`, '<i class="fa-solid fa-xmark nav-icon"></i>');
       });
   }
 
-  // ─── ACTIVE MEMBER DETAIL MODAL ───
+  // â”€â”€â”€ ACTIVE MEMBER DETAIL MODAL â”€â”€â”€
   function openActiveMemberDetail(id) {
     closeAllDropdowns();
     const mp = window.__memberPermissions || { edit: false };
     const m = activeMembersData[id];
     if (!m) {
-      showToast('error', 'Member record not found', '❌');
+      showToast('error', 'Member record not found', '<i class="fa-solid fa-xmark nav-icon"></i>');
       return;
     }
 
@@ -885,11 +862,11 @@
               <input type="hidden" name="_token" value="${csrfToken}">
             </form>
             <div style="display:flex;gap:.7rem;">
-              <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);" onclick="document.getElementById('suspend-form-${m.id}').submit()">✗ Suspend</button>
-              <button class="btn-submit" type="button" style="width:auto;flex:1;" onclick="document.getElementById('activate-form-${m.id}').submit()">✓ Activate</button>
+              <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);" onclick="document.getElementById('suspend-form-${m.id}').submit()"><i class="fa-solid fa-xmark nav-icon"></i> Suspend</button>
+              <button class="btn-submit" type="button" style="width:auto;flex:1;" onclick="document.getElementById('activate-form-${m.id}').submit()"><i class="fa-solid fa-check nav-icon"></i> Activate</button>
             </div>` : ''
           }
-          ${mp.edit ? `<button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteActiveMember('${m.id}')">🗑️ Delete Member</button>` : ''}
+          ${mp.edit ? `<button class="btn-cancel" type="button" style="width:100%;color:var(--red);border-color:var(--red);background:rgba(239,68,68,0.05);" onclick="deleteActiveMember('${m.id}')"><i class="fa-solid fa-trash-can nav-icon"></i> Delete Member</button>` : ''}
         </div>
       `;
     }
@@ -897,7 +874,7 @@
     openModal('activeMemberDetail');
   }
 
-  // ─── DELETE ACTIVE MEMBER ACTION ───
+  // â”€â”€â”€ DELETE ACTIVE MEMBER ACTION â”€â”€â”€
   function deleteActiveMember(id) {
     if (!confirm('Are you sure you want to permanently delete this member?')) {
       return;
@@ -915,12 +892,12 @@
         return res.json();
       })
       .then(() => {
-        showToast('error', 'Member deleted', '🗑️');
+        showToast('error', 'Member deleted', '<i class="fa-solid fa-trash-can nav-icon"></i>');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
       })
       .catch(() => {
-        showToast('error', 'Failed to delete member.', '❌');
+        showToast('error', 'Failed to delete member.', '<i class="fa-solid fa-xmark nav-icon"></i>');
       });
   }
 
@@ -928,7 +905,7 @@
     closeAllModals();
   }
 
-  // ─── NOTIFICATIONS ───
+  // â”€â”€â”€ NOTIFICATIONS â”€â”€â”€
   let notifOpen = false;
   function toggleNotif() {
     notifOpen = !notifOpen;
@@ -956,14 +933,14 @@
         const item = document.createElement('div');
         item.className = 'notif-item' + (n.unread ? ' unread' : '');
         if (n.unread) item.style.background = 'rgba(56,189,248,0.05)';
-        const linkHtml = n.link ? `<a href="${n.link}" style="color:${n.textColor};font-size:0.72rem;font-weight:600;text-decoration:none;">${n.linkText} →</a>` : '';
+        const linkHtml = n.link ? `<a href="${n.link}" style="color:${n.textColor};font-size:0.72rem;font-weight:600;text-decoration:none;">${n.linkText} <i class="fa-solid fa-arrow-right nav-icon"></i></a>` : '';
         item.innerHTML = `
           <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.95rem;background:${n.bgColor};">
             ${n.icon}
           </div>
           <div style="flex:1;">
             <div style="font-size:0.83rem;color:var(--text);line-height:1.4;font-weight:600;">${n.message}</div>
-            <div style="font-size:0.75rem;color:var(--muted2);margin-top:0.1rem;">${n.applicant} · #${n.appId}</div>
+            <div style="font-size:0.75rem;color:var(--muted2);margin-top:0.1rem;">${n.applicant} Â· #${n.appId}</div>
             <div class="notif-time">${n.time}</div>
             ${linkHtml}
           </div>
@@ -997,14 +974,14 @@
         document.querySelectorAll('.notif-unread-dot').forEach(d => d.remove());
         const notifDot = document.getElementById('notifDot');
         if (notifDot) notifDot.style.display = 'none';
-        showToast('success', 'All notifications marked as read', '✅');
+        showToast('success', 'All notifications marked as read', '<i class="fa-solid fa-check nav-icon"></i>');
       })
       .catch(() => {
-        showToast('error', 'Failed to mark notifications as read', '❌');
+        showToast('error', 'Failed to mark notifications as read', '<i class="fa-solid fa-xmark nav-icon"></i>');
       });
   }
 
-  // ─── PROFILE & SETTINGS DROPDOWNS ───
+  // â”€â”€â”€ PROFILE & SETTINGS DROPDOWNS â”€â”€â”€
   function toggleSettingsDropdown() {
     const pd = document.getElementById('profileDropdown');
     const notifDropdown = document.getElementById('notifDropdown');
@@ -1074,7 +1051,7 @@
     }
   });
 
-  // ─── SEARCH ───
+  // â”€â”€â”€ SEARCH â”€â”€â”€
   const searchData = [];
 
   function handleSearch(q) {
@@ -1106,7 +1083,7 @@
     if (box) box.classList.remove('open'); 
   }
 
-  // ─── APP ACTIONS ───
+  // â”€â”€â”€ APP ACTIONS â”€â”€â”€
   function setAppStatus(id, action, successMsg, failMsg) {
     fetch(`/applications/${id}/${action}`, {
       method: 'POST',
@@ -1125,12 +1102,12 @@
           const el = document.getElementById('totalApproved');
           if (el) el.textContent = '₱' + Number(data.total_approved).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
-        showToast(action === 'approve' ? 'success' : 'error', successMsg, action === 'approve' ? '✅' : '❌');
+        showToast(action === 'approve' ? 'success' : 'error', successMsg, action === 'approve' ? '<i class="fa-solid fa-check nav-icon"></i>' : '<i class="fa-solid fa-xmark nav-icon"></i>');
         closeAllModals();
         setTimeout(() => location.reload(), 700);
       })
       .catch(() => {
-        showToast('error', failMsg, '❌');
+        showToast('error', failMsg, '<i class="fa-solid fa-xmark nav-icon"></i>');
       });
   }
 
@@ -1146,7 +1123,7 @@
       'Failed to reject application #' + id + '.');
   }
 
-  // ─── FILTER ───
+  // â”€â”€â”€ FILTER â”€â”€â”€
   function filterApps(status, el) {
     // Mark the clicked tab as active, un-mark the rest.
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -1168,17 +1145,15 @@
       const rowStatus = row.getAttribute('data-status');
       row.style.display = (status === 'all' || rowStatus === status) ? '' : 'none';
     });
-
-    showToast('info', 'Filtered: ' + (status === 'all' ? 'All applications' : status), '🔍');
   }
 
-  // ─── FORM SUBMISSIONS ───
+  // â”€â”€â”€ FORM SUBMISSIONS â”€â”€â”€
   function submitPayout() {
-    showToast('success', 'Release recorded successfully', '✅');
+    showToast('success', 'Release recorded successfully', '<i class="fa-solid fa-check nav-icon"></i>');
     closeAllModals();
   }
 
-  // ─── DISBURSEMENTS / RELEASE RECORDS: open the record-release modal for a specific loan ───
+  // â”€â”€â”€ DISBURSEMENTS / RELEASE RECORDS: open the record-release modal for a specific loan â”€â”€â”€
   function openPayoutModal(loanId) {
     const form = document.getElementById('processPayoutForm');
     if (form) {
@@ -1188,7 +1163,7 @@
     openModal('processPayout');
   }
 
-  // ─── REPAYMENTS: auto-fill borrower when an active loan is selected ───
+  // â”€â”€â”€ REPAYMENTS: auto-fill borrower when an active loan is selected â”€â”€â”€
   function loadLoanInfo() {
     const select = document.getElementById('activeLoanSelect');
     if (!select) return;
@@ -1201,7 +1176,7 @@
     }
   }
 
-  // ─── CREDIT ASSESSMENT: filter applicant scoring table ───
+  // â”€â”€â”€ CREDIT ASSESSMENT: filter applicant scoring table â”€â”€â”€
   function filterCredit(status, btnEl) {
     document.querySelectorAll('#page-credit .filter-row .filter-btn')
       .forEach(b => b.classList.remove('active'));
@@ -1224,18 +1199,18 @@
     });
   }
 
-  // ─── CREDIT ASSESSMENT: open the evaluate/detail modal ───
+  // â”€â”€â”€ CREDIT ASSESSMENT: open the evaluate/detail modal â”€â”€â”€
   function openCreditDetail(id) {
     const form = document.getElementById('processPayoutForm');
     if (form) {
       form.querySelector('[name="loan_application_id"]').value = id || '';
       form.querySelector('[name="app_id"]').value = id || '';
     }
-    showToast('info', 'Opening credit assessment for loan #' + id, '🔍');
+    showToast('info', 'Opening credit assessment for loan #' + id, '<i class="fa-solid fa-magnifying-glass nav-icon"></i>');
     closeAllModals();
   }
 
-  // ─── RISK FLAGS: filter flagged accounts table ───
+  // â”€â”€â”€ RISK FLAGS: filter flagged accounts table â”€â”€â”€
   function filterRisk(status, btnEl) {
     document.querySelectorAll('#page-risk .filter-row .filter-btn')
       .forEach(b => b.classList.remove('active'));
@@ -1256,12 +1231,12 @@
     });
   }
 
-  // ─── RISK FLAGS: notify / send reminder ───
+  // â”€â”€â”€ RISK FLAGS: notify / send reminder â”€â”€â”€
   function sendReminder(id) {
-    showToast('success', 'Reminder sent to flagged account #' + id, '🔔');
+    showToast('success', 'Reminder sent to flagged account #' + id, '<i class="fa-solid fa-bell nav-icon"></i>');
   }
 
-  // ─── SETTINGS: search settings fields ───
+  // â”€â”€â”€ SETTINGS: search settings fields â”€â”€â”€
   function handleSettingsSearch(q) {
     const term = q.toLowerCase();
     document.querySelectorAll('#page-settings .panel').forEach(panel => {
@@ -1271,34 +1246,50 @@
   }
 
   function submitReport() {
-    showToast('info', 'Report is being generated, download will start shortly…', '📊');
+    showToast('info', 'Report is being generated, download will start shortly…', '<i class="fa-solid fa-chart-bar nav-icon"></i>');
     closeAllModals();
   }
 
   function confirmLogout() {
-    if (confirm("Are you sure you want to log out?")) {
-      const logoutForm = document.getElementById('logout-form');
-      if (logoutForm) logoutForm.submit();
+    const logoutForm = document.getElementById('logout-form');
+    if (!logoutForm) return;
+    if (typeof sdccConfirmLogout === 'function') {
+      sdccConfirmLogout(logoutForm);   // styled popup from partials/logout-confirm
+    } else if (confirm("Are you sure you want to log out?")) {
+      logoutForm.submit();             // fallback if the partial is not included
     }
   }
 
-  // ─── BAR CHART ───
+  // â”€â”€â”€ BAR CHART â”€â”€â”€
   function showBarToast(month, type, val) {
-    showToast('info', month + ' ' + type + ': ' + val, '📊');
+    showToast('info', month + ' ' + type + ': ' + val, '<i class="fa-solid fa-chart-bar nav-icon"></i>');
   }
 
-  // ─── TOAST ───
+  // â”€â”€â”€ TOAST â”€â”€â”€
   function showToast(type, msg, icon) {
     const c = document.getElementById('toastContainer');
     if (!c) return;
+    // Don't stack identical messages (e.g. repeated clicks) and keep at most 3 on screen.
+    const dupe = Array.from(c.children).find(el => el.dataset.key === type + '|' + msg);
+    if (dupe) dupe.remove();
+    while (c.children.length >= 3) c.firstElementChild.remove();
+
     const t = document.createElement('div');
     t.className = 'toast ' + type;
-    t.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${msg}</span><span class="toast-close" onclick="this.parentElement.remove()">✕</span>`;
+    t.dataset.key = type + '|' + msg;
+    t.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    t.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${msg}</span><span class="toast-close" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark nav-icon"></i></span>`;
     c.appendChild(t);
-    setTimeout(() => t.remove(), 3500);
+
+    // Fade out, then remove. Errors stay a little longer so they can be read.
+    const life = type === 'error' ? 5000 : 3500;
+    setTimeout(() => {
+      t.classList.add('hiding');
+      setTimeout(() => t.remove(), 250);
+    }, life);
   }
 
-  // ─── MODALS ───
+  // â”€â”€â”€ MODALS â”€â”€â”€
   function openModal(modalId) {
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modal-' + modalId);
@@ -1322,5 +1313,141 @@
       modal.classList.remove('open');
     });
   }
+
+  // â”€â”€â”€ Encode Application Modal â”€â”€â”€
+  function openEncodeModal(memberId = null) {
+    // Close any open modals without removing #overlay from DOM
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.classList.remove('open');
+    });
+    const overlay = document.getElementById('overlay');
+    const modal = document.getElementById('modal-newApp');
+
+    if (overlay && modal) {
+      overlay.style.display = 'flex';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.classList.add('open');
+      modal.classList.add('open');
+    }
+
+    // If a member ID was passed, auto-select it
+    if (memberId) {
+      const memberSelect = document.getElementById('encodeMemberPicker');
+      if (memberSelect) {
+        memberSelect.value = memberId;
+        // Trigger the change to fill financial profile
+        if (typeof fillEncodeProfile === 'function') fillEncodeProfile();
+      }
+    } else {
+      // Reset form
+      if (typeof resetEncodeForm === 'function') resetEncodeForm();
+    }
+  }
+
+  // Fill the financial profile fields from the selected member
+  function fillEncodeProfile() {
+    const memberSelect = document.getElementById('encodeMemberPicker');
+    const amountInput = document.getElementById('encodeAmount');
+    const incomeWarning = document.getElementById('encodeIncomeWarning');
+    const incomeWarningText = document.getElementById('encodeIncomeWarningText');
+    const monthlyIncomeInput = document.getElementById('encodeMonthlyIncome');
+    const existingObligationsInput = document.getElementById('encodeExistingObligations');
+
+    if (!memberSelect) return;
+    const opt = memberSelect.options[memberSelect.selectedIndex];
+    if (!opt || opt.value === '') return;
+
+    const monthlyIncome = parseFloat(opt.dataset.income) || 0;
+    const existingObligations = parseFloat(opt.dataset.obligations) || 0;
+    const savingsBalance = opt.dataset.savings || '';
+    const approvedCreditLimit = opt.dataset.credit || '';
+
+    // Set input values
+    monthlyIncomeInput.value = monthlyIncome;
+    existingObligationsInput.value = existingObligations;
+
+    // Show 70% income warning if amount exceeds 70% of income
+    if (monthlyIncome > 0 && amountInput.value) {
+      checkEncodeIncomeWarning(parseFloat(amountInput.value), monthlyIncome);
+    }
+  }
+
+  // Check 70% income threshold and show warning
+  function checkEncodeIncomeWarning(amount, monthlyIncome) {
+    const incomeWarning = document.getElementById('encodeIncomeWarning');
+    const incomeWarningText = document.getElementById('encodeIncomeWarningText');
+
+    if (!monthlyIncome || !amount) {
+      incomeWarning.style.display = 'none';
+      return;
+    }
+    const threshold = monthlyIncome * 0.70;
+    if (amount > threshold) {
+      incomeWarningText.textContent = 'Requested amount (₱' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ') exceeds 70% of monthly income (₱' + monthlyIncome.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' = ₱' + threshold.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ').';
+      incomeWarning.style.display = 'block';
+    } else {
+      incomeWarning.style.display = 'none';
+    }
+  }
+
+  // Reset encode form fields
+  function resetEncodeForm() {
+    const form = document.getElementById('encodeAppForm');
+    if (form) {
+      form.reset();
+    }
+    const incomeWarning = document.getElementById('encodeIncomeWarning');
+    const incomeWarningText = document.getElementById('encodeIncomeWarningText');
+    if (incomeWarning) incomeWarning.style.display = 'none';
+    if (incomeWarningText) incomeWarningText.textContent = '';
+  }
+
+  // Handle member selection change
+  document.addEventListener('DOMContentLoaded', function () {
+    const memberSelect = document.getElementById('encodeMemberPicker');
+    const amountInput = document.getElementById('encodeAmount');
+    const loanTypeSelect = document.getElementById('encodeLoanType');
+    const termSelect = document.getElementById('encodeTermSelect');
+
+    const TERMS = @json(
+      collect(config('loan_matrix.matrix'))->map(fn ($m) => $m['terms'] ?? [12])->all()
+    );
+
+    function refreshTerms() {
+      const terms = TERMS[loanTypeSelect.value] || [12];
+      termSelect.innerHTML = '';
+      terms.forEach(function (t) {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t + ' months';
+        termSelect.appendChild(opt);
+      });
+    }
+
+    if (memberSelect) {
+      memberSelect.addEventListener('change', function () {
+        fillEncodeProfile();
+        checkEncodeIncomeWarning(
+          parseFloat(amountInput?.value) || 0,
+          parseFloat(document.getElementById('encodeMonthlyIncome')?.value) || 0
+        );
+      });
+    }
+
+    if (amountInput) {
+      amountInput.addEventListener('input', function () {
+        checkEncodeIncomeWarning(
+          parseFloat(this.value) || 0,
+          parseFloat(document.getElementById('encodeMonthlyIncome')?.value) || 0
+        );
+      });
+    }
+
+    if (loanTypeSelect && termSelect) {
+      loanTypeSelect.addEventListener('change', refreshTerms);
+      refreshTerms();
+    }
+  });
 
   </script>
