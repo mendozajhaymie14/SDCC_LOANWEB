@@ -157,4 +157,42 @@ class StaffEncodeModalCreateTest extends TestCase
         $list->assertSee('Application encoded successfully.');
         $list->assertSee('Loterina Alyanna Peralta');
     }
+
+    /** @test
+     * Member with NO portal account (user_id null) but email on coop_members.
+     * Staff encode must copy coop_members.email into loan_applications.email
+     * and set user_id = null on the loan.
+     */
+    public function staff_encode_member_without_portal_account_copies_coop_member_email()
+    {
+        $this->loginUser(self::ROLE_BRANCH_MANAGER);
+
+        // Create a coop_member with email but NO linked user (user_id = null)
+        $member = CoopMember::factory()->create([
+            'status'           => CoopMember::STATUS_ACTIVE,
+            'full_name'        => 'No Portal Member',
+            'monthly_income'   => 20000,
+            'existing_monthly_obligations' => 1000,
+            'share_capital'    => 50000,
+            'savings_balance'  => 25000,
+            'approved_credit_limit' => 100000,
+            'occupation'       => 'Vendor',
+            'email'            => 'noportal@example.com', // email only on coop_members
+            'contact_number'   => '09171234567',
+            'user_id'          => null, // NO portal account
+        ]);
+
+        $payload = $this->encodePayload($member->id);
+
+        $response = $this->post('/applications/encode', $payload);
+
+        $response->assertRedirect(route('applications.index'));
+        $response->assertSessionHas('success', 'Application encoded successfully.');
+
+        // Fetch the created loan application and verify email & user_id
+        $loan = \App\Models\LoanApplication::latest()->first();
+        $this->assertNotNull($loan, 'LoanApplication should be created');
+        $this->assertSame('noportal@example.com', $loan->email, 'coop_members.email must be copied to loan_applications.email');
+        $this->assertNull($loan->user_id, 'user_id must be null when member has no portal account');
+    }
 }
