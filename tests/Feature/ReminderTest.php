@@ -647,6 +647,233 @@ class ReminderTest extends TestCase
     }
 
     /** @test
+     * Issue D: approve a loan with user_id=null and email only on loan_applications.email.
+     * The fallback chain must reach loan->email since user and coop_member are absent.
+     */
+    public function approving_a_loan_with_null_user_id_and_email_on_loan_sends_email(): void
+    {
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => null,
+            'full_name'           => 'Null User Borrower',
+            'email'               => 'nulluser@example.com',
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'pending',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 0,
+            'next_due_date'       => null,
+        ]);
+
+        $app = $this->makePendingAdminApp($loan);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->post(route('applications.approve', $app->id), [
+                'approved_amount' => 10000,
+                'reason'          => 'Good history',
+            ]);
+
+        Mail::assertSent(\App\Mail\LoanApprovedMail::class, function ($mail) {
+            return $mail->hasTo('nulluser@example.com');
+        });
+
+        $this->assertDatabaseHas('app_notification_logs', [
+            'recipient_email'    => 'nulluser@example.com',
+            'subject'            => 'Your Loan Application Has Been Approved',
+            'notification_type'  => 'approved',
+            'status'             => 'Sent',
+        ]);
+    }
+
+    /** @test
+     * Issue D: reject a loan with user_id=null and email only on loan_applications.email.
+     * The fallback chain must reach loan->email since user and coop_member are absent.
+     */
+    public function rejecting_a_loan_with_null_user_id_and_email_on_loan_sends_email(): void
+    {
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => null,
+            'full_name'           => 'Null User Borrower',
+            'email'               => 'nulluser@example.com',
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'pending',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 0,
+            'next_due_date'       => null,
+        ]);
+
+        $app = $this->makePendingAdminApp($loan);
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->post(route('applications.reject', $app->id), [
+                'reason' => 'Insufficient documentation',
+            ]);
+
+        Mail::assertSent(\App\Mail\LoanRejectedMail::class, function ($mail) {
+            return $mail->hasTo('nulluser@example.com');
+        });
+
+        $this->assertDatabaseHas('app_notification_logs', [
+            'recipient_email'    => 'nulluser@example.com',
+            'subject'            => 'Your Loan Application Update',
+            'notification_type'  => 'rejected',
+            'status'             => 'Sent',
+        ]);
+    }
+
+    /** @test
+     * Issue D: reminder with user_id=null and email only on loan_applications.email.
+     * Reminder service must reach loan->email since user and coop_member are absent.
+     */
+    public function reminder_with_null_user_id_and_email_on_loan_sends_email(): void
+    {
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => null,
+            'full_name'           => 'Null User Borrower',
+            'email'               => 'nulluser@example.com',
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $response = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data = $response->json();
+        $this->assertEquals(1, $data['sent'], 'Email should be sent when loan has email even with null user_id');
+        $this->assertEquals(0, $data['skipped'], 'Should not be skipped when email available');
+
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Sent',
+            'channel'             => 'email',
+            'recipient_email'     => 'nulluser@example.com',
+        ]);
+
+        Mail::assertSent(\App\Mail\PaymentReminderMail::class, 1);
+    }
+
+    /** @test
+     * Issue D: reminder with user_id=null and no email anywhere → logged Skipped, nothing sent.
+     */
+    public function reminder_with_null_user_id_no_email_logs_skipped(): void
+    {
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => null,
+            'full_name'           => 'No Email Borrower',
+            'email'               => '',   // No email on loan record
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $response = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data = $response->json();
+        $this->assertEquals(0, $data['sent'], 'No email should be sent when borrower has no email');
+        $this->assertEquals(1, $data['skipped'], 'Should count as skipped when no email');
+
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Skipped',
+            'channel'             => 'email',
+        ]);
+
+        Mail::assertNothingSent();
+    }
+
+    /** @test
+     * Issue D: empty-string user email with a real email on coop_members → fallback uses coop_member email.
+     */
+    public function empty_string_user_email_with_coop_member_email_uses_fallback(): void
+    {
+        $member = User::factory()->create([
+            'usertype' => 'member',
+            'email'    => '',  // Empty-string user email
+        ]);
+
+        $coopMember = CoopMember::factory()->create([
+            'user_id'       => $member->id,
+            'full_name'     => 'Test Borrower',
+            'email'         => 'coop.member@example.com', // Real email ONLY on CoopMember
+            'status'        => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // Link User.coop_member_id so $loan->user->coopMember works
+        $member->update(['coop_member_id' => $coopMember->id]);
+        $member = $member->fresh();
+
+        $loan = LoanApplication::factory()->create([
+            'user_id'             => $member->id,
+            'full_name'           => 'Test Borrower',
+            'email'               => '',         // No email on loan record
+            'loan_type'           => 'regular',
+            'amount'              => 5000,
+            'status'              => 'approved',
+            'monthly_income'      => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'       => 30000,
+            'term_months'         => 12,
+            'remaining_balance'   => 800,
+            'next_due_date'       => $this->getManilaDate(-5), // overdue
+        ]);
+
+        $admin = $this->makeAdmin();
+
+        $response = $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $data = $response->json();
+        $this->assertEquals(1, $data['sent'], 'Email should be sent via coop_member fallback');
+        $this->assertEquals(0, $data['skipped'], 'Should not be skipped when email available via coop_member');
+
+        $this->assertDatabaseHas('app_notification_logs', [
+            'loan_application_id' => $loan->id,
+            'notification_type'   => 'overdue',
+            'status'              => 'Sent',
+            'channel'             => 'email',
+            'recipient_email'     => 'coop.member@example.com',
+        ]);
+
+        Mail::assertSent(\App\Mail\PaymentReminderMail::class, 1);
+    }
+
+    /** @test
      * Issue D: duplicate guard — second run same day sends nothing new.
      */
     public function duplicate_guard_second_run_no_new_send(): void

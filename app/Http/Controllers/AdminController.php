@@ -1638,10 +1638,13 @@ class AdminController extends Controller
                 $nextDue = $la->next_due_date ?? null;
 
                 // Issue A follow-up: when the loan is fully paid and next_due_date
-                // is null, anchor the per-payment due dates from created_at (end-of-month)
-                // consistent with PaymentService's first-due-date fallback.
+                // is null, anchor the per-payment due dates using PaymentService's
+                // first-due-date priority: next_due_date → disbursement_date →
+                // created_at->endOfMonth().
                 if (!$nextDue) {
-                    $firstDueDate = Carbon::parse($la->created_at)->endOfMonth();
+                    $firstDueDate = $la->disbursement_date
+                        ? Carbon::parse($la->disbursement_date)
+                        : Carbon::parse($la->created_at)->endOfMonth();
                     $totalPaid = (float) $la->totalPaid();
                     $emi = (float) $la->monthly_payment;
                     $installmentsCovered = $emi > 0 ? (int) floor($totalPaid / $emi) : 0;

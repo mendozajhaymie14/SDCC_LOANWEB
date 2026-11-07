@@ -449,6 +449,78 @@ class ReportsTest extends TestCase
         $this->assertSame('Good', $row->performance_label);
     }
 
+    /** @test
+     * Issue A follow-up: fully paid loan with 3 payments where payment 2 is
+     * 10 days late. Reuses PaymentService's first-due-date priority
+     * (next_due_date → disbursement_date → created_at->endOfMonth()).
+     * Expects on_time = 2, late = 1, overdue = 0.
+     */
+    public function borrower_performance_paid_loan_payment_2_ten_days_late(): void
+    {
+        $manager = User::factory()->create(['usertype' => Permissions::ROLE_BRANCH_MANAGER]);
+        $memberUser = User::factory()->create(['usertype' => Permissions::ROLE_MEMBER]);
+        CoopMember::factory()->create([
+            'user_id' => $memberUser->id,
+            'full_name' => 'Test Borrower',
+            'status' => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // Fully paid loan: status=paid, next_due_date=null, remaining_balance=0
+        // created_at = 2026-02-10 → firstDueDate = endOfMonth = 2026-02-28
+        // EMI = 444.24, 3 payments of 500 = 1500 → installmentsCovered = 3
+        // nextDue = 2026-02-28 + 3 months = 2026-05-28
+        // Due dates: Payment 1 = 2026-02-28, Payment 2 = 2026-03-28, Payment 3 = 2026-04-28
+        // Payment 2 paid 2026-04-07 → 10 days late
+        // Expected: on_time = 2, late = 1, overdue = 0, label = Good
+        $loan = LoanApplication::factory()->create([
+            'user_id'           => $memberUser->id,
+            'full_name'         => 'Test Borrower',
+            'loan_type'         => 'regular',
+            'amount'            => 5000,
+            'status'            => 'paid',
+            'risk_level'        => 'Low',
+            'term_months'       => 12,
+            'created_at'        => '2026-02-10 10:00:00',
+            'remaining_balance' => 0,
+            'next_due_date'     => null,
+        ]);
+
+        // Payment 1: due 2026-02-28, paid on time
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $memberUser->id,
+            'amount_paid'         => 500,
+            'payment_date'        => '2026-02-28',
+        ]);
+
+        // Payment 2: due 2026-03-28, paid 2026-04-07 → 10 days late
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $memberUser->id,
+            'amount_paid'         => 500,
+            'payment_date'        => '2026-04-07',
+        ]);
+
+        // Payment 3: due 2026-04-28, paid on time
+        Payment::create([
+            'loan_application_id' => $loan->id,
+            'user_id'             => $memberUser->id,
+            'amount_paid'         => 500,
+            'payment_date'        => '2026-04-28',
+        ]);
+
+        $response = $this->actingAs($manager)->get('/reports?report_type=borrower_performance');
+        $response->assertOk();
+        $borrowerPerf = $response->viewData('borrowerPerf');
+        $row = $borrowerPerf->first();
+
+        $this->assertNotNull($row);
+        $this->assertSame(2, $row->on_time_count, 'Payments 1 and 3 should be on-time');
+        $this->assertSame(1, $row->late_count, 'Payment 2 should be late (10 days late)');
+        $this->assertSame(0, $row->overdue_count);
+        $this->assertSame('Good', $row->performance_label);
+    }
+
     /** @test */
     public function end_date_filter_includes_record_created_on_end_date(): void
     {
