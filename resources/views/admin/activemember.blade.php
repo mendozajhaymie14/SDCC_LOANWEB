@@ -108,7 +108,7 @@
       data-full-name="{{ $member->full_name }}"
       data-email="{{ $member->email ?? $member->user?->email ?? '' }}"
       data-contact-number="{{ $member->contact_number ?? '' }}"
-      data-date-of-birth="{{ $member->date_of_birth ?? '' }}"
+      data-date-of-birth="{{ $member->date_of_birth ? $member->date_of_birth->format('Y-m-d') : '' }}"
       data-address="{{ $member->address ?? '' }}"
       data-occupation="{{ $member->occupation ?? '' }}"
       data-monthly-income="{{ $member->monthly_income ?? '' }}"

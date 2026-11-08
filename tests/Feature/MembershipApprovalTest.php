@@ -413,6 +413,37 @@ class MembershipApprovalTest extends TestCase
     }
 
     /** @test */
+    public function approved_application_birthdate_is_saved_and_shown_on_active_members_edit(): void
+    {
+        $application = MemberApplication::create([
+            'surname'        => 'Doe',
+            'first_name'     => 'Jane',
+            'email'          => 'jane@gmail.com',
+            'contact_number' => '09171234567',
+            'status'         => 'pending',
+            'date_of_birth'  => '1999-11-20',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+
+        $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ])->assertOk()->assertJson(['success' => true]);
+
+        // date_of_birth is persisted on the CoopMember row.
+        $member = CoopMember::where('email', 'jane@gmail.com')->first();
+        $this->assertNotNull($member);
+        $this->assertEquals('1999-11-20', $member->date_of_birth->format('Y-m-d'));
+
+        // The Active Members page renders it as Y-m-d in the data attribute
+        // so <input type="date"> can consume it.
+        $response = $this->get(route('active-members.index'));
+        $response->assertOk();
+        $response->assertSee('data-date-of-birth="1999-11-20"', false);
+    }
+
+    /** @test */
     public function occupation_is_required_on_membership_application(): void
     {
         $response = $this->post(route('member.applications.store'), [
