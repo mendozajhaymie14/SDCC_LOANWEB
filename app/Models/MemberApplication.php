@@ -25,15 +25,18 @@ class MemberApplication extends Model
         'street',
         'barangay',
         'municipality',
+        'province',
         'zip_code',
+        'date_of_birth',
         'monthly_income',
         'existing_monthly_obligations',
+        'savings_balance',
         'stay_years',
         'stay_months',
-        'perm_house_no',
         'perm_street',
         'perm_barangay',
         'perm_municipality',
+        'perm_province',       // <-- ADDED
         'perm_zip_code',
         'perm_stay_years',
         'perm_stay_months',
@@ -63,6 +66,7 @@ class MemberApplication extends Model
             'stay_months' => 'int',
             'perm_stay_years' => 'int',
             'perm_stay_months' => 'int',
+            'date_of_birth' => 'date',
         ];
     }
 
@@ -99,5 +103,13 @@ class MemberApplication extends Model
                 };
             }
         );
+    }
+
+    /**
+     * The approved CoopMember linked to this application, if any.
+     */
+    public function approvedMember()
+    {
+        return $this->belongsTo(CoopMember::class, 'approved_member_id', 'id');
     }
 }

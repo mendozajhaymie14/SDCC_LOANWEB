@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\MemberApplication;
 use App\Services\DuplicateMemberService;
 use App\Support\Permissions;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -80,9 +81,11 @@ class MemberApplicationController extends Controller
             'barangay'     => ['nullable', 'string', 'max:255'],
             'address_line' => ['nullable', 'string', 'max:255'],
             'zip_code'     => ['nullable', 'string', 'max:12'],
+            'perm_province' => ['nullable', 'string', 'max:255'],
+            'date_of_birth' => ['nullable', 'date', 'before_or_equal:today'],
+            'same_as_current_address' => ['nullable'],
 
             // Permanent address (existing fields kept for compatibility)
-            'perm_house_no'      => ['nullable', 'string', 'max:50'],
             'perm_street'        => ['nullable', 'string', 'max:255'],
             'perm_barangay'      => ['nullable', 'string', 'max:255'],
             'perm_municipality'  => ['nullable', 'string', 'max:255'],
@@ -93,6 +96,7 @@ class MemberApplicationController extends Controller
             // Financial profile
             'monthly_income'              => ['nullable', 'numeric', 'min:0'],
             'existing_monthly_obligations' => ['nullable', 'numeric', 'min:0'],
+            'savings_balance' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
 
             // Demographics
             'residency_type' => ['nullable', 'string', 'max:100'],
@@ -130,13 +134,44 @@ class MemberApplicationController extends Controller
         if (!empty($data['address_line']) && empty($data['street'])) {
             $data['street'] = $this->normalize($data['address_line']);
         }
-        foreach (['perm_house_no', 'perm_street', 'perm_barangay', 'perm_municipality', 'perm_zip_code'] as $f) {
+        foreach (['perm_street', 'perm_barangay', 'perm_municipality', 'perm_zip_code'] as $f) {
             if (!empty($data[$f])) {
                 $data[$f] = $this->normalize($data[$f]);
             }
         }
 
-        // Map form fields to model attributes with fallbacks
+        // Validate Date of Birth: real past date, at least 18 years old
+        if (!empty($data['date_of_birth'])) {
+            $dob = Carbon::createFromFormat('Y-m-d', $data['date_of_birth']);
+            if ($dob === false || $dob->isFuture()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'date_of_birth' => ['Birthdate must be a past date.'],
+                ]);
+            }
+            if ($dob->age < 18) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'date_of_birth' => ['Applicant must be at least 18 years old.'],
+                ]);
+            }
+        } else {
+            $data['date_of_birth'] = null;
+        }
+
+        // If "same as current address" is checked, copy current address fields to perm_*
+        if (!empty($data['same_as_current_address'])) {
+            $data['perm_street']        = $data['address_line']  ?? $request->input('address_line');
+            $data['perm_barangay']      = $data['barangay']     ?? $request->input('barangay');
+            $data['perm_municipality']  = $data['municipality'] ?? $request->input('municipality');
+            $data['perm_province']      = $data['province']     ?? $request->input('province');
+            $data['perm_zip_code']      = $data['zip_code']     ?? $request->input('zip_code');
+        } else {
+            // Copy province to perm_province when not same-as-current but empty
+            if (empty($data['perm_province']) && !empty($data['province'])) {
+                $data['perm_province'] = $data['province'];
+            }
+        }
+
+        // Duplicate detection against existing coop_members (and pending applications).
         $data['surname'] = $request->input('last_name');
         $data['residency_type'] = $request->input('residency_type') ?? $request->input('residency') ?? 'owned';
         $data['nationality'] = $request->input('nationality', 'Filipino');

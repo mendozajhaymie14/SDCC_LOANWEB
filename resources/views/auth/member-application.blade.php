@@ -236,6 +236,96 @@
     </div>
 </div>
 
+<!-- Birthdate -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="field">
+        <label for="date_of_birth" class="field label">Birthdate</label>
+        <input type="date"
+               id="date_of_birth"
+               name="date_of_birth"
+               value="{{ old('date_of_birth') }}"
+               class="member-app-input"
+               max="{{ now()->subYears(18)->format('Y-m-d') }}" />
+        @isset($errors)@error('date_of_birth')<span class="error-text">{{ $message }}</span>@enderror@endisset
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+            Must be at least 18 years old
+        </p>
+    </div>
+</div>
+
+                        </fieldset>
+                    </div>
+
+                    <!-- ── Permanent Address ── -->
+                    <div class="form-card">
+                        <fieldset style="border: none; padding: 0; margin: 0;">
+                            <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin: 0 0 18px 0; border: none; padding: 0;">
+                                Permanent Address
+                            </legend>
+
+                            <div style="margin-bottom: 16px;">
+                                <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #4b5563; margin-top: 4px;">
+                                    <input type="checkbox" id="same_as_current_address" name="same_as_current_address" checked style="margin-top: 2px; margin-right: 0;" />
+                                    <label for="same_as_current_address" style="cursor: pointer; margin: 0;">Same as current address</label>
+                                </div>
+                            </div>
+
+                            <!-- Row 1: Permanent Street (full width) -->
+                            <div style="margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="perm_street" class="field label">Street / Address Line</label>
+                                <input type="text" id="perm_street" name="perm_street"
+                                       value="{{ old('perm_street') }}"
+                                       class="member-app-input" style="width: 100%;" />
+                                @isset($errors)@error('perm_street')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+                            </div>
+
+                            <!-- Row 2: Permanent Barangay | Permanent Municipality -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="perm_barangay" class="field label">Barangay</label>
+                                <select id="perm_barangay" name="perm_barangay" class="member-app-input">
+                                    <option value="">Select Barangay</option>
+                                </select>
+                                @isset($errors)@error('perm_barangay')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field">
+                                <label for="perm_municipality" class="field label">City / Municipality</label>
+                                <select id="perm_municipality" name="perm_municipality" class="member-app-input">
+                                    <option value="">Select City / Municipality</option>
+                                    <option value="Las Piñas City">Las Piñas City</option>
+                                    <option value="Parañaque City">Parañaque City</option>
+                                </select>
+                                @isset($errors)@error('perm_municipality')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+                            </div>
+
+                            <!-- Row 3: Permanent Province | Permanent Zip Code -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                              <div class="field">
+                                <label for="perm_province" class="field label">Province</label>
+                                <select id="perm_province" name="perm_province" class="member-app-input">
+                                    <option value="National Capital Region (NCR)" selected>National Capital Region (NCR)</option>
+                                </select>
+                                @isset($errors)@error('perm_province')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field">
+                                <label for="perm_zip_code" class="field label">Zip Code</label>
+                                <input type="text"
+                                       id="perm_zip_code"
+                                       name="perm_zip_code"
+                                       value="{{ old('perm_zip_code') }}"
+                                       maxlength="4"
+                                       pattern="[0-9]{1,4}"
+                                       inputmode="numeric"
+                                       oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);" />
+                                @isset($errors)@error('perm_zip_code')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+                            </div>
+
                         </fieldset>
                     </div>
 
@@ -270,6 +360,18 @@
                                        inputmode="numeric"
                                        oninput="this.value = this.value.replace(/[^0-9.]/g, '').slice(0, 10);" />
                                 @isset($errors)@error('existing_monthly_obligations')<span class="error-text">{{ $message }}</span>@enderror@endisset
+                              </div>
+
+                              <div class="field">
+                                <label for="savings_balance" class="field label">Savings Balance (₱)</label>
+                                <input type="number" id="savings_balance" name="savings_balance"
+                                       step="0.01" min="0"
+                                       value="{{ old('savings_balance') }}"
+                                       class="member-app-input"
+                                       placeholder="Optional. Subject to verification by the cooperative."
+                                       inputmode="numeric"
+                                       oninput="this.value = this.value.replace(/[^0-9.]/g, '').slice(0, 10);" />
+                                @isset($errors)@error('savings_balance')<span class="error-text">{{ $message }}</span>@enderror@endisset
                               </div>
                             </div>
 
@@ -434,7 +536,242 @@
   document.addEventListener('DOMContentLoaded', populateBarangays);
 
   // Populate barangays whenever the city selection changes
-  citySelect.addEventListener('change', populateBarangays);
+  citySelect.addEventListener('change', function () {
+    populateBarangays();
+    syncPermFieldsOnChange();
+  });
+
+  // ─── SAME AS CURRENT ADDRESS CHECKBOX ───
+  // When checked, copy current address fields to permanent address fields
+  // and live-sync whenever current fields change
+  const sameAsCurrentCheckbox = document.getElementById('same_as_current_address');
+  const permFields = {
+    street: { current: 'address_line', permanent: 'perm_street' },
+    barangay: { current: 'barangay', permanent: 'perm_barangay' },
+    municipality: { current: 'municipality', permanent: 'perm_municipality' },
+    province: { current: 'province', permanent: 'perm_province' },
+    zip_code: { current: 'zip_code', permanent: 'perm_zip_code' }
+  };
+
+  // Province is static (NCR only), so no population needed for perm_province.
+  // perm_municipality has static options (Las Piñas City / Parañaque City).
+  // perm_barangay is populated dynamically based on perm_municipality selection.
+
+  // Populate perm barangays based on the selected permanent municipality
+  function populatePermBarangays() {
+    const city = document.getElementById('perm_municipality')?.value.trim();
+    const barangaySelect = document.getElementById('perm_barangay');
+    if (!barangaySelect) return;
+    barangaySelect.innerHTML = '<option value="">Select Barangay</option>';
+    const barangays = barangaysByCity[city] || [];
+    barangays.forEach(barangay => {
+      const opt = document.createElement('option');
+      opt.value = barangay;
+      opt.textContent = barangay;
+      barangaySelect.appendChild(opt);
+    });
+  }
+
+  function copyCurrentToPermanent() {
+    if (!sameAsCurrentCheckbox.checked) return;
+
+    // Copy simple string fields first
+    [permFields.street, permFields.province, permFields.zip_code].forEach(key => {
+      const currentEl = document.getElementById(key.current);
+      const permEl = document.getElementById(key.permanent);
+      if (currentEl && permEl) {
+        permEl.value = currentEl.value;
+      }
+    });
+
+    // Set permanent municipality first, then populate barangays, then set barangay
+    const currentMunicipalityEl = document.getElementById(permFields.municipality.current);
+    const permMunicipalityEl = document.getElementById(permFields.municipality.permanent);
+    if (currentMunicipalityEl && permMunicipalityEl) {
+      permMunicipalityEl.value = currentMunicipalityEl.value;
+    }
+
+    // Populate perm barangay options based on the selected municipality, THEN set value
+    populatePermBarangays();
+    const currentBarangayEl = document.getElementById(permFields.barangay.current);
+    const permBarangayEl = document.getElementById(permFields.barangay.permanent);
+    if (currentBarangayEl && permBarangayEl) {
+      permBarangayEl.value = currentBarangayEl.value;
+      permBarangayEl.dispatchEvent(new Event('change'));
+    }
+  }
+
+  function syncPermFieldsOnChange() {
+    if (!sameAsCurrentCheckbox.checked) return;
+
+    // Copy simple string fields whenever current fields change
+    [permFields.street, permFields.province, permFields.zip_code].forEach(key => {
+      const currentEl = document.getElementById(key.current);
+      const permEl = document.getElementById(key.permanent);
+      if (currentEl && permEl) {
+        permEl.value = currentEl.value;
+      }
+    });
+
+    // Sync municipality
+    const currentMunicipalityEl = document.getElementById(permFields.municipality.current);
+    const permMunicipalityEl = document.getElementById(permFields.municipality.permanent);
+    if (currentMunicipalityEl && permMunicipalityEl) {
+      permMunicipalityEl.value = currentMunicipalityEl.value;
+    }
+
+    // Repopulate barangays and sync barangay value
+    populatePermBarangays();
+    const currentBarangayEl = document.getElementById(permFields.barangay.current);
+    const permBarangayEl = document.getElementById(permFields.barangay.permanent);
+    if (currentBarangayEl && permBarangayEl) {
+      permBarangayEl.value = currentBarangayEl.value;
+      permBarangayEl.dispatchEvent(new Event('change'));
+    }
+  }
+
+  function togglePermanentFields(disabled) {
+    Object.values(permFields).forEach(({ permanent }) => {
+      const permEl = document.getElementById(permanent);
+      if (permEl) {
+        permEl.disabled = disabled;
+        if (disabled) {
+          permEl.style.backgroundColor = '#f3f4f6';
+        } else {
+          permEl.style.backgroundColor = '';
+        }
+      }
+    });
+  }
+
+  // Initial state on load — restore old values and populate selects
+  document.addEventListener('DOMContentLoaded', function () {
+    if (sameAsCurrentCheckbox) {
+      togglePermanentFields(sameAsCurrentCheckbox.checked);
+      if (sameAsCurrentCheckbox.checked) {
+        copyCurrentToPermanent();
+      }
+    }
+    // Restore old('municipality') and old('barangay') after selects are populated
+    restoreOldValues();
+  });
+
+  // Live sync: when current address fields change AND checkbox is checked,
+  // re-sync permanent fields in real time
+  const currentFieldIds = ['province', 'municipality', 'barangay', 'address_line', 'zip_code'];
+  currentFieldIds.forEach(fieldId => {
+    const el = document.getElementById(fieldId);
+    if (el) {
+      el.addEventListener('change', syncPermFieldsOnChange);
+      el.addEventListener('input', syncPermFieldsOnChange);
+    }
+  });
+
+  // Toggle permanent field disabled state when checkbox changes
+  sameAsCurrentCheckbox.addEventListener('change', function () {
+    togglePermanentFields(this.checked);
+    if (this.checked) {
+      copyCurrentToPermanent();
+    }
+  });
+
+  // When perm municipality changes, repopulate perm barangays
+  const permMunicipalityEl = document.getElementById('perm_municipality');
+  if (permMunicipalityEl) {
+    permMunicipalityEl.addEventListener('change', function () {
+      populatePermBarangays();
+      const val = this.value;
+      if (val && ['Las Piñas City', 'Parañaque City'].includes(val)) {
+        document.getElementById('perm_barangay').value = val;
+      }
+    });
+  }
+
+  // Restore old input values for current/permanent address selects after DOM population
+  function restoreOldValues() {
+    // Restore current address municipality and barangay
+    const municipalitySelect = document.getElementById('municipality');
+    const barangaySelect = document.getElementById('barangay');
+    if (municipalitySelect && barangaySelect) {
+      municipalitySelect.value = '@old(\'municipality\', \'\')';
+      populateBarangays();
+      barangaySelect.value = '@old(\'barangay\', \'\')';
+    }
+    // Restore permanent address municipality and barangay
+    const permMunicipalitySelect = document.getElementById('perm_municipality');
+    const permBarangaySelect = document.getElementById('perm_barangay');
+    if (permMunicipalitySelect && permBarangaySelect) {
+      permMunicipalitySelect.value = '@old(\'perm_municipality\', \'\')';
+      populatePermBarangays();
+      permBarangaySelect.value = '@old(\'perm_barangay\', \'\')';
+    }
+  }
+
+  // ─── DATE OF BIRTH VALIDATION ───
+  // Validate that DOB is a past date and applicant is at least 18 years old
+  const dobInput = document.getElementById('date_of_birth');
+  if (dobInput) {
+    function validateDOB(input) {
+      const value = input.value.trim();
+      if (!value) {
+        clearDOBError(input);
+        return;
+      }
+
+      // Parse as LOCAL midnight to avoid UTC offset bugs (new Date('YYYY-MM-DD')
+      // is treated as UTC by the spec, which shifts the comparison by one day
+      // in timezones behind UTC).
+      const dob = new Date(value + 'T00:00:00');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (isNaN(dob.getTime())) {
+        showDOBError(input, 'Birthdate must be a valid date');
+        return;
+      }
+
+      if (dob > today) {
+        showDOBError(input, 'Birthdate cannot be in the future');
+        return;
+      }
+
+      let exactAge = today.getFullYear() - dob.getFullYear();
+      const monthDiff = today.getMonth() - dob.getMonth();
+      const hasBirthdayPassed = monthDiff > 0 || (monthDiff === 0 && today.getDate() >= dob.getDate());
+      if (!hasBirthdayPassed) {
+        exactAge -= 1;
+      }
+
+      if (exactAge < 18) {
+        showDOBError(input, 'Applicant must be at least 18 years old');
+        return;
+      }
+
+      clearDOBError(input);
+    }
+
+    dobInput.addEventListener('change', function () { validateDOB(this); });
+    dobInput.addEventListener('input', function () { validateDOB(this); });
+  }
+
+  function showDOBError(input, message) {
+    const parent = input.parentElement;
+    if (!parent) return;
+    parent.querySelectorAll('.dob-error-msg').forEach(m => m.remove());
+    const div = document.createElement('div');
+    div.className = 'dob-error-msg error';
+    div.style.cssText = 'margin-top:4px; font-size:0.75rem; padding:4px 8px; border-radius:4px; color: #b91c1c; background: #fef2f2; border: 1px solid #fca5a5;';
+    div.textContent = message;
+    parent.appendChild(div);
+    input.style.borderColor = '#ef4444';
+  }
+
+  function clearDOBError(input) {
+    const parent = input.parentElement;
+    if (!parent) return;
+    parent.querySelectorAll('.dob-error-msg').forEach(m => m.remove());
+    input.style.borderColor = '';
+  }
 </script>
 
 <style>

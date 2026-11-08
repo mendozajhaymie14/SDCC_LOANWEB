@@ -8,6 +8,7 @@ use App\Models\Application;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
+use App\Support\LoanStatus;
 use App\Services\AmortizationService;
 use App\Services\LoanEvaluationService;
 use Carbon\Carbon;
@@ -81,10 +82,26 @@ class UserController extends Controller
 
         // If user already has the 'member' role (active coop membership), proceed
         if ($user->isActiveCoopMember()) {
+            $coopMember = $user->coopMember;
+
+            // Sum outstanding balance of all approved loans for this member
+            $outstanding = 0;
+            if ($coopMember) {
+                $outstanding = (float) LoanApplication::where(function ($q) use ($coopMember) {
+                    $q->where('user_id', $coopMember->user_id);
+                    if ($coopMember->email) {
+                        $q->orWhere(function ($q2) use ($coopMember) {
+                            $q2->where('user_id', null)->where('email', $coopMember->email);
+                        });
+                    }
+                })->where('status', LoanStatus::APPROVED)->sum('remaining_balance');
+            }
+
             return view('user.loan', [
                 'user'      => $user,
                 'loanTypes' => Config::get('loan_matrix.loan_types'),
-                'coopMember' => $user->coopMember,
+                'coopMember' => $coopMember,
+                'outstanding' => $outstanding,
             ]);
         }
 

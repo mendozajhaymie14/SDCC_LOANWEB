@@ -41,6 +41,24 @@
         </div>
 
         <div style="margin-bottom: 1rem;">
+            <strong>Approved Limit:</strong> {{ $application->user?->coopMember?->approved_credit_limit ? '₱' . number_format($application->user?->coopMember?->approved_credit_limit, 2) : 'Not assessed' }}
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+            <strong>Outstanding:</strong> {{ $loanApp ? ($loanApp->remaining_balance ? '₱' . number_format($loanApp->remaining_balance, 2) : '₱0.00') : 'N/A' }}
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+            <strong>Available:</strong>
+            @php
+                $approvedLimit = $application->user?->coopMember?->approved_credit_limit;
+                $outstanding = $loanApp ? ($loanApp->remaining_balance ?? 0) : 0;
+                $available = ($approvedLimit !== null && $approvedLimit > 0) ? ($approvedLimit - $outstanding) : null;
+            @endphp
+            {{ $available !== null ? '₱' . number_format($available, 2) : 'N/A' }}
+        </div>
+
+        <div style="margin-bottom: 1rem;">
             <strong>Status:</strong>
             <span style="background-color: {{ $application->status === 'Approved' ? '#dcfce7' : '#fef3c7' }}; color: {{ $application->status === 'Approved' ? '#15803d' : '#92400e' }}; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">{{ ucfirst($application->status) }}</span>
         </div>

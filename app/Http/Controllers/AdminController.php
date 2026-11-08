@@ -26,6 +26,7 @@ use App\Support\Permissions;
 use App\Services\AmortizationService;
 use App\Services\DuplicateMemberService;
 use App\Services\LoanEvaluationService;
+use App\Services\CreditLimitService;
 use App\Services\LoanSubmissionService;
 use App\Services\PaymentReminderService;
 use App\Services\PaymentService;
@@ -640,7 +641,19 @@ class AdminController extends Controller
             ->latest()
             ->get();
 
-        return view('admin.activemember', compact('members'));
+        // Compute credit-limit suggestions for every member so the edit modal
+        // can show "Suggested: ₱X (rule)" without a per-row AJAX round-trip.
+        $suggestions = [];
+        $useSuggested = [];
+        foreach ($members as $m) {
+            $result = app(CreditLimitService::class)->calculateCreditLimit($m);
+            $suggestions[$m->id] = app(CreditLimitService::class)->formatSuggestion($result['limit'], $result['cappedBy']);
+            if ($result['limit'] > 0) {
+                $useSuggested[$m->id] = $result['limit'];
+            }
+        }
+
+        return view('admin.activemember', compact('members', 'suggestions', 'useSuggested'));
     }
 
     // 11. Store New Member manually
@@ -798,10 +811,43 @@ class AdminController extends Controller
         $member->date_of_birth = $validated['date_of_birth'] ?? $member->date_of_birth;
         $member->address = $validated['address'] ?? $member->address;
         $member->occupation = $validated['occupation'] ?? $member->occupation;
+
+        // Capture old financials for recompute decision
+        $oldIncome = (float) ($member->monthly_income ?? 0);
+        $oldObligations = (float) ($member->existing_monthly_obligations ?? 0);
+        $oldSavings = (float) ($member->savings_balance ?? 0);
+
         $member->monthly_income = $validated['monthly_income'] ?? $member->monthly_income;
         $member->existing_monthly_obligations = $validated['existing_monthly_obligations'] ?? $member->existing_monthly_obligations;
         $member->savings_balance = $validated['savings_balance'] ?? $member->savings_balance;
-        $member->approved_credit_limit = $validated['approved_credit_limit'] ?? $member->approved_credit_limit;
+
+        $storedLimit = $member->approved_credit_limit;
+        $submittedLimit = $validated['approved_credit_limit'] ?? $storedLimit;
+
+        // Server-side source decision: never trust hidden browser field.
+        // If submitted limit differs from stored, set source='auto' ONLY if it matches computed suggestion.
+        if (Schema::hasColumn('coop_members', 'credit_limit_source')
+            && $submittedLimit != $storedLimit) {
+            $result = app(CreditLimitService::class)->calculateCreditLimit($member);
+            $member->credit_limit_source = ($submittedLimit == $result['limit']) ? 'auto' : 'manual';
+        }
+
+        // Recompute when limit unchanged, source is 'auto', and financials changed
+        if (Schema::hasColumn('coop_members', 'credit_limit_source')
+            && $submittedLimit == $storedLimit
+            && ($member->credit_limit_source ?? null) === 'auto'
+            && app(CreditLimitService::class)->needsRecompute($member, (float) ($member->monthly_income ?? 0), (float) ($member->existing_monthly_obligations ?? 0), (float) ($member->savings_balance ?? 0))) {
+            $result = app(CreditLimitService::class)->calculateCreditLimit($member);
+            if ($result['limit'] > 0) {
+                $member->approved_credit_limit = $result['limit'];
+                $member->credit_limit_computed_at = now();
+            }
+            // Never auto-store a computed 0 — leave DB empty
+        } elseif ($submittedLimit != $storedLimit) {
+            // Staff explicitly changed the limit; use their value
+            $member->approved_credit_limit = $submittedLimit;
+        }
+
         $member->status = $validated['status'] ?? $member->status;
         $member->save();
 
@@ -943,7 +989,7 @@ class AdminController extends Controller
     // 19. Membership Applications — List
     public function memberships()
     {
-        $applications = MemberApplication::latest()->get();
+        $applications = MemberApplication::with('approvedMember')->latest()->get();
         return view('admin.memberships', compact('applications'));
     }
 
@@ -1004,6 +1050,8 @@ class AdminController extends Controller
                     'status'         => CoopMember::STATUS_ACTIVE,
                     'monthly_income' => $application->monthly_income,
                     'existing_monthly_obligations' => $application->existing_monthly_obligations,
+                    'savings_balance' => $application->savings_balance,
+                    'date_of_birth'  => $application->date_of_birth,
                 ]);
             } else {
                 // Copy contact details from the application where the member row
@@ -1020,6 +1068,16 @@ class AdminController extends Controller
                 }
                 if (empty($coopMember->existing_monthly_obligations) && $application->existing_monthly_obligations) {
                     $coopMember->existing_monthly_obligations = $application->existing_monthly_obligations;
+                }
+
+                // Copy savings_balance only when empty
+                if (empty($coopMember->savings_balance) && $application->savings_balance) {
+                    $coopMember->savings_balance = $application->savings_balance;
+                }
+
+                // Copy date_of_birth only when empty
+                if (empty($coopMember->date_of_birth) && $application->date_of_birth) {
+                    $coopMember->date_of_birth = $application->date_of_birth;
                 }
 
                 $coopMember->status        = CoopMember::STATUS_ACTIVE;
@@ -1052,11 +1110,63 @@ class AdminController extends Controller
                 }
             }
 
+            // Compose the address for coop_members from the application's CURRENT address.
+            // If current address is empty, fall back to permanent address fields.
+            if (empty($coopMember->address)) {
+                $currentParts = array_filter([
+                    $application->house_no,
+                    $application->street,
+                    $application->barangay,
+                    $application->municipality,
+                    $application->province,
+                    $application->zip_code,
+                ]);
+
+                $addressParts = $currentParts;
+
+                // Fall back to permanent address only if current is empty
+                if (empty($addressParts)) {
+                    $addressParts = array_filter([
+                        $application->perm_street,
+                        $application->perm_barangay,
+                        $application->perm_municipality,
+                        $application->perm_province,
+                        $application->perm_zip_code,
+                    ]);
+                }
+
+                if (!empty($addressParts)) {
+                    $coopMember->address = implode(', ', $addressParts);
+                    $coopMember->save();
+                }
+            }
+
+            // Copy Date of Birth from the application to the member record only
+            // when the member's DOB is empty (never overwrite staff-entered data).
+            if (empty($coopMember->date_of_birth) && !empty($application->date_of_birth)) {
+                $coopMember->date_of_birth = $application->date_of_birth;
+                $coopMember->save();
+            }
+
             $application->status             = 'approved';
             $application->reviewed_at        = now();
             $application->reviewed_by        = Auth::id();
             $application->approved_member_id = $coopMember->id;
             $application->save();
+
+            // Auto-set credit limit on membership approval.
+            // Source null = no limit assigned. If computed limit is 0, do NOT store it.
+            if (Schema::hasColumn('coop_members', 'credit_limit_source')
+                && $coopMember->approved_credit_limit == null
+                && ($coopMember->credit_limit_source ?? null) !== 'manual') {
+                $result = app(CreditLimitService::class)->calculateCreditLimit($coopMember);
+                if ($result['limit'] > 0) {
+                    $coopMember->approved_credit_limit = $result['limit'];
+                    $coopMember->credit_limit_source = 'auto';
+                    $coopMember->credit_limit_computed_at = now();
+                    $coopMember->save();
+                }
+            }
 
             AuditLog::log(
                 'Membership Approved',
@@ -2240,6 +2350,29 @@ class AdminController extends Controller
 
         $lastScanned = $application->last_scanned_at ?? null;
 
+        // Credit limit data for the member linked to this application
+        $approvedLimit = null;
+        $outstanding = 0;
+        if ($loanApp) {
+            // Find coopMember via user relationship or email fallback
+            $coopMember = $loanApp->user?->coopMember;
+            if (!$coopMember && $loanApp->email) {
+                $coopMember = CoopMember::where('email', $loanApp->email)->first();
+            }
+            if ($coopMember) {
+                $approvedLimit = $coopMember->approved_credit_limit;
+                // Sum remaining_balance of all approved loans for this member (by user_id or email)
+                $outstanding = (float) LoanApplication::where(function ($q) use ($coopMember) {
+                    $q->where('user_id', $coopMember->user_id);
+                    if ($coopMember->email) {
+                        $q->orWhere(function ($q2) use ($coopMember) {
+                            $q2->where('user_id', null)->where('email', $coopMember->email);
+                        });
+                    }
+                })->where('status', 'Approved')->sum('remaining_balance');
+            }
+        }
+
         return response()->json([
             'success' => true,
             'application' => [
@@ -2265,6 +2398,9 @@ class AdminController extends Controller
                 'monthly_income' => $loanApp ? (float) $loanApp->monthly_income : 0,
                 'existing_monthly_obligations' => $loanApp ? (float) $loanApp->existing_monthly_obligations : 0,
                 'savings_balance' => $loanApp ? (float) $loanApp->savings_balance : 0,
+                'approved_credit_limit' => $approvedLimit ? (float) $approvedLimit : null,
+                'outstanding_balance' => $outstanding,
+                'available_credit' => $approvedLimit ? (float) $approvedLimit - $outstanding : null,
             ],
         ]);
     }

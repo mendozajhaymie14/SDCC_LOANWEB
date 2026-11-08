@@ -110,12 +110,22 @@
   const membersData = {
     @foreach ($applications as $app)
       @php
-        $address = implode(', ', array_filter([$app->perm_house_no,
+        $address = implode(', ', array_filter([
             $app->perm_street,$app->perm_barangay,
             $app->perm_municipality,$app->perm_zip_code,
+            $app->perm_province,
         ]));
         $refId = '#' . str_pad($app->id, 5, '0', STR_PAD_LEFT);
         $cdate = $app->created_at ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : '—';
+        $dob = $app->date_of_birth ? \Carbon\Carbon::parse($app->date_of_birth)->format('M d, Y') : null;
+        $memberSince = null;
+        // member_since column is added in Problem 2; guard here so the page
+        // renders without error before that migration lands.
+        if ($app->approvedMember && isset($app->approvedMember->member_since)) {
+            $memberSince = $app->approvedMember->member_since
+                ? \Carbon\Carbon::parse($app->approvedMember->member_since)->format('M d, Y')
+                : 'Not yet';
+        }
       @endphp
       "{{ $app->id }}": {
         id: {{ $app->id }},
@@ -126,22 +136,33 @@
         occupation: @json($app->occupation ?? '—'),
         residency: @json(ucfirst(str_replace('_', ' ', $app->residency_type ?? '—'))),
         address: @json($address),
+        dateOfBirth: @json($dob),
+        memberSince: @json($memberSince),
         province: @json($app->province ?? ''),
         municipality: @json($app->municipality ?? ''),
         barangay: @json($app->barangay ?? ''),
         addressLine: @json($app->street ?? ''),
         zipCode: @json($app->zip_code ?? ''),
-        permHouseNo: @json($app->perm_house_no ?? ''),
         permStreet: @json($app->perm_street ?? ''),
         permBarangay: @json($app->perm_barangay ?? ''),
         permMunicipality: @json($app->perm_municipality ?? ''),
         permZipCode: @json($app->perm_zip_code ?? ''),
+        permProvince: @json($app->perm_province ?? ''),
         permStayYears: @json($app->perm_stay_years ?? ''),
         permStayMonths: @json($app->perm_stay_months ?? ''),
         status: @json(strtolower($app->status)),
         date: @json($cdate),
         monthlyIncome: @json($app->monthly_income ?? ''),
-        existingMonthlyObligations: @json($app->existing_monthly_obligations ?? '')
+        <?php
+        $existingOblig = $app->existing_monthly_obligations ?? '';
+        $existingObligDisplay = $existingOblig !== '' && $existingOblig !== null ? $existingOblig : '—';
+        ?>
+        existingMonthlyObligations: @json($existingObligDisplay),
+        <?php
+        $savings = $app->savings_balance ?? '';
+        $savingsDisplay = $savings !== '' && $savings !== null ? $savings : '—';
+        ?>
+        savingsBalance: @json($savingsDisplay),
       }{{ !$loop->last ? ',' : '' }}
     @endforeach
   };
@@ -186,10 +207,11 @@
         ${row('Email', m.email)}
         ${row('Contact No.', m.contact)}
         ${row('Occupation', m.occupation)}
-        ${row('Residency Type', m.residency)}
         ${row('Permanent Address', m.address || '—')}
+        ${row('Birthdate', m.dateOfBirth ? m.dateOfBirth : '—')}
         ${row('Monthly Income', m.monthlyIncome ? '₱' + Number(m.monthlyIncome).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '₱0.00')}
-        ${row('Coop Member Since', m.memberStatus === 'Yes' ? 'Approved' : 'Not yet')}
+        ${row('Savings Balance (declared)', m.savingsBalance && m.savingsBalance !== '—' ? '₱' + Number(m.savingsBalance).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—')}
+        ${row('Existing Monthly Obligations', m.existingMonthlyObligations && m.existingMonthlyObligations !== '—' ? '₱' + Number(m.existingMonthlyObligations).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—')}
 
         <div style="margin-top:.8rem;">
           ${row('Status', '<span class="status-pill ' + m.status + '"><span class="status-dot"></span>' + statusLabel + '</span>')}

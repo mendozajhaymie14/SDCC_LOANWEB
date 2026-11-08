@@ -178,6 +178,17 @@ window.renderApplicationModal = function (app) {
     /* Approve/Reject buttons (only for pending/review) */
     const showActions = statusStr === 'pending' || statusStr === 'review';
 
+    /* Credit limit display from the application data */
+    const approvedLimit = app.approved_credit_limit ?? null;
+    const outstanding = app.outstanding_balance ?? 0;
+    const available = app.available_credit ?? null;
+    const creditLimitHtml =
+        (approvedLimit !== null && approvedLimit !== undefined)
+            ? row('Approved Limit', '<span style="font-family:monospace;">' + fmtMoney(approvedLimit) + '</span>') +
+              row('Outstanding', '<span style="font-family:monospace;">' + fmtMoney(outstanding) + '</span>') +
+              row('Available', '<span style="font-family:monospace;">' + (available !== null ? fmtMoney(available) : 'N/A') + '</span>')
+            : row('Approved Limit', '<span style="color:var(--muted);font-style:italic;">Not assessed</span>');
+
     bodyEl.innerHTML =
         row('Applicant', applicantName) +
         row('Loan Type', loanType) +
@@ -186,6 +197,7 @@ window.renderApplicationModal = function (app) {
         row('Risk', '<span class="risk-badge risk-badge-' + riskLevel + '" style="padding:0.2rem 0.6rem;border-radius:9999px;font-size:0.78rem;font-weight:700;">' + riskLevel + '</span>') +
         row('Score', '<span id="modalAiScore" style="font-family:monospace;color:' + scoreC + ';font-weight:700;">' + (score != null ? score : 'N/A') + '</span>') +
         row('Term', termMonths + ' months') +
+        creditLimitHtml +
         '<div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">' +
             '<span style="color:var(--muted);">Reasons</span>' +
             '<div style="text-align:right;">' + reasonsHtml + '</div>' +

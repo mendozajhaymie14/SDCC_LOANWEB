@@ -223,4 +223,12 @@ return [
     'reminders' => [
         'due_soon_window_days' => 3,
     ],
+
+    'credit_limit' => [
+        'term' => 36,
+        'cap' => 2000000,
+        'rounding' => 'down_1000',
+        'savings_multiple' => null,
+        'include_share_capital' => false,
+    ],
 ];

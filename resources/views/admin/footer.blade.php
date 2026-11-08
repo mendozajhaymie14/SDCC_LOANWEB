@@ -232,7 +232,11 @@
             </option>
           @endforeach
         </select>
-        @error('member_id')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+        @isset($errors)
+@error('member_id')
+<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>
+@enderror
+@endisset
       </div>
 
       <div class="form-group">
@@ -359,7 +363,7 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Date of Birth</label>
+        <label class="form-label">Birthdate</label>
         <input type="date" name="date_of_birth" id="addAMemberDateOfBirth" class="form-input"/>
       </div>
 
@@ -402,6 +406,7 @@
         <div class="form-group">
           <label class="form-label">Approved Credit Limit (₱)</label>
           <input type="number" name="approved_credit_limit" id="addAMemberApprovedCreditLimit" class="form-input" step="0.01" min="0" placeholder="e.g. 25000" data-validate="money"/>
+          <div id="creditLimitSuggestion" style="margin-top:.4rem;padding-top:.4rem;border-top:1px solid #e2e8f0;font-size:.85rem;display:none;"></div>
         </div>
       </div>
 
@@ -1248,6 +1253,14 @@
   function submitReport() {
     showToast('info', 'Report is being generated, download will start shortly…', '<i class="fa-solid fa-chart-bar nav-icon"></i>');
     closeAllModals();
+  }
+
+  // ─── Credit Limit Suggestion ─────────────────────────────────────────────
+  function fillSuggestedLimit(suggested) {
+    const input = document.getElementById('addAMemberApprovedCreditLimit');
+    if (!input) return;
+    input.value = Number(suggested).toFixed(2);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   function confirmLogout() {

@@ -7,7 +7,9 @@ use Illuminate\Foundation\Console\Kernel as BaseKernel;
 
 class Kernel extends BaseKernel
 {
-    protected $commands = [];
+    protected $commands = [
+        \App\Console\Commands\BackfillAddressCommand::class,
+    ];
 
     protected function shouldDiscoverCommands(): bool
     {

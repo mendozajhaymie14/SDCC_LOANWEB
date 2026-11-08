@@ -115,6 +115,8 @@
       data-existing-monthly-obligations="{{ $member->existing_monthly_obligations ?? '' }}"
       data-savings-balance="{{ $member->savings_balance ?? '' }}"
       data-approved-credit-limit="{{ $member->approved_credit_limit ?? '' }}"
+      data-suggestion="{{ $suggestions[$member->id] ?? '' }}"
+      data-use-suggested="{{ $useSuggested[$member->id] ?? '' }}"
       data-status="{{ $member->status ?? '' }}">
                 <td class="td-mono">#{{ $member->member_id }}</td>
                 <td class="applicant-name">{{ $member->full_name }}</td>
@@ -179,6 +181,23 @@
     set('#addAMemberSavingsBalance', row.dataset.savingsBalance);
     set('#addAMemberApprovedCreditLimit', row.dataset.approvedCreditLimit);
     set('#addAMemberExcludeId', id);
+
+    // Show credit-limit suggestion under the input (server-computed, per member)
+    const sugEl = document.getElementById('creditLimitSuggestion');
+    if (sugEl) {
+      const sug = row.dataset.suggestion || '';
+      const useSuggested = row.dataset.useSuggested || '';
+      if (sug) {
+        let html = '<strong>' + sug + '</strong>';
+        if (useSuggested) {
+          html += ' <button class="btn-suggested small" type="button" onclick="fillSuggestedLimit(' + useSuggested + ')">Use suggested</button>';
+        }
+        sugEl.innerHTML = html;
+        sugEl.style.display = 'block';
+      } else {
+        sugEl.style.display = 'none';
+      }
+    }
 
     // Switch form to PUT (edit) mode
     const form = document.getElementById('addActiveMemberForm');
@@ -251,6 +270,9 @@
       el.removeAttribute('aria-describedby');
       el.style.borderColor = '';
     });
+    // Hide credit-limit suggestion for fresh add-mode
+    const sugEl = document.getElementById('creditLimitSuggestion');
+    if (sugEl) sugEl.style.display = 'none';
   }
 
   // ---- Member ID must look like SDCC-YYYY-0000 ----

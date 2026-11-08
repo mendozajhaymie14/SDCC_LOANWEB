@@ -46,12 +46,16 @@ class CoopMember extends Model
         'occupation',
         'monthly_income',
         'existing_monthly_obligations',
+        'credit_limit_source',
+        'credit_limit_computed_at',
     ];
 
     protected $casts = [
         'date_of_birth' => 'date',
         'is_registered' => 'boolean',
         'status' => 'string',
+        'credit_limit_source' => 'string',
+        'credit_limit_computed_at' => 'datetime',
     ];
 
     /**
