@@ -168,14 +168,12 @@
         $obligations = (float) ($app->existing_monthly_obligations ?? 0);
         $savings = (float) ($app->savings_balance ?? 0);
         $creditLimitService = app(\App\Services\CreditLimitService::class);
-        $rec = $creditLimitService->calculateCreditLimitRaw($income, $obligations, $savings, 36, 0.01);
+        $rec = $creditLimitService->calculateCreditLimitRaw($income, $obligations, $savings, config('loan_matrix.credit_limit.term', 36), config('loan_matrix.interest.monthly_rate', 0.01));
         ?>
         creditLimitRecommendation: @json(['limit' => (float) ($rec['limit'] ?? 0), 'cappedBy' => $rec['cappedBy'] ?? 'affordability']),
       }{{ !$loop->last ? ',' : '' }}
     @endforeach
   };
-
-  csrfToken = @json(csrf_token());
 
   // ─── POPULATE MEMBERSHIP BADGE IN SIDEBAR ───
   document.addEventListener('DOMContentLoaded', function () {
@@ -223,16 +221,10 @@
 
         ${m.creditLimitRecommendation && m.creditLimitRecommendation.limit > 0 ? `
         <div style="margin-top:.8rem;">
-          ${row('Recommended credit limit', '₱' + Number(m.creditLimitRecommendation.limit).toLocaleString('en-PH', {minimumFractionDigits:0, maximumFractionDigits:0}) + ' (' + m.creditLimitRecommendation.cappedBy + ')')}
-          <input type="number" id="approved_amount_${m.id}" min="0" step="1000" value="${m.creditLimitRecommendation.limit}" style="width:100%;padding:6px;font-size:0.86rem;" oninput="toggleApproveReason(${m.id})">
-          <textarea id="approve_reason_${m.id}" rows="2" placeholder="Reason for amount above recommendation (required if above)" style="width:100%;padding:6px;font-size:0.86rem;resize:vertical;display:none;margin-top:.5rem;"></textarea>
+          ${row('Recommended credit limit', '<span style="font-family:monospace;">₱' + Number(m.creditLimitRecommendation.limit).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')}
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:.15rem;">Capped by: ${m.creditLimitRecommendation.cappedBy}</div>
         </div>
         ` : ''}
-
-        <div style="margin-top:.8rem;">
-          <label style="font-size:0.82rem;color:var(--muted);">Rejection reason (min 10 chars)</label>
-          <textarea id="rejection_reason_${m.id}" rows="2" placeholder="Reason for rejection" style="width:100%;padding:6px;font-size:0.86rem;resize:vertical;"></textarea>
-        </div>
 
         <div style="margin-top:.8rem;">
           ${row('Status', '<span class="status-pill ' + m.status + '"><span class="status-dot"></span>' + statusLabel + '</span>')}
@@ -243,9 +235,33 @@
           ${ (m.status === 'pending') ? `
             <div style="display:flex;gap:.7rem;">
               <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);"
-                      onclick="if(confirm('Reject this membership application?'))rejectMember(${m.id})"><i class="fa-solid fa-xmark nav-icon"></i> Reject</button>
+                      onclick="openRejectMemberPanel(${m.id})"><i class="fa-solid fa-xmark nav-icon"></i> Reject</button>
               <button class="btn-submit" type="button" style="width:auto;flex:1;"
-                      onclick="if(confirm('Approve this applicant and add them to the member registry?'))approveMember(${m.id})"><i class="fa-solid fa-check nav-icon"></i> Approve & Register</button>
+                      onclick="openApproveMemberPanel(${m.id})"><i class="fa-solid fa-check nav-icon"></i> Approve & Register</button>
+            </div>
+            <!-- Approve panel (hidden until opened) -->
+            <div id="approveMemberPanel_${m.id}" style="display:none;margin-top:1rem;padding:1rem;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;box-sizing:border-box;">
+              <h4 style="margin:0 0 .5rem;font-size:.9rem;font-weight:600;">Approve Membership</h4>
+              <div style="margin-bottom:.5rem;">
+                <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Approved Credit Limit</label>
+                <input type="number" id="memberApproveAmount_${m.id}" min="0" step="1000" max="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" value="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;box-sizing:border-box;" />
+              </div>
+              <div style="display:flex;gap:.5rem;">
+                <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;box-sizing:border-box;" onclick="confirmApproveMember(${m.id})">Confirm Approve</button>
+                <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;box-sizing:border-box;" onclick="closeApproveMemberPanel(${m.id})">Cancel</button>
+              </div>
+            </div>
+            <!-- Reject panel (hidden until opened) -->
+            <div id="rejectMemberPanel_${m.id}" style="display:none;margin-top:1rem;padding:1rem;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;box-sizing:border-box;">
+              <h4 style="margin:0 0 .5rem;font-size:.9rem;font-weight:600;">Reject Membership</h4>
+              <div style="margin-bottom:.5rem;">
+                <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Rejection Reason <span style="color:#ef4444;">(required, min 10 chars)</span></label>
+                <textarea id="memberRejectReason_${m.id}" placeholder="Reason for rejection" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-height:60px;box-sizing:border-box;"></textarea>
+              </div>
+              <div style="display:flex;gap:.5rem;">
+                <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:var(--red);color:#fff;border:none;cursor:pointer;box-sizing:border-box;" onclick="confirmRejectMember(${m.id})">Confirm Reject</button>
+                <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;box-sizing:border-box;" onclick="closeRejectMemberPanel(${m.id})">Cancel</button>
+              </div>
             </div>
           ` : '' }
         </div>
@@ -255,12 +271,60 @@
     if (typeof openModal === 'function') openModal('memberDetail');
   }
 
-  // ─── APPROVE MEMBER ───
-  function approveMember(id) {
-    const approvedAmountEl = document.getElementById('approved_amount_' + id);
-    const approvedAmount = approvedAmountEl ? approvedAmountEl.value : '';
-    const approveReasonEl = document.getElementById('approve_reason_' + id);
-    const approvalReason = approveReasonEl ? approveReasonEl.value : '';
+  // ─── PANEL HELPERS ───
+  function openApproveMemberPanel(id) {
+    // Close reject panel if open
+    var rejectPanel = document.getElementById('rejectMemberPanel_' + id);
+    if (rejectPanel) rejectPanel.style.display = 'none';
+    // Show approve panel
+    var approvePanel = document.getElementById('approveMemberPanel_' + id);
+    if (approvePanel) approvePanel.style.display = 'block';
+  }
+
+  function closeApproveMemberPanel(id) {
+    var panel = document.getElementById('approveMemberPanel_' + id);
+    if (panel) panel.style.display = 'none';
+  }
+
+  function openRejectMemberPanel(id) {
+    // Close approve panel if open
+    var approvePanel = document.getElementById('approveMemberPanel_' + id);
+    if (approvePanel) approvePanel.style.display = 'none';
+    // Show reject panel
+    var rejectPanel = document.getElementById('rejectMemberPanel_' + id);
+    if (rejectPanel) rejectPanel.style.display = 'block';
+  }
+
+  function closeRejectMemberPanel(id) {
+    var panel = document.getElementById('rejectMemberPanel_' + id);
+    if (panel) panel.style.display = 'none';
+  }
+
+  // ─── CONFIRM APPROVE MEMBER ───
+  function confirmApproveMember(id) {
+    var approvedAmountEl = document.getElementById('memberApproveAmount_' + id);
+
+    var approvedAmount = approvedAmountEl ? approvedAmountEl.value : '';
+
+    // Get recommended amount from the data
+    var m = membersData[id];
+    var recommended = (m && m.creditLimitRecommendation) ? m.creditLimitRecommendation.limit : 0;
+
+    // Client-side validation
+    var amountVal = approvedAmount === '' ? null : parseFloat(approvedAmount);
+    if (amountVal === null || amountVal <= 0) {
+      if (recommended === 0 && approvedAmount === '') {
+        // blank allowed only when recommendation is 0
+      } else {
+        if (typeof showToast === 'function') showToast('error', 'Please enter a valid approved amount.', '<i class="fa-solid fa-xmark nav-icon"></i>');
+        return;
+      }
+    }
+
+    if (amountVal !== null && amountVal > recommended) {
+      if (typeof showToast === 'function') showToast('error', 'Approved credit limit cannot exceed the recommended limit.', '<i class="fa-solid fa-xmark nav-icon"></i>');
+      return;
+    }
 
     fetch('/memberships/' + id + '/approve', {
       method: 'POST',
@@ -269,32 +333,33 @@
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ approved_amount: approvedAmount, approve_reason: approvalReason })
+      body: JSON.stringify({ approved_amount: approvedAmount })
     })
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then(data => {
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (err) { throw err; });
+        return res.json();
+      })
+      .then(function (data) {
         if (typeof showToast === 'function') showToast('success', 'Membership application approved', '<i class="fa-solid fa-check nav-icon"></i>');
         if (typeof closeAllModals === 'function') closeAllModals();
-        setTimeout(() => location.reload(), 700);
+        setTimeout(function () { location.reload(); }, 700);
       })
-      .catch(() => {
-        if (typeof showToast === 'function') showToast('error', 'Failed to approve application.', '<i class="fa-solid fa-xmark nav-icon"></i>');
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : 'Failed to approve application.';
+        if (typeof showToast === 'function') showToast('error', msg, '<i class="fa-solid fa-xmark nav-icon"></i>');
       });
   }
 
-  function toggleApproveReason(id) {
-    const amountEl = document.getElementById('approved_amount_' + id);
-    const reasonEl = document.getElementById('approve_reason_' + id);
-    if (!amountEl || !reasonEl) return;
-    const recommended = parseFloat(amountEl.defaultValue) || 0;
-    const current = parseFloat(amountEl.value) || 0;
-    reasonEl.style.display = current > recommended ? 'block' : 'none';
-  }
+  // ─── CONFIRM REJECT MEMBER ───
+  function confirmRejectMember(id) {
+    var rejectReasonEl = document.getElementById('memberRejectReason_' + id);
+    var rejectionReason = rejectReasonEl ? rejectReasonEl.value.trim() : '';
 
-  // ─── REJECT MEMBER ───
-  function rejectMember(id) {
-    const rejectionReasonEl = document.getElementById('rejection_reason_' + id);
-    const rejectionReason = rejectionReasonEl ? rejectionReasonEl.value : '';
+    // Client-side validation: min 10 chars
+    if (rejectionReason.length < 10) {
+      if (typeof showToast === 'function') showToast('error', 'Rejection reason must be at least 10 characters.', '<i class="fa-solid fa-xmark nav-icon"></i>');
+      return;
+    }
 
     fetch('/memberships/' + id + '/reject', {
       method: 'POST',
@@ -305,14 +370,18 @@
       },
       body: JSON.stringify({ rejection_reason: rejectionReason })
     })
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then(data => {
-        if (typeof showToast === 'function') showToast('success', 'Membership application rejected', '<i class="fa-solid fa-xmark nav-icon"></i>');
-        if (typeof closeAllModals === 'function') closeAllModals();
-        setTimeout(() => location.reload(), 700);
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (err) { throw err; });
+        return res.json();
       })
-      .catch(() => {
-        if (typeof showToast === 'function') showToast('error', 'Failed to reject application.', '<i class="fa-solid fa-xmark nav-icon"></i>');
+      .then(function (data) {
+        if (typeof showToast === 'function') showToast('success', 'Membership application rejected', '<i class="fa-solid fa-check nav-icon"></i>');
+        if (typeof closeAllModals === 'function') closeAllModals();
+        setTimeout(function () { location.reload(); }, 700);
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : 'Failed to reject application.';
+        if (typeof showToast === 'function') showToast('error', msg, '<i class="fa-solid fa-xmark nav-icon"></i>');
       });
   }
 

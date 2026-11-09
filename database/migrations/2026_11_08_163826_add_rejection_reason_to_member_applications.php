@@ -8,7 +8,7 @@ return new class extends Migration {
     public function up(): void {
         Schema::table('member_applications', function (Blueprint $table) {
             if (!Schema::hasColumn('member_applications', 'rejection_reason')) {
-                $table->text('rejection_reason')->nullable()->after('admin_remarks');
+                $table->text('rejection_reason')->nullable();
             }
         });
     }

@@ -406,7 +406,6 @@
         <div class="form-group">
           <label class="form-label">Approved Credit Limit (₱)</label>
           <input type="number" name="approved_credit_limit" id="addAMemberApprovedCreditLimit" class="form-input" step="0.01" min="0" placeholder="e.g. 25000" data-validate="money"/>
-          <div id="creditLimitSuggestion" style="margin-top:.4rem;padding-top:.4rem;border-top:1px solid #e2e8f0;font-size:.85rem;display:none;"></div>
         </div>
       </div>
 
@@ -625,7 +624,8 @@
         aiScore: @json($rawScore),
         status: @json(strtolower($m->status)),
         is_registered: @json($m->is_registered),
-        date: @json(optional($m->created_at)->format('M d, Y'))
+        date: @json(optional($m->created_at)->format('M d, Y')),
+        approved_credit_limit: @json($m->approved_credit_limit),
       },
     @endforeach
   };
@@ -775,7 +775,6 @@
     }
 
     const statusLabel = m.status.charAt(0).toUpperCase() + m.status.slice(1);
-    const scoreC = m.aiScore != null ? (m.aiScore >= 600 ? '#10b981' : '#ef4444') : 'var(--muted)';
 
     const titleEl = document.getElementById('activeMemberDetailTitle');
     if (titleEl) titleEl.textContent = '#' + m.member_id + ' — ' + m.name;
@@ -799,7 +798,7 @@
         ${row('Full Name', m.name)}
         ${row('Email Address', m.email)}
         ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</span>`)}
-        ${row('Rule-Based Score', `<span style="font-family:'DM Sans',sans-serif;color:${scoreC};">${m.aiScore ?? 'N/A'}</span>`)}
+        ${row('Credit Limit', (m.approved_credit_limit !== null && m.approved_credit_limit !== undefined && m.approved_credit_limit !== '') ? `<span style="font-family:monospace;">${fmtMoney(m.approved_credit_limit)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${row('Date Joined', m.date)}
         ${row('Status', `<span class="status-pill ${m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
 
@@ -1253,14 +1252,6 @@
   function submitReport() {
     showToast('info', 'Report is being generated, download will start shortly…', '<i class="fa-solid fa-chart-bar nav-icon"></i>');
     closeAllModals();
-  }
-
-  // ─── Credit Limit Suggestion ─────────────────────────────────────────────
-  function fillSuggestedLimit(suggested) {
-    const input = document.getElementById('addAMemberApprovedCreditLimit');
-    if (!input) return;
-    input.value = Number(suggested).toFixed(2);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   function confirmLogout() {

@@ -31,11 +31,8 @@
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px;">
                     <span style="color: #6b7280;">Status</span>
-                    <span style="font-weight: 700; color: {{ $application->status === 'rejected' && $application->viewer_can_see_reason ? '#8a6d13' : '#eab308' }};">
+                    <span style="font-weight: 700; color: {{ $application->status === 'rejected' ? '#8a6d13' : '#eab308' }};">
                         {{ $application->statusLabel }}
-                        @if($application->status === 'rejected' && $application->viewer_can_see_reason)
-                            <span style="background: #fef2f2; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 6px;">Reason stored</span>
-                        @endif
                     </span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px;">
@@ -44,15 +41,12 @@
                 </div>
             </div>
 
-            @if(Auth::check() && Auth::user()->email === $application->email)
-            {{-- Only the applicant (by email) sees the rejection reason details --}}
             <p style="font-size: 13px; color: #6b7280; line-height: 1.7; margin-bottom: 24px; margin-top: 12px;">
                 <strong>Application Status:</strong> {{ $application->statusLabel }}.
                 @if($application->status === 'rejected')
-                    Your application was not approved. The rejection reason has been recorded and will be included in the notification email you receive.
+                    Your application was not approved. Please check your email for details.
                 @endif
             </p>
-            @endif
 
             <p style="font-size: 13px; color: #6b7280; line-height: 1.7; margin-bottom: 24px;">
                 Our membership officer will review your application and get back to you within 3–5 business days. You will receive an email notification once a decision has been made.

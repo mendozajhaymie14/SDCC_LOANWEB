@@ -216,4 +216,237 @@ class DuplicateMemberTest extends TestCase
         $this->assertTrue($result['isDuplicate']);
         $this->assertContains('contact_number', $result['matchedFields']);
     }
+
+    /** @test */
+    public function edit_self_with_own_approved_application_email_succeeds()
+    {
+        $member = CoopMember::factory()->create([
+            'full_name'      => 'Maria Santos',
+            'email'          => 'maria@example.com',
+            'contact_number' => '09171112222',
+            'status'         => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        $application = \App\Models\MemberApplication::factory()->create([
+            'email'            => 'maria@example.com',
+            'contact_number'   => '09171112222',
+            'status'           => 'approved',
+        ]);
+
+        // The member's own approved application has the same email.
+        // Excluding this member's coop_members id and this application's id
+        // should not flag a duplicate.
+        $result = app(DuplicateMemberService::class)->check(
+            'Maria Santos',
+            'maria@example.com',
+            '09171112222',
+            $member->id,
+            $application->id
+        );
+
+        $this->assertFalse($result['isDuplicate']);
+        $this->assertFalse($result['isWarning']);
+        $this->assertEmpty($result['matchedFields']);
+    }
+
+    /** @test */
+    public function edit_self_to_another_members_email_still_blocked()
+    {
+        $this->makeMember(['email' => 'other@example.com']);
+
+        $result = app(DuplicateMemberService::class)->check(
+            'Juan Dela Cruz',
+            'other@example.com',
+            '09181234567',
+            5   // excludeMemberId (different member id)
+        );
+
+        $this->assertTrue($result['isDuplicate']);
+        $this->assertContains('email', $result['matchedFields']);
+    }
+
+    /** @test */
+    public function approve_member_not_blocked_by_unrelated_coop_member_with_same_numeric_id()
+    {
+        // An unrelated coop_member with a particular id
+        $unrelatedMember = CoopMember::factory()->create([
+            'full_name'      => 'Unrelated Member',
+            'email'          => 'unrelated@example.com',
+            'contact_number' => '09179998888',
+            'status'         => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        $application = \App\Models\MemberApplication::factory()->create([
+            'email'        => 'applicant@example.com',
+            'contact_number'=> '09170001111',
+            'status'       => 'pending',
+        ]);
+
+        // Exclude the application itself by id.
+        // The unrelated coop_member should not block the check.
+        $result = app(DuplicateMemberService::class)->check(
+            'Applicant Name',
+            'applicant@example.com',
+            '09170001111',
+            null, // excludeMemberId (no linked coop_member for this application)
+            $application->id  // excludeApplicationId (member_applications.id)
+        );
+
+        $this->assertFalse($result['isDuplicate']);
+        $this->assertFalse($result['isWarning']);
+        $this->assertEmpty($result['matchedFields']);
+    }
+
+    /** @test */
+    public function bug_A_PHP_side_helper_crashes_on_coop_member_approved_member_id_filter()
+    {
+        // A coop member (different from the application)
+        $unrelatedMember = CoopMember::factory()->create([
+            'full_name'      => 'Unrelated Member',
+            'email'          => 'unrelated@example.com',
+            'contact_number' => '09179998888',
+            'status'         => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // A pending application with unique email and contact
+        $application = \App\Models\MemberApplication::factory()->create([
+            'first_name'      => 'Applicant',
+            'surname'         => 'Name',
+            'email'           => 'applicant@example.com',
+            'contact_number'  => '09170001111',
+            'status'          => 'pending',
+        ]);
+
+        // Check should not flag duplicate — the unrelated coop_member has
+        // a different email/contact, and the pending app has unique email/contact.
+        // The PHP-side fallback path on CoopMember must not crash with the
+        // member_applications-only column (approved_member_id) that doesn't
+        // exist on coop_members.
+        $result = app(DuplicateMemberService::class)->check(
+            'Applicant Name',
+            'unique@example.com',
+            '09170009999',
+            null, // excludeMemberId (no linked coop_member)
+            null  // excludeApplicationId
+        );
+
+        $this->assertFalse($result['isDuplicate']);
+        $this->assertFalse($result['isWarning']);
+        $this->assertEmpty($result['matchedFields']);
+    }
+
+    /** @test */
+    public function bug_B_editing_member_with_own_approved_app_NULL_approved_member_id()
+    {
+        // A coop member (the one being edited)
+        $member = CoopMember::factory()->create([
+            'full_name'      => 'Fat Jhaymie Mendoza',
+            'member_id'      => 'SDCC-2026-0006',
+            'email'          => 'mendoza@example.com',
+            'contact_number' => '09171234567',
+            'status'         => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // An approved application with NULL approved_member_id (old record)
+        // but with the same email and contact number as the member.
+        // Use a DIFFERENT id than the member so the id!=excludeMemberId
+        // fallback does not accidentally exclude it.
+        $app = \App\Models\MemberApplication::factory()->create([
+            'email'          => 'mendoza@example.com',
+            'contact_number' => '09171234567',
+            'status'         => 'approved',
+        ]);
+        $app->id = 999;
+        $app->save();
+
+        // Editing this member should succeed — the application counts as
+        // the member's own because approved_member_id IS NULL and the
+        // email/contact match the member's currently stored values.
+        $result = app(DuplicateMemberService::class)->check(
+            'Fat Jhaymie Mendoza',
+            'mendoza@example.com',
+            '09171234567',
+            $member->id,   // exclude coop_members.id
+            null         // excludeApplicationId
+        );
+
+        $this->assertFalse($result['isDuplicate']);
+        $this->assertFalse($result['isWarning']);
+        $this->assertEmpty($result['matchedFields']);
+    }
+
+    /** @test */
+    public function bug_C_editing_member_with_own_approved_app_NULL_link_contact_only_match()
+    {
+        // A coop member (the one being edited)
+        $member = CoopMember::factory()->create([
+            'full_name'      => 'Fat Jhaymie Mendoza',
+            'member_id'      => 'SDCC-2026-0006',
+            'email'          => 'mendoza@example.com',
+            'contact_number' => '09171234567',
+            'status'         => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // An approved application with NULL approved_member_id (old record)
+        // whose CONTACT matches the member but whose EMAIL differs.
+        // Rule 3: email OR contact match counts as the member's own.
+        $app = \App\Models\MemberApplication::factory()->create([
+            'email'           => 'old-mendoza@example.com',
+            'contact_number'  => '09171234567',
+            'status'          => 'approved',
+        ]);
+        $app->id = 999;
+        $app->save();
+
+        // Editing this member should succeed — the application counts as
+        // the member's own because approved_member_id IS NULL and the
+        // contact matches the member's currently stored value.
+        $result = app(DuplicateMemberService::class)->check(
+            'Fat Jhaymie Mendoza',
+            'mendoza@example.com',
+            '09171234567',
+            $member->id,   // exclude coop_members.id
+            null         // excludeApplicationId
+        );
+
+        $this->assertFalse($result['isDuplicate']);
+        $this->assertFalse($result['isWarning']);
+        $this->assertEmpty($result['matchedFields']);
+    }
+
+    /** @test */
+    public function editing_to_same_email_as_different_pending_app_blocks()
+    {
+        // A coop member being edited
+        $member = CoopMember::factory()->create([
+            'full_name'      => 'Juan Dela Cruz',
+            'email'          => 'juan@example.com',
+            'contact_number' => '09171234567',
+            'status'         => CoopMember::STATUS_ACTIVE,
+        ]);
+
+        // A different pending application with the same email/contact as the member
+        // (but this app's approved_member_id does NOT equal the member's id,
+        // so it's not the member's own application).
+        \App\Models\MemberApplication::factory()->create([
+            'first_name'      => 'Other',
+            'surname'         => 'Applicant',
+            'email'           => 'juan@example.com',
+            'contact_number'  => '09171234567',
+            'status'          => 'pending',
+        ]);
+
+        // Editing this member to the same email as a different pending app
+        // should be blocked as a duplicate.
+        $result = app(DuplicateMemberService::class)->check(
+            'Juan Dela Cruz',
+            'juan@example.com',
+            '09171234567',
+            $member->id,   // exclude this member
+            null          // excludeApplicationId (different app, not excluded)
+        );
+
+        $this->assertTrue($result['isDuplicate']);
+        $this->assertContains('email', $result['matchedFields']);
+    }
 }

@@ -63,9 +63,9 @@
           {{ session('warning') }}
         </div>
       @endif
-      {{-- When an ADD fails the modal re-opens and shows the errors itself;
-           show this banner for edit errors or when there is no old input. --}}
-      @if ($errors->any() && (old('_method') === 'PUT' || empty(old())))
+      {{-- Show this banner only when there is no old input to restore
+           in the modal (the JS block below handles the in-modal display). --}}
+      @if ($errors->any() && empty(old()))
         <div style="background:#fecaca;border:1px solid #fca5a5;color:#991b1b;padding:.75rem 1.25rem;border-radius:8px;margin:0 0 1rem 0;">
           <strong>The member could not be saved:</strong>
           <ul style="margin:.4rem 0 0 1.2rem;padding:0;">
@@ -85,6 +85,7 @@
               <th>EMAIL</th>
               <th>STATUS</th>
               <th>MONTHLY INCOME</th>
+              <th>CREDIT LIMIT</th>
               <th>ACTION</th>
             </tr>
           </thead>
@@ -129,6 +130,15 @@
                 <td class="td-mono">
                   {{ $monthlyIncome ? '₱' . $monthlyIncome : '—' }}
                 </td>
+                <td class="td-mono">
+                  @php
+                    $creditLimit = $member->approved_credit_limit;
+                    $creditLimitDisplay = ($creditLimit !== null && $creditLimit !== '' && (float) $creditLimit > 0)
+                      ? '₱' . number_format((float) $creditLimit, 2)
+                      : 'Not assessed';
+                  @endphp
+                  <span style="color:var(--muted);font-style:italic;">{{ $creditLimitDisplay === 'Not assessed' ? 'Not assessed' : $creditLimitDisplay }}</span>
+                </td>
                 <td>
                   <button class="btn-review" type="button" onclick="openActiveMemberDetail('{{ $member->id }}')">View</button>
                   @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::EDIT_MEMBER_PROFILES))
@@ -139,7 +149,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="6" class="empty-table-msg">No active members found.</td>
+                <td colspan="7" class="empty-table-msg">No active members found.</td>
               </tr>
             @endforelse
           </tbody>
@@ -181,23 +191,6 @@
     set('#addAMemberSavingsBalance', row.dataset.savingsBalance);
     set('#addAMemberApprovedCreditLimit', row.dataset.approvedCreditLimit);
     set('#addAMemberExcludeId', id);
-
-    // Show credit-limit suggestion under the input (server-computed, per member)
-    const sugEl = document.getElementById('creditLimitSuggestion');
-    if (sugEl) {
-      const sug = row.dataset.suggestion || '';
-      const useSuggested = row.dataset.useSuggested || '';
-      if (sug) {
-        let html = '<strong>' + sug + '</strong>';
-        if (useSuggested) {
-          html += ' <button class="btn-suggested small" type="button" onclick="fillSuggestedLimit(' + useSuggested + ')">Use suggested</button>';
-        }
-        sugEl.innerHTML = html;
-        sugEl.style.display = 'block';
-      } else {
-        sugEl.style.display = 'none';
-      }
-    }
 
     // Switch form to PUT (edit) mode
     const form = document.getElementById('addActiveMemberForm');
@@ -255,24 +248,6 @@
     const statusSelect = document.getElementById('addAMemberStatus');
     if (statusSelect) statusSelect.value = 'active';
     const isRegSelect = document.getElementById('addAMemberIsRegistered');
-    if (isRegSelect) isRegSelect.value = '0';
-    const submitBtn = document.getElementById('addAMemberSubmitBtn');
-    if (submitBtn) submitBtn.textContent = 'Register Member';
-    const titleEl = document.getElementById('addActiveMemberTitle');
-    if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-user nav-icon"></i> Add New Member';
-    // Clear validation states
-    form.querySelectorAll('.fv-valid,.fv-invalid,.fv-warn').forEach(el => {
-      el.classList.remove('fv-valid', 'fv-invalid', 'fv-warn');
-      el.removeAttribute('aria-invalid');
-      const msg = el._fvMsg;
-      if (msg) msg.remove();
-      el._fvMsg = null;
-      el.removeAttribute('aria-describedby');
-      el.style.borderColor = '';
-    });
-    // Hide credit-limit suggestion for fresh add-mode
-    const sugEl = document.getElementById('creditLimitSuggestion');
-    if (sugEl) sugEl.style.display = 'none';
   }
 
   // ---- Member ID must look like SDCC-YYYY-0000 ----
@@ -298,20 +273,41 @@
   });
 
   // ---- Re-open the Add Member modal with the officer's input and the errors ----
-  @if ($errors->any() && old('_method') !== 'PUT' && ! empty(old()))
+  @if ($errors->any() && ! empty(old()))
   window.addEventListener('load', function () {
     const oldInput = @json(old());
     const messages = @json($errors->all());
 
-    resetAddForm();
-    openModal('addActiveMember');
-
     const form = document.getElementById('addActiveMemberForm');
     if (!form) return;
 
+    // Detect edit/PUT mode from old input: after a failed PUT the page reloads
+    // and the form action resets to the store route, so we cannot rely on the
+    // DOM action attribute. _method === 'PUT' (or exclude_id present) means edit.
+    const isEditMode = oldInput._method === 'PUT' || oldInput.exclude_id !== undefined;
+
+    if (!isEditMode) {
+        resetAddForm();
+    } else {
+        // Restore PUT (edit) mode so the submission goes to updateBorrower, not storeBorrower.
+        const methodInput = document.getElementById('addAMemberMethod');
+        if (methodInput) methodInput.value = 'PUT';
+        if (oldInput.exclude_id) {
+            form.action = '/active-members/' + oldInput.exclude_id;
+            const excludeIdEl = document.getElementById('addAMemberExcludeId');
+            if (excludeIdEl) excludeIdEl.value = oldInput.exclude_id;
+        }
+        const titleEl = document.getElementById('addActiveMemberTitle');
+        if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-pen nav-icon"></i> Edit Member';
+        const submitBtn = document.getElementById('addAMemberSubmitBtn');
+        if (submitBtn) submitBtn.textContent = 'Update Member';
+    }
+
+    openModal('addActiveMember');
+
     // Put back what the officer typed
     Object.keys(oldInput).forEach(function (name) {
-      if (name === '_token' || name === '_method') return;
+      if (name === '_token' || name === '_method' || name === 'exclude_id') return;
       const el = form.querySelector('[name="' + name + '"]');
       if (el && el.type !== 'hidden') el.value = oldInput[name];
     });

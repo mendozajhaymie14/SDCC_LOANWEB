@@ -266,9 +266,8 @@ class MemberApplicationController extends Controller
      * Show a single application (guests only, keyed by id so the URL is
      * not guessable without the confirmation page).
      *
-     * Only the applicant (by email match) may view their own application
-     * including the rejection reason. Guests who are not the applicant
-     * see a sanitized status view without rejection_reason.
+     * The rejection reason is never shown on this page — it is only sent
+     * via email (MemberRejectedMail).
      */
     public function show(int $id)
     {
@@ -277,17 +276,6 @@ class MemberApplicationController extends Controller
         if (!$application) {
             abort(404);
         }
-
-        // If the viewer is authenticated, only allow the applicant
-        // (by email match) to see the full application details including
-        // rejection_reason. Guests see a sanitized view with status only.
-        $viewerCanSeeReason = false;
-        if (Auth::check()) {
-            $viewerCanSeeReason = Auth::user()->email === $application->email;
-        }
-
-        // Ensure the applicant's email is stored for the view
-        $application->viewer_can_see_reason = $viewerCanSeeReason;
 
         return view('auth.member-application-confirmed', compact('application'));
     }

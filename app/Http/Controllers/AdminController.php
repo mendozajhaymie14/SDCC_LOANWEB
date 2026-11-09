@@ -791,7 +791,7 @@ class AdminController extends Controller
             $validated['full_name'],
             $validated['email'],
             $validated['phone'] ?? null,
-            $member->id // exclude this member from the check
+            $member->id // exclude this member (coop_members.id) from the check
         );
 
         if ($check['isDuplicate']) {
@@ -1005,12 +1005,14 @@ class AdminController extends Controller
         $application = MemberApplication::findOrFail($id);
 
         // Duplicate detection: block on email or contact number match (other than this application's own email)
-        // warn on name-only match. Exclude this application's own ID so it doesn't flag itself.
+        // warn on name-only match. Exclude this application's own ID from member_applications,
+        // and any CoopMember already linked to this application (approved_member_id).
         $check = app(DuplicateMemberService::class)->check(
             $application->fullName,
             $application->email,
             $application->contact_number,
-            $application->id // exclude this application from pending check
+            $application->approved_member_id ?? null, // exclude this member (coop_members.id) if already linked
+            $application->id // exclude this application (member_applications.id) from pending check
         );
 
         if ($check['isDuplicate']) {
@@ -1027,21 +1029,21 @@ class AdminController extends Controller
         // Credit limit validation BEFORE the transaction so validation errors
         // return proper HTTP responses rather than 500s from inside the transaction.
         $approvedAmount = $request->input('approved_amount');
-        $rejectionReason = $request->input('rejection_reason');
         $recommendation = $this->creditLimitRecommendationForApplication($application);
 
         if ($approvedAmount !== null && $approvedAmount !== '' && $approvedAmount != 0) {
             $submittedAmount = (float) $approvedAmount;
 
-            if ($submittedAmount > $recommendation['limit'] && blank($rejectionReason)) {
+            if ($submittedAmount > $recommendation['limit']) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'A reason is required when approving an amount above the recommendation.',
+                    'message' => 'Approved credit limit cannot exceed the recommended limit.',
                 ], 422);
             }
         }
 
-        $member = DB::transaction(function () use ($application, $request, $approvedAmount, $recommendation) {
+        try {
+            $member = DB::transaction(function () use ($application, $request, $approvedAmount, $recommendation) {
             $userId = $application->user_id;
 
             if (! $userId) {
@@ -1199,7 +1201,10 @@ class AdminController extends Controller
                 AuditLog::log(
                     'Membership Approved',
                     'Membership application #' . $application->id . ' approved. Cooperative member '
-                    . $coopMember->member_id . ' (' . $coopMember->full_name . ') is now active.',
+                    . $coopMember->member_id . ' (' . $coopMember->full_name . ') is now active.'
+                    . ($coopMember->credit_limit_source === 'manual'
+                        ? ' Manual limit: ' . $coopMember->approved_credit_limit
+                        : ''),
                     $userId
                 );
 
@@ -1247,8 +1252,16 @@ class AdminController extends Controller
         } catch (\Throwable $e) {
             \Log::error('Member approval email failed: ' . $e->getMessage());
         }
+    } catch (\Throwable $e) {
+        \Log::error('Member approval failed: ' . $e->getMessage());
 
         return response()->json([
+            'success' => false,
+            'message' => 'Could not approve this membership application. The database may be missing a required column. Please contact the system administrator.',
+        ], 500);
+    }
+
+    return response()->json([
             'success'   => true,
             'id'        => $id,
             'status'    => 'approved',
@@ -1289,12 +1302,13 @@ class AdminController extends Controller
         $userId = $application->user_id
             ?: User::where('email', $application->email)->value('id');
 
-        DB::transaction(function () use ($application, $rejectionReason, $userId) {
-            $application->status      = 'rejected';
-            $application->rejection_reason = $rejectionReason;
-            $application->reviewed_at = now();
-            $application->reviewed_by = Auth::id();
-            $application->save();
+        try {
+            DB::transaction(function () use ($application, $rejectionReason, $userId) {
+                $application->status      = 'rejected';
+                $application->rejection_reason = $rejectionReason;
+                $application->reviewed_at = now();
+                $application->reviewed_by = Auth::id();
+                $application->save();
 
             // Deactivate the linked cooperative membership so a rejected
             // application is not shown as an active member. Idempotent: a row
@@ -1361,6 +1375,15 @@ class AdminController extends Controller
                 }
             }
         });
+
+        } catch (\Throwable $e) {
+            \Log::error('Member rejection failed: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not reject this membership application. The database may be missing a required column. Please contact the system administrator.',
+            ], 500);
+        }
 
         return response()->json(['success' => true, 'id' => $id, 'status' => 'rejected']);
     }
@@ -2845,7 +2868,8 @@ public function createBackup(Request $request)
             $validated['full_name'],
             $validated['email'],
             $validated['phone'] ?? null,
-            $validated['exclude_id']
+            $validated['exclude_id'], // exclude this member (coop_members.id) from the check
+            null
         );
 
         return response()->json([

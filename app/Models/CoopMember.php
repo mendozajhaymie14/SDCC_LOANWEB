@@ -106,6 +106,17 @@ class CoopMember extends Model
     }
 
     /**
+     * Is this member linked to an active cooperative membership?
+     *
+     * A loan may only be taken by somebody whose cooperative membership is
+     * live, so this is the single check the loan gate uses.
+     */
+    public function isActiveMember(): bool
+    {
+        return $this->status === self::STATUS_ACTIVE;
+    }
+
+    /**
      * Sum the outstanding balance of all approved loans for this member.
      *
      * Primary match: loans with user_id = this member's user_id.

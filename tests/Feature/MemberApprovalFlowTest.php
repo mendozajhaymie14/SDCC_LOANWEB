@@ -127,21 +127,26 @@ class MemberApprovalFlowTest extends TestCase
             ->asBranchManager()
             ->create();
 
+        $recommendation = app(CreditLimitService::class)->calculateCreditLimitRaw(
+            50000, 1500, 0
+        );
+
+        $belowRecommendation = (int) ($recommendation['limit'] / 2);
+
         $this->actingAs($admin, 'web')
             ->postJson(route('memberships.approve', $application->id), [
-                'approved_amount' => 999000, // above recommendation
-                'rejection_reason' => 'Custom approved amount above recommended limit.',
+                'approved_amount' => $belowRecommendation,
             ])
             ->assertJson(['success' => true]);
 
         $member = CoopMember::where('email', $application->email)->first();
         $this->assertNotNull($member);
-        $this->assertEquals(999000, $member->approved_credit_limit);
+        $this->assertEquals($belowRecommendation, $member->approved_credit_limit);
         $this->assertEquals('manual', $member->credit_limit_source);
     }
 
     /** @test */
-    public function approve_above_recommendation_requires_reason()
+    public function approve_above_recommendation_caps_at_recommended()
     {
         $application = MemberApplication::factory()->create([
             'monthly_income' => 50000,
@@ -150,16 +155,20 @@ class MemberApprovalFlowTest extends TestCase
             'status' => 'pending',
         ]);
 
+        $recommendation = app(CreditLimitService::class)->calculateCreditLimitRaw(
+            50000, 1500, 0
+        );
+
         $admin = \App\Models\User::factory()
             ->asBranchManager()
             ->create();
 
         $this->actingAs($admin, 'web')
             ->postJson(route('memberships.approve', $application->id), [
-                'approved_amount' => 999000,
+                'approved_amount' => $recommendation['limit'] + 999999,
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'A reason is required when approving an amount above the recommendation.']);
+            ->assertJsonFragment(['message' => 'Approved credit limit cannot exceed the recommended limit.']);
     }
 
     /** @test */
