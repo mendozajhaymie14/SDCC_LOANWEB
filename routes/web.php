@@ -141,6 +141,8 @@ Route::middleware(['auth', 'role'])->group(function () {
         // Cooperative membership applications
         Route::get('/memberships', [AdminController::class, 'memberships'])
             ->name('memberships.index');
+        Route::get('/memberships/{id}/recommendation', [AdminController::class, 'membershipCreditLimitRecommendation'])
+            ->name('memberships.recommendation');
         Route::post('/memberships/{id}/approve', [AdminController::class, 'approveMember'])
             ->name('memberships.approve');
         Route::post('/memberships/{id}/reject', [AdminController::class, 'rejectMember'])

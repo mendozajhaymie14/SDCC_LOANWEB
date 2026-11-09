@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\ProcessLoanDocuments;
 use App\Models\AppNotification;
 use App\Models\Application;
+use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
@@ -84,18 +85,10 @@ class UserController extends Controller
         if ($user->isActiveCoopMember()) {
             $coopMember = $user->coopMember;
 
-            // Sum outstanding balance of all approved loans for this member
-            $outstanding = 0;
-            if ($coopMember) {
-                $outstanding = (float) LoanApplication::where(function ($q) use ($coopMember) {
-                    $q->where('user_id', $coopMember->user_id);
-                    if ($coopMember->email) {
-                        $q->orWhere(function ($q2) use ($coopMember) {
-                            $q2->where('user_id', null)->where('email', $coopMember->email);
-                        });
-                    }
-                })->where('status', LoanStatus::APPROVED)->sum('remaining_balance');
-            }
+            // Sum outstanding balance of all approved loans for this member.
+            // Shared with the admin side via CoopMember::outstandingBalance()
+            // so the email fallback for staff-encoded loans is identical.
+            $outstanding = $coopMember ? CoopMember::outstandingBalance($coopMember) : 0;
 
             return view('user.loan', [
                 'user'      => $user,

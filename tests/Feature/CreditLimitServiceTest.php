@@ -181,4 +181,56 @@ class CreditLimitServiceTest extends TestCase
 
         $this->assertTrue($result);
     }
+
+    /** @test */
+    public function calculate_credit_limit_raw_income_50k_obligations_1500_savings_10k_disabled()
+    {
+        config(['loan_matrix.credit_limit.savings_multiple' => null]);
+
+        $service = new CreditLimitService();
+
+        $result = $service->calculateCreditLimitRaw(50000, 1500, 10000, 36, 0.01);
+
+        $this->assertEquals(481000, $result['limit']);
+        $this->assertEquals('affordability', $result['cappedBy']);
+    }
+
+    /** @test */
+    public function calculate_credit_limit_raw_income_50k_obligations_1500_savings_10k_enabled_3()
+    {
+        config(['loan_matrix.credit_limit.savings_multiple' => 3]);
+
+        $service = new CreditLimitService();
+
+        $result = $service->calculateCreditLimitRaw(50000, 1500, 10000, 36, 0.01);
+
+        $this->assertEquals(30000, $result['limit']);
+        $this->assertEquals('savings', $result['cappedBy']);
+    }
+
+    /** @test */
+    public function calculate_credit_limit_raw_obligations_at_35_percent_returns_zero()
+    {
+        config(['loan_matrix.credit_limit.savings_multiple' => null]);
+
+        $service = new CreditLimitService();
+
+        $result = $service->calculateCreditLimitRaw(50000, 17500, 0, 36, 0.01);
+
+        $this->assertEquals(0, $result['limit']);
+        $this->assertEquals('affordability', $result['cappedBy']);
+    }
+
+    /** @test */
+    public function calculate_credit_limit_raw_zero_obligations_savings_returns_affordability()
+    {
+        config(['loan_matrix.credit_limit.savings_multiple' => null]);
+
+        $service = new CreditLimitService();
+
+        $result = $service->calculateCreditLimitRaw(50000, 0, 0, 36, 0.01);
+
+        $this->assertEquals(526000, $result['limit']);
+        $this->assertEquals('affordability', $result['cappedBy']);
+    }
 }

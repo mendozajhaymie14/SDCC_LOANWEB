@@ -180,4 +180,69 @@ class CreditLimitService
 
         return $submittedLimit == $result['limit'] ? 'auto' : 'manual';
     }
+
+    /**
+     * Compute the credit limit from raw income/obligations/savings (no CoopMember required).
+     *
+     * Returns ['limit' => float, 'cappedBy' => 'affordability'|'savings'|null].
+     * The DTI-based principal is floored to 1,000 and capped at credit_limit_cap.
+     * If savings_multiple is not null, the limit is min'd with
+     * savings_multiple * (savings_balance + (share_capital if include_share_capital)).
+     *
+     * @param float $income             Monthly income in pesos.
+     * @param float $obligations        Existing monthly obligations in pesos.
+     * @param float $savings            Savings/time deposit balance in pesos.
+     * @param int   $termMonths         Term in months (default: 36).
+     * @param float $monthlyRate        Monthly interest rate (default: config or 0.01).
+     *
+     * @return array{limit: float, cappedBy: string|int|null}
+     */
+    public function calculateCreditLimitRaw(
+        float $income,
+        float $obligations,
+        float $savings = 0,
+        int $termMonths = self::DEFAULT_TERM,
+        float $monthlyRate = null,
+    ): array {
+        $monthlyRate = $monthlyRate ?? config('loan_matrix.interest.monthly_rate', self::DEFAULT_MONTHLY_RATE);
+        $dtiLimit = config('loan_evaluation.thresholds.dti_limit', self::DEFAULT_DTI_LIMIT);
+
+        $maxMonthlyPayment = $income * $dtiLimit;
+        $emiBudget = $maxMonthlyPayment - $obligations;
+
+        if ($emiBudget <= 0) {
+            $affordablePrincipal = 0;
+        } else {
+            $annuityFactor = $monthlyRate > 0
+                ? $monthlyRate / (1 - pow(1 + $monthlyRate, -$termMonths))
+                : (1 / $termMonths);
+
+            $affordablePrincipal = $annuityFactor > 0
+                ? $emiBudget / $annuityFactor
+                : 0;
+        }
+
+        $limit = round($affordablePrincipal, CreditLimitService::PRINCIPAL_PRECISION);
+        $limit = $this->floorTo1000($limit);
+
+        $cap = (int) (config('loan_matrix.credit_limit.cap' ?? '2000000'));
+        $limit = min($limit, $cap);
+
+        $cappedBy = 'affordability';
+
+        $savingsMultiple = config('loan_matrix.credit_limit.savings_multiple') ?? null;
+        if ($savingsMultiple !== null) {
+            $savingsBalance = $savings;
+            $includeShareCapital = (bool) (config('loan_matrix.credit_limit.include_share_capital' ?? 'false'));
+            $shareCapital = $includeShareCapital ? (float) (0) : 0; // no CoopMember, so share_capital = 0
+            $savingsCap = (float) $savingsMultiple * ($savingsBalance + $shareCapital);
+
+            if ($limit > $savingsCap) {
+                $limit = $this->floorTo1000($savingsCap);
+                $cappedBy = 'savings';
+            }
+        }
+
+        return ['limit' => $limit, 'cappedBy' => $cappedBy];
+    }
 }

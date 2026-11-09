@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Support\LoanStatus;
 
 class CoopMember extends Model
 {
@@ -105,13 +106,29 @@ class CoopMember extends Model
     }
 
     /**
-     * Is this member linked to an active cooperative membership?
+     * Sum the outstanding balance of all approved loans for this member.
      *
-     * A loan may only be taken by somebody whose cooperative membership is
-     * live, so this is the single check the loan gate uses.
+     * Primary match: loans with user_id = this member's user_id.
+     * Legacy fallback: loans with user_id = null AND email matching this
+     * member's own non-blank email (case-insensitive). Staff-encoded loans
+     * for members without a portal account are stored with user_id = null,
+     * so this fallback is the only way to include them.
+     *
+     * LIMITATION: the email fallback is a legacy match — a future migration
+     * should add loan_applications.coop_member_id to make the link explicit.
      */
-    public function isActiveMember(): bool
+    public static function outstandingBalance(CoopMember $member): float
     {
-        return $this->status === self::STATUS_ACTIVE;
+        $memberEmail = $member->email ? strtolower(trim($member->email)) : null;
+
+        return (float) LoanApplication::where(function ($q) use ($member, $memberEmail) {
+            $q->where('user_id', $member->user_id);
+            if ($memberEmail) {
+                $q->orWhere(function ($q2) use ($memberEmail) {
+                    $q2->whereNull('user_id')
+                        ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
+                });
+            }
+        })->where('status', LoanStatus::APPROVED)->sum('remaining_balance');
     }
 }

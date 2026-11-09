@@ -148,6 +148,7 @@ class MembershipApprovalTest extends TestCase
 
         $response = $this->post(route('memberships.reject', $application->id), [
             '_token' => csrf_token(),
+            'rejection_reason' => 'Applicant failed DTI check: monthly obligations exceed 35% of income.',
         ]);
 
         $response->assertOk()->assertJson(['success' => true, 'status' => 'rejected']);
@@ -224,6 +225,7 @@ class MembershipApprovalTest extends TestCase
 
         $this->post(route('memberships.reject', $application->id), [
             '_token' => csrf_token(),
+            'rejection_reason' => 'Applicant failed DTI check: monthly obligations exceed 35% of income.',
         ])->assertOk()->assertJson(['success' => true, 'status' => 'rejected']);
 
         $member->refresh();

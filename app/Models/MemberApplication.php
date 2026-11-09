@@ -51,6 +51,7 @@ class MemberApplication extends Model
         'reviewed_by',
         'approved_member_id',
         'user_id',
+        'rejection_reason',
     ];
 
     /**

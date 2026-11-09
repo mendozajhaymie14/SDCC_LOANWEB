@@ -10,6 +10,7 @@ use App\Models\AppNotification;
 use App\Models\AppNotificationLog;
 use App\Mail\LoanApprovedMail;
 use App\Mail\LoanRejectedMail;
+use App\Mail\MemberRejectedMail;
 use Illuminate\Support\Facades\Mail;
 use App\Models\AuditLog;
 use Illuminate\Support\Facades\Log;
@@ -999,7 +1000,7 @@ class AdminController extends Controller
     // account is linked to it, the account's role becomes 'member', the
     // membership status is the canonical 'active', the audit trail records
     // it and the applicant is told in the app.
-    public function approveMember($id)
+    public function approveMember(Request $request, $id)
     {
         $application = MemberApplication::findOrFail($id);
 
@@ -1023,7 +1024,24 @@ class AdminController extends Controller
             }
         }
 
-        $member = DB::transaction(function () use ($application) {
+        // Credit limit validation BEFORE the transaction so validation errors
+        // return proper HTTP responses rather than 500s from inside the transaction.
+        $approvedAmount = $request->input('approved_amount');
+        $rejectionReason = $request->input('rejection_reason');
+        $recommendation = $this->creditLimitRecommendationForApplication($application);
+
+        if ($approvedAmount !== null && $approvedAmount !== '' && $approvedAmount != 0) {
+            $submittedAmount = (float) $approvedAmount;
+
+            if ($submittedAmount > $recommendation['limit'] && blank($rejectionReason)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A reason is required when approving an amount above the recommendation.',
+                ], 422);
+            }
+        }
+
+        $member = DB::transaction(function () use ($application, $request, $approvedAmount, $recommendation) {
             $userId = $application->user_id;
 
             if (! $userId) {
@@ -1143,10 +1161,7 @@ class AdminController extends Controller
 
             // Copy Date of Birth from the application to the member record only
             // when the member's DOB is empty (never overwrite staff-entered data).
-            if (empty($coopMember->date_of_birth) && !empty($application->date_of_birth)) {
-                $coopMember->date_of_birth = $application->date_of_birth;
-                $coopMember->save();
-            }
+            // (This is now handled inside the transaction)
 
             $application->status             = 'approved';
             $application->reviewed_at        = now();
@@ -1154,41 +1169,77 @@ class AdminController extends Controller
             $application->approved_member_id = $coopMember->id;
             $application->save();
 
-            // Auto-set credit limit on membership approval.
-            // Source null = no limit assigned. If computed limit is 0, do NOT store it.
-            if (Schema::hasColumn('coop_members', 'credit_limit_source')
-                && $coopMember->approved_credit_limit == null
-                && ($coopMember->credit_limit_source ?? null) !== 'manual') {
-                $result = app(CreditLimitService::class)->calculateCreditLimit($coopMember);
-                if ($result['limit'] > 0) {
-                    $coopMember->approved_credit_limit = $result['limit'];
+            // Credit limit validation handled before the transaction starts.
+            $submittedAmount = (float) $approvedAmount;
+
+            // If approved amount is blank, treat as not assessed — do not write
+            // any credit limit fields; the member is still activated.
+            if ($approvedAmount === null || $approvedAmount === '') {
+                $source = 'not_assessed';
+            } else {
+                $source = $submittedAmount === $recommendation['limit']
+                    ? 'auto'
+                    : 'manual';
+            }
+
+                if ($source === 'not_assessed') {
+                    // explicitly handled below — falls through without writing
+                } elseif ($source === 'auto') {
+                    $coopMember->approved_credit_limit = $recommendation['limit'];
                     $coopMember->credit_limit_source = 'auto';
                     $coopMember->credit_limit_computed_at = now();
                     $coopMember->save();
+                } else {
+                    $coopMember->approved_credit_limit = $submittedAmount;
+                    $coopMember->credit_limit_source = 'manual';
+                    $coopMember->credit_limit_computed_at = now();
+                    $coopMember->save();
                 }
-            }
 
-            AuditLog::log(
-                'Membership Approved',
-                'Membership application #' . $application->id . ' approved. Cooperative member '
-                . $coopMember->member_id . ' (' . $coopMember->full_name . ') is now active.',
-                $userId
-            );
+                AuditLog::log(
+                    'Membership Approved',
+                    'Membership application #' . $application->id . ' approved. Cooperative member '
+                    . $coopMember->member_id . ' (' . $coopMember->full_name . ') is now active.',
+                    $userId
+                );
 
-            if ($userId) {
-                AppNotification::create([
-                    'user_id' => $userId,
-                    'title'   => 'Membership approved',
-                    'message' => 'Your cooperative membership application has been approved. You can now apply for a loan.',
-                    'type'    => AppNotification::TYPE_MEMBERSHIP_APPROVED,
-                ]);
-            }
+                $userId = $application->user_id
+                    ?: \App\Models\User::where('email', $application->email)->value('id');
 
-            return $coopMember;
-        });
+                if ($userId) {
+                    $coopMember->is_registered = true;
+                    $coopMember->user_id = $userId;
+                    $coopMember->save();
 
-	try {
-            Mail::to($application->email)->send(new \App\Mail\MemberApprovedMail(
+                    $user = \App\Models\User::where('id', $userId)->lockForUpdate()->first();
+
+                    if ($user) {
+                        $user->coop_member_id = $coopMember->id;
+                        $user->role     = \App\Support\Permissions::ROLE_MEMBER;
+                        $user->usertype = \App\Support\Permissions::ROLE_MEMBER;
+                        $user->save();
+                    }
+
+                    \App\Models\AppNotification::create([
+                        'user_id' => $userId,
+                        'title'   => 'Membership approved',
+                        'message' => 'Your cooperative membership application has been approved. You can now apply for a loan.',
+                        'type'    => \App\Models\AppNotification::TYPE_MEMBERSHIP_APPROVED,
+                    ]);
+                }
+
+                // Copy Date of Birth from the application to the member record only
+                // when the member's DOB is empty (never overwrite staff-entered data).
+                if (empty($coopMember->date_of_birth) && !empty($application->date_of_birth)) {
+                    $coopMember->date_of_birth = $application->date_of_birth;
+                    $coopMember->save();
+                }
+
+                return $coopMember;
+            });
+
+            try {
+                Mail::to($application->email)->send(new \App\Mail\MemberApprovedMail(
                 $member->full_name,
                 $member->member_id,
                 (bool) $member->user_id
@@ -1209,12 +1260,38 @@ class AdminController extends Controller
     //
     // The account stays a registered non-member ('user'), so the applicant can
     // fix whatever was wrong and apply again.
-    public function rejectMember($id)
+    public function rejectMember(Request $request, $id)
     {
+        $rejectionReason = $request->input('rejection_reason');
+
+        // Validation: rejection reason required, min 10 / max 500 characters.
+        if (blank($rejectionReason)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A rejection reason is required (min 10 characters).',
+            ], 422);
+        }
+        if (mb_strlen($rejectionReason) < 10) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Rejection reason must be at least 10 characters.',
+            ], 422);
+        }
+        if (mb_strlen($rejectionReason) > 500) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Rejection reason must not exceed 500 characters.',
+            ], 422);
+        }
+
         $application = MemberApplication::findOrFail($id);
 
-        DB::transaction(function () use ($application) {
+        $userId = $application->user_id
+            ?: User::where('email', $application->email)->value('id');
+
+        DB::transaction(function () use ($application, $rejectionReason, $userId) {
             $application->status      = 'rejected';
+            $application->rejection_reason = $rejectionReason;
             $application->reviewed_at = now();
             $application->reviewed_by = Auth::id();
             $application->save();
@@ -1231,9 +1308,6 @@ class AdminController extends Controller
                 $member->is_registered = false;
                 $member->save();
             }
-
-            $userId = $application->user_id
-                ?: User::where('email', $application->email)->value('id');
 
             if ($userId) {
                 // Not a member yet — keep the account as a registered non-member.
@@ -1257,9 +1331,35 @@ class AdminController extends Controller
 
             AuditLog::log(
                 'Membership Rejected',
-                'Membership application #' . $application->id . ' rejected. The account stays a registered non-member.',
+                'Membership application #' . $application->id . ' rejected by ' . Auth::user()->name
+                . ' (ID: ' . Auth::id() . ') for ' . $application->email
+                . '. Reason: ' . $rejectionReason,
                 $userId
             );
+
+            // Send rejection email to applicant (first non-blank email).
+            $applicantEmail = $application->email;
+            if (filled($applicantEmail)) {
+                try {
+                    Mail::to($applicantEmail)->send(new MemberRejectedMail(
+                        $application->fullName,
+                        $rejectionReason
+                    ));
+                    AppNotificationLog::log(
+                        $applicantEmail, 'Your SDCC membership application was not approved',
+                        'member_rejected', 'Sent', 'email', $userId, null
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('Member rejection email failed', [
+                        'application_id' => $application->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    AppNotificationLog::logFailed(
+                        $applicantEmail, 'Your SDCC membership application was not approved',
+                        'member_rejected', $e->getMessage(), 'email', $userId, null
+                    );
+                }
+            }
         });
 
         return response()->json(['success' => true, 'id' => $id, 'status' => 'rejected']);
@@ -2309,6 +2409,50 @@ class AdminController extends Controller
         return view('admin.application-detail', compact('application', 'loanApp'));
     }
 
+    /**
+     * Compute the credit limit recommendation for a membership application.
+     *
+     * Uses raw income/obligations/savings from the application so the
+     * recommendation does not depend on an existing CoopMember record.
+     *
+     * @return array{limit: float, cappedBy: string|int|null}
+     */
+    private function creditLimitRecommendationForApplication(MemberApplication $application): array
+    {
+        $income = (float) ($application->monthly_income ?? 0);
+        $obligations = (float) ($application->existing_monthly_obligations ?? 0);
+        $savings = (float) ($application->savings_balance ?? 0);
+
+        return app(CreditLimitService::class)->calculateCreditLimitRaw(
+            $income,
+            $obligations,
+            $savings,
+            config('loan_matrix.credit_limit.term', 36),
+            config('loan_matrix.interest.monthly_rate', 0.01)
+        );
+    }
+
+    // 22. Recommendation for a membership application
+    //
+    // Returns the credit-limit recommendation (limit and cappedBy) for a
+    // membership application, so the membership modal can render
+    // "Recommended credit limit: ₱X (affordability)" and the inline approve
+    // panel can pre-fill the amount input with this value.
+    public function membershipCreditLimitRecommendation($id)
+    {
+        $application = MemberApplication::findOrFail($id);
+        $recommendation = $this->creditLimitRecommendationForApplication($application);
+
+        return response()->json([
+            'success' => true,
+            'application_id' => $application->id,
+            'recommendation' => $recommendation,
+            'monthly_income' => (float) ($application->monthly_income ?? 0),
+            'existing_monthly_obligations' => (float) ($application->existing_monthly_obligations ?? 0),
+            'savings_balance' => (float) ($application->savings_balance ?? 0),
+        ]);
+    }
+
     public function applicationData($id)
     {
         // Pending applications may be soft-deleted in the audit trail, so
@@ -2361,15 +2505,10 @@ class AdminController extends Controller
             }
             if ($coopMember) {
                 $approvedLimit = $coopMember->approved_credit_limit;
-                // Sum remaining_balance of all approved loans for this member (by user_id or email)
-                $outstanding = (float) LoanApplication::where(function ($q) use ($coopMember) {
-                    $q->where('user_id', $coopMember->user_id);
-                    if ($coopMember->email) {
-                        $q->orWhere(function ($q2) use ($coopMember) {
-                            $q2->where('user_id', null)->where('email', $coopMember->email);
-                        });
-                    }
-                })->where('status', 'Approved')->sum('remaining_balance');
+                // Sum remaining_balance of all approved loans for this member via
+                // the shared CoopMember::outstandingBalance() helper, which covers
+                // both user_id-linked loans and staff-encoded user_id=null loans.
+                $outstanding = CoopMember::outstandingBalance($coopMember);
             }
         }
 

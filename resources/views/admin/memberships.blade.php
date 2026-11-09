@@ -163,6 +163,14 @@
         $savingsDisplay = $savings !== '' && $savings !== null ? $savings : '—';
         ?>
         savingsBalance: @json($savingsDisplay),
+        <?php
+        $income = (float) ($app->monthly_income ?? 0);
+        $obligations = (float) ($app->existing_monthly_obligations ?? 0);
+        $savings = (float) ($app->savings_balance ?? 0);
+        $creditLimitService = app(\App\Services\CreditLimitService::class);
+        $rec = $creditLimitService->calculateCreditLimitRaw($income, $obligations, $savings, 36, 0.01);
+        ?>
+        creditLimitRecommendation: @json(['limit' => (float) ($rec['limit'] ?? 0), 'cappedBy' => $rec['cappedBy'] ?? 'affordability']),
       }{{ !$loop->last ? ',' : '' }}
     @endforeach
   };
@@ -213,6 +221,19 @@
         ${row('Savings Balance (declared)', m.savingsBalance && m.savingsBalance !== '—' ? '₱' + Number(m.savingsBalance).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—')}
         ${row('Existing Monthly Obligations', m.existingMonthlyObligations && m.existingMonthlyObligations !== '—' ? '₱' + Number(m.existingMonthlyObligations).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—')}
 
+        ${m.creditLimitRecommendation && m.creditLimitRecommendation.limit > 0 ? `
+        <div style="margin-top:.8rem;">
+          ${row('Recommended credit limit', '₱' + Number(m.creditLimitRecommendation.limit).toLocaleString('en-PH', {minimumFractionDigits:0, maximumFractionDigits:0}) + ' (' + m.creditLimitRecommendation.cappedBy + ')')}
+          <input type="number" id="approved_amount_${m.id}" min="0" step="1000" value="${m.creditLimitRecommendation.limit}" style="width:100%;padding:6px;font-size:0.86rem;" oninput="toggleApproveReason(${m.id})">
+          <textarea id="approve_reason_${m.id}" rows="2" placeholder="Reason for amount above recommendation (required if above)" style="width:100%;padding:6px;font-size:0.86rem;resize:vertical;display:none;margin-top:.5rem;"></textarea>
+        </div>
+        ` : ''}
+
+        <div style="margin-top:.8rem;">
+          <label style="font-size:0.82rem;color:var(--muted);">Rejection reason (min 10 chars)</label>
+          <textarea id="rejection_reason_${m.id}" rows="2" placeholder="Reason for rejection" style="width:100%;padding:6px;font-size:0.86rem;resize:vertical;"></textarea>
+        </div>
+
         <div style="margin-top:.8rem;">
           ${row('Status', '<span class="status-pill ' + m.status + '"><span class="status-dot"></span>' + statusLabel + '</span>')}
           ${row('Date', m.date)}
@@ -236,12 +257,19 @@
 
   // ─── APPROVE MEMBER ───
   function approveMember(id) {
+    const approvedAmountEl = document.getElementById('approved_amount_' + id);
+    const approvedAmount = approvedAmountEl ? approvedAmountEl.value : '';
+    const approveReasonEl = document.getElementById('approve_reason_' + id);
+    const approvalReason = approveReasonEl ? approveReasonEl.value : '';
+
     fetch('/memberships/' + id + '/approve', {
       method: 'POST',
       headers: {
         'X-CSRF-TOKEN': csrfToken,
         'Accept': 'application/json',
-      }
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ approved_amount: approvedAmount, approve_reason: approvalReason })
     })
       .then(res => res.ok ? res.json() : Promise.reject())
       .then(data => {
@@ -254,18 +282,32 @@
       });
   }
 
+  function toggleApproveReason(id) {
+    const amountEl = document.getElementById('approved_amount_' + id);
+    const reasonEl = document.getElementById('approve_reason_' + id);
+    if (!amountEl || !reasonEl) return;
+    const recommended = parseFloat(amountEl.defaultValue) || 0;
+    const current = parseFloat(amountEl.value) || 0;
+    reasonEl.style.display = current > recommended ? 'block' : 'none';
+  }
+
   // ─── REJECT MEMBER ───
   function rejectMember(id) {
+    const rejectionReasonEl = document.getElementById('rejection_reason_' + id);
+    const rejectionReason = rejectionReasonEl ? rejectionReasonEl.value : '';
+
     fetch('/memberships/' + id + '/reject', {
       method: 'POST',
       headers: {
         'X-CSRF-TOKEN': csrfToken,
         'Accept': 'application/json',
-      }
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ rejection_reason: rejectionReason })
     })
       .then(res => res.ok ? res.json() : Promise.reject())
       .then(data => {
-        if (typeof showToast === 'function') showToast('error', 'Membership application rejected', '<i class="fa-solid fa-xmark nav-icon"></i>');
+        if (typeof showToast === 'function') showToast('success', 'Membership application rejected', '<i class="fa-solid fa-xmark nav-icon"></i>');
         if (typeof closeAllModals === 'function') closeAllModals();
         setTimeout(() => location.reload(), 700);
       })

@@ -150,7 +150,10 @@ class RoleWritePathTest extends TestCase
 
         $this->actingAs($manager);
 
-        $response = $this->post(route('memberships.reject', $application->id));
+        $response = $this->post(route('memberships.reject', $application->id), [
+            '_token' => csrf_token(),
+            'rejection_reason' => 'Applicant failed DTI check: monthly obligations exceed 35% of income.',
+        ]);
 
         $response->assertOk();
 
