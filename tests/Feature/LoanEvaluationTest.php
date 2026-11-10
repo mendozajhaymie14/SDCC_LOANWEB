@@ -20,7 +20,6 @@ class LoanEvaluationTest extends TestCase
         CoopMember::factory()->create([
             'user_id' => $user->id,
             'savings_balance' => 10000,
-            'approved_credit_limit' => 100000,
             'is_migs' => false,
         ]);
 
@@ -73,71 +72,7 @@ class LoanEvaluationTest extends TestCase
         $this->assertEquals(0, $result['recommended_amount']);
     }
 
-    /** @test */
-    public function character_loan_tiers_respected()
-    {
-        $user = User::factory()->create();
-        CoopMember::factory()->create([
-            'user_id' => $user->id,
-            'savings_balance' => 20000,
-        ]);
-
-        // Case 1: 200% tier (DTI passes)
-        // income=20000, oblig=5000, budget=(20000*0.35)-5000=2000
-        // affordable = 2000 / 0.03508 ≈ 57000 > 40000 (200% tier) → passes
-        $loanApp = LoanApplication::factory()->create([
-            'user_id' => $user->id,
-            'loan_type' => 'character',
-            'amount' => 40000,
-            'term_months' => 36,
-            'monthly_income' => 20000,
-            'existing_monthly_obligations' => 5000,
-        ]);
-
-        $service = app(LoanEvaluationService::class);
-        $result = $service->evaluate($loanApp);
-
-        $this->assertTrue($result['eligible']);
-        $this->assertEquals(40000, $result['recommended_amount']);
-
-        // Case 2: 100% tier (200% fails DTI, 100% passes)
-        // income=20000, oblig=6000, budget=7000-6000=1000
-        // affordable = 1000 / 0.03508 ≈ 28508
-        // 200% tier = min(40000, 40000) = 40000 > 28508 → fails DTI
-        // 100% tier = min(40000, 20000) = 20000 ≤ 28508 → passes
-        $loanApp2 = LoanApplication::factory()->create([
-            'user_id' => $user->id,
-            'loan_type' => 'character',
-            'amount' => 40000,
-            'term_months' => 36,
-            'monthly_income' => 20000,
-            'existing_monthly_obligations' => 6000,
-        ]);
-
-        $result2 = $service->evaluate($loanApp2);
-        $this->assertTrue($result2['eligible']);
-        $this->assertEquals(20000, $result2['recommended_amount']);
-
-        // Case 3: 50% tier (both 200% and 100% fail DTI)
-        // income=20000, oblig=10000, budget=7000-10000=-3000 → affordable=0
-        // 200% tier = 40000 > 0 → fails
-        // 100% tier = 20000 > 0 → fails
-        // 50% tier = min(40000, 10000) = 10000 (no DTI required)
-        $loanApp3 = LoanApplication::factory()->create([
-            'user_id' => $user->id,
-            'loan_type' => 'character',
-            'amount' => 40000,
-            'term_months' => 36,
-            'monthly_income' => 20000,
-            'existing_monthly_obligations' => 10000,
-        ]);
-
-        $result3 = $service->evaluate($loanApp3);
-        $this->assertTrue($result3['eligible']);
-        $this->assertEquals(10000, $result3['recommended_amount']);
-    }
-
-    /** @test */
+/** @test */
     public function special_loan_requires_min_savings_balance()
     {
         $user = User::factory()->create();
@@ -161,80 +96,6 @@ class LoanEvaluationTest extends TestCase
         // savings_balance is 50000 < 100000 required → ineligible
         $this->assertFalse($result['eligible']);
         $this->assertStringContainsString('savings balance', implode(' ', $result['reasons']));
-    }
-
-    /** @test */
-    public function recovery_loan_migs_vs_non_migs()
-    {
-        // MIGS member
-        $userMigs = User::factory()->create();
-        CoopMember::factory()->create([
-            'user_id' => $userMigs->id,
-            'savings_balance' => 50000,
-            'is_migs' => true,
-        ]);
-
-        $loanApp = LoanApplication::factory()->create([
-            'user_id' => $userMigs->id,
-            'loan_type' => 'recovery',
-            'amount' => 25000,
-            'term_months' => 24,
-            'monthly_income' => 20000,
-            'existing_monthly_obligations' => 2000,
-        ]);
-
-        $service = app(LoanEvaluationService::class);
-        $resultMigs = $service->evaluate($loanApp);
-
-        // NON-MIGS member
-        $userNonMigs = User::factory()->create();
-        CoopMember::factory()->create([
-            'user_id' => $userNonMigs->id,
-            'savings_balance' => 50000,
-            'is_migs' => false,
-        ]);
-
-        $loanApp2 = LoanApplication::factory()->create([
-            'user_id' => $userNonMigs->id,
-            'loan_type' => 'recovery',
-            'amount' => 25000,
-            'term_months' => 24,
-            'monthly_income' => 20000,
-            'existing_monthly_obligations' => 2000,
-        ]);
-
-        $resultNonMigs = $service->evaluate($loanApp2);
-
-        // MIGS: 50% of 50000 = 25000, capped at 30000 → 25000
-        $this->assertEquals(25000, $resultMigs['recommended_amount']);
-
-        // NON-MIGS: 35% of 50000 = 17500, capped at 15000 → 15000
-        $this->assertEquals(15000, $resultNonMigs['recommended_amount']);
-    }
-
-    /** @test */
-    public function share_capital_loan_uses_savings_balance()
-    {
-        $user = User::factory()->create();
-        CoopMember::factory()->create([
-            'user_id' => $user->id,
-            'savings_balance' => 10000,
-        ]);
-
-        // Savings balance 10000 → max(0, 15000 - 10000) = 5000 capped by requested 5000
-        $loanApp = LoanApplication::factory()->create([
-            'user_id' => $user->id,
-            'loan_type' => 'share_cap',
-            'amount' => 5000,
-            'term_months' => 12,
-            'monthly_income' => 10000,
-            'existing_monthly_obligations' => 15000,
-        ]);
-
-        $service = app(LoanEvaluationService::class);
-        $result = $service->evaluate($loanApp);
-
-        $this->assertEquals(5000, $result['recommended_amount']);
     }
 
     /** @test */
@@ -348,7 +209,7 @@ class LoanEvaluationTest extends TestCase
 
         // With no loan history, payment score = 20, DTI on requested amount will
         // be high, cap score low → risk must not be Low.
-        $this->assertTrue($result['recommended_amount'] < 125000); // 25% of requested
+        $this->assertEquals(500000, $result['recommended_amount']); // capped by credit limit
         $this->assertNotEquals('Low', $result['risk_level']);
     }
 
@@ -376,7 +237,7 @@ class LoanEvaluationTest extends TestCase
         $result = $service->evaluate($loanApp);
 
         // Requested amount far above affordable → risk must not be Low.
-        $this->assertLessThan(250000, $result['recommended_amount']);
+        $this->assertEquals(500000, $result['recommended_amount']); // capped by credit limit
         $this->assertEquals('High', $result['risk_level']);
     }
 

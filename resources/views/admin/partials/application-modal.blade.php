@@ -33,6 +33,7 @@
         'reject'  => \App\Support\Permissions::has($user, \App\Support\Permissions::REJECT_LOANS),
         'scan'    => \App\Support\Permissions::has($user, \App\Support\Permissions::VERIFY_DOCUMENTS),
         'delete'  => \App\Support\Permissions::has($user, \App\Support\Permissions::ENCODE_APPLICATIONS),
+        'override' => \App\Support\Permissions::has($user, \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT),
     ];
 ?>
 /* Permission flags computed server-side so role checks cannot be bypassed
@@ -42,6 +43,7 @@ window.__modalPermissions = {
     reject:  <?php echo json_encode($perms['reject']); ?>,
     scan:    <?php echo json_encode($perms['scan']); ?>,
     delete:  <?php echo json_encode($perms['delete']); ?>,
+    override: <?php echo json_encode($perms['override']); ?>,
 };
 
 /* ── Shared modal helpers ── */
@@ -240,9 +242,14 @@ function modalActionSection(appId, recommendedAmount) {
                 '<input type="number" id="approvedAmount" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;" value="' + (Number(String(recommendedAmount).replace(/[₱,]/g, '')) || 0) + '" />' +
             '</div>' +
             '<div style="margin-bottom:.5rem;">' +
-                '<label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Reason <span style="color:#ef4444;">(required if above recommended)</span></label>' +
-                '<textarea id="approveReason" placeholder="e.g. Exceptional payment history..." style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-height:60px;"></textarea>' +
-            '</div>' +
+            (p.override ? '<div style="margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
+                '<label style="display:flex;align-items:flex-start;gap:.4rem;cursor:pointer;font-size:.82rem;color:#92400e;">' +
+                    '<input type="checkbox" id="overrideCreditLimit" style="margin-top:0.15rem;" />' +
+                    '<span><strong>Override credit limit</strong> — I authorize approving this application above the member\'s available credit. This action is audited.</span>' +
+                '</label>' +
+                '<label style="display:block;font-size:.78rem;color:#92400e;margin-top:.3rem;margin-bottom:.1rem;">Override Reason <span style="color:#ef4444;">(required when checked)</span></label>' +
+                '<textarea id="overrideReason" placeholder="e.g. Member has strong repayment history, co-signed by branch manager..." style="width:100%;padding:.35rem .5rem;border:1px solid #fde68a;border-radius:6px;font-size:.82rem;min-height:50px;"></textarea>' +
+            '</div>' : '') +
             '<div style="display:flex;gap:.5rem;">' +
                 '<button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="confirmApprove(\'' + appId + '\')">Confirm Approve</button>' +
                 '<button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;" onclick="closeApproveModal()">Cancel</button>' +
@@ -361,14 +368,15 @@ window.closeRejectModal = function () {
 /* ── Confirm Approve ── */
 window.confirmApprove = function (appId) {
     var approvedAmountStr = document.getElementById('approvedAmount').value;
-    var reason = document.getElementById('approveReason').value.trim();
+    var overrideCheckbox = document.getElementById('overrideCreditLimit');
+    var overrideReason = overrideCheckbox ? document.getElementById('overrideReason').value.trim() : '';
 
     /* Recommended amount comes from the modal that is currently open */
     var recommended = Number(window._modalRecommended) || 0;
     var approvedAmount = parseFloat(approvedAmountStr);
 
-    if (approvedAmount > recommended && !reason) {
-        showToast('error', 'A reason is required when approving above the recommended amount.', '<i class="fa-solid fa-xmark"></i>');
+    if (overrideCheckbox && overrideCheckbox.checked && !overrideReason) {
+        showToast('error', 'A reason is required when overriding the credit limit.', '<i class="fa-solid fa-xmark"></i>');
         return;
     }
 
@@ -376,6 +384,9 @@ window.confirmApprove = function (appId) {
         showToast('error', 'Please enter a valid approved amount.', '<i class="fa-solid fa-xmark"></i>');
         return;
     }
+
+    /* Use override reason when the override checkbox is checked; otherwise use empty string. */
+    var finalReason = (overrideCheckbox && overrideCheckbox.checked) ? overrideReason : '';
 
     var token = document.querySelector('meta[name="csrf-token"]')?.content || window.csrfToken;
 
@@ -389,7 +400,7 @@ window.confirmApprove = function (appId) {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ approved_amount: approvedAmount, reason: reason })
+        body: JSON.stringify({ approved_amount: approvedAmount, reason: finalReason })
     })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (err) { throw err; });

@@ -133,7 +133,7 @@
                 <td class="td-mono">
                   @php
                     $creditLimit = $member->approved_credit_limit;
-                    $creditLimitDisplay = ($creditLimit !== null && $creditLimit !== '' && (float) $creditLimit > 0)
+                    $creditLimitDisplay = ($creditLimit !== null)
                       ? '₱' . number_format((float) $creditLimit, 2)
                       : 'Not assessed';
                   @endphp

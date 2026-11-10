@@ -119,6 +119,18 @@ class UserController extends Controller
     }
 
     /**
+     * Determine whether a loan product requires an assessed credit limit.
+     * Products exempt from the limit: secured, share_cap.
+     * Character 50% tier and micro-with-no-collateral are handled in
+     * LoanEvaluationService::evaluate().
+     */
+    public static function requiresCreditLimit(string $loanType): bool
+    {
+        $exempt = ['secured', 'share_cap'];
+        return !in_array($loanType, $exempt, true);
+    }
+
+    /**
      * Resolve the numeric maximum loan amount for a matrix product.
      * Returns null when the limit is dynamic (depends on share capital).
      */
@@ -160,12 +172,6 @@ class UserController extends Controller
         }
 
         $maxAmount = self::maxAmountFor($loanType);
-        if ($matrix['max_amount'] === 'share_capital_x2') {
-            $maxAmount = 2000000;
-        }
-        if ($matrix['max_amount'] === 'share_capital_plus_savings') {
-            $maxAmount = 2000000;
-        }
         $maxAmount = min($maxAmount ?? 2000000, 2000000);
         $maxAmountRule = ['max:' . $maxAmount];
         $amountMinRule = $maxAmount < 1000 ? ['min:1'] : ['min:1000'];
@@ -252,6 +258,19 @@ class UserController extends Controller
 
         $requestedAmount = (float) $data['amount'];
         $declaredIncome  = (float) $data['monthly_income'];
+
+        // ─── AVAILABLE CREDIT CHECK ────────────────────────────────────────
+        // For limit-based products, reject requests above the member's
+        // available credit. The form's max hint is advisory only.
+        $coopMember = Auth::user()->coopMember;
+        if ($coopMember && self::requiresCreditLimit($loanType)) {
+            $availableCredit = $coopMember->availableCredit();
+            if ($availableCredit !== null && $requestedAmount > $availableCredit) {
+                return back()
+                    ->withInput()
+                    ->with('error', 'Your requested amount exceeds your available credit of ₱' . number_format($availableCredit, 2) . '. Please contact the cooperative office.');
+            }
+        }
 
         // ─── RULE-BASED EVALUATION (SYNCHRONOUS) ───
         $evaluation  = app(LoanEvaluationService::class)->evaluate($application);

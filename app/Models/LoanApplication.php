@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Services\AmortizationService;
 use Illuminate\Support\Facades\DB;
+use App\Support\LoanProductHelper;
 
 class LoanApplication extends Model
 {
@@ -183,7 +184,7 @@ class LoanApplication extends Model
      */
     public function getLoanTypeLabelAttribute(): string
     {
-        return config('loan_matrix.loan_types.' . $this->loan_type, $this->loan_type);
+        return LoanProductHelper::getLoanTypeLabel($this->loan_type);
     }
 
     /**
@@ -217,10 +218,32 @@ class LoanApplication extends Model
 
     /**
      * Outstanding balance = totalPayable - totalPaid.
+     * Includes both principal and interest portions of what remains.
      */
     public function outstandingBalance(): float
     {
         return max(0, $this->totalPayable() - $this->totalPaid());
+    }
+
+    /**
+     * Outstanding principal — the principal portion of the remaining balance.
+     *
+     * Computed as: amount * (remaining_balance / total_payable).
+     * This approximates the principal portion of what's still outstanding,
+     * using the ratio of remaining balance to total payable (principal + interest).
+     * Only counts approved loans — staff-encoded loans with user_id = null
+     * are included when the email matches the member's email (legacy fallback).
+     */
+    public function outstandingPrincipal(): float
+    {
+        $totalPayable = $this->totalPayable();
+        $remainingBalance = $this->remainingBalance();
+
+        if ($totalPayable <= 0) {
+            return 0;
+        }
+
+        return (float) ($this->amount * ($remainingBalance / $totalPayable));
     }
 
     /**

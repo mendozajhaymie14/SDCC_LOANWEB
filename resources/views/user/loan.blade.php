@@ -59,7 +59,7 @@
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 2rem; font-size: 0.875rem;">
       <div>
         <strong>Approved Limit</strong>
-        @if($coopMember && $coopMember->approved_credit_limit)
+        @if($coopMember?->hasAssessedCreditLimit())
           <span style="font-family:monospace;">₱{{ number_format($coopMember->approved_credit_limit, 2) }}</span>
         @else
           <span style="color: var(--muted); font-style: italic;">Not assessed</span>
@@ -76,7 +76,7 @@
     </div>
     <div style="margin-top: .5rem; padding-top: .5rem; border-top: 1px solid #e2e8f0; font-size: 0.875rem;">
       <strong>Available</strong>
-      @if($coopMember && $coopMember->approved_credit_limit && isset($outstanding))
+      @if($coopMember?->hasAssessedCreditLimit() && isset($outstanding))
         <span style="font-family:monospace;">₱{{ number_format($coopMember->approved_credit_limit - $outstanding, 2) }}</span>
       @else
         <span style="color: var(--muted);">N/A</span>

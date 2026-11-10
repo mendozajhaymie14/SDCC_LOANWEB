@@ -20,7 +20,7 @@ class CoopMemberFactory extends Factory
             'is_registered' => true,
             'status' => CoopMember::STATUS_ACTIVE,
             'user_id' => User::factory(),
-            'approved_credit_limit' => fake()->randomNumber(5),
+            'approved_credit_limit' => 999999,
             'savings_balance' => fake()->randomNumber(5),
             'is_migs' => false,
         ];

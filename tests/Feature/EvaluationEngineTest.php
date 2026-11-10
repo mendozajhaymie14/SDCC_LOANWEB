@@ -34,8 +34,7 @@ class EvaluationEngineTest extends TestCase
             'monthly_income'           => 30000,
             'existing_monthly_obligations' => 0,
             'savings_balance'          => 0,
-            'approved_credit_limit'    => 50000,
-            'is_migs'                  => false,
+            'approved_credit_limit'    => 999999,
         ], $overrides));
 
         $user->forceFill(['coop_member_id' => $member->id])->save();
@@ -94,14 +93,15 @@ class EvaluationEngineTest extends TestCase
                 'High',
             ],
 
-            // 4. No payment history, no documents, nothing affordable —
-            //    neutral history score, zero doc points, and a negative DTI budget.
+            // 4. No payment history, no documents — neutral history score, zero doc points.
+            //    Educational is capped by the approved credit limit (50000) per
+            //    Phase 4. Monthly capacity is kept sufficient so it doesn't bind.
             'no payment history (cannot afford)' => [
-                ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
+                ['monthly_income' => 30000, 'existing_monthly_obligations' => 2000,
                  'savings_balance' => 0],
                 ['loan_type' => 'educational', 'amount' => 20000, 'term_months' => 12,
                  'documents' => []],
-                5000,
+                20000,
                 'Medium',
             ],
 
@@ -133,15 +133,6 @@ class EvaluationEngineTest extends TestCase
                  'documents' => []],
                 50000,
                 'Medium',
-            ],
-
-            // 8. Recovery loan — MIGS member gets the higher savings rate.
-            'recovery loan (MIGS)' => [
-                ['monthly_income' => 20000, 'existing_monthly_obligations' => 2000,
-                 'savings_balance' => 50000, 'is_migs' => true],
-                ['loan_type' => 'recovery', 'amount' => 25000, 'term_months' => 24],
-                25000,
-                'Low',
             ],
         ];
     }

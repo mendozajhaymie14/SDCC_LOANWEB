@@ -112,6 +112,10 @@ class ValidationTest extends TestCase
         $service = app(LoanEvaluationService::class);
 
         $user = User::factory()->asLoanOfficer()->create();
+        CoopMember::factory()->create([
+            'user_id' => $user->id,
+            'savings_balance' => 10000,
+        ]);
         $loanApp = LoanApplication::factory()->create([
             'user_id' => $user->id,
             'amount' => 8000, // 80% of typical income exceeds 70%

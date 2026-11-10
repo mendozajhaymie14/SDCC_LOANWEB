@@ -117,6 +117,30 @@ class CoopMember extends Model
     }
 
     /**
+     * Has this member had their credit limit assessed (not null)?
+     *
+     * Returns true when approved_credit_limit is set (including 0, which
+     * means assessed but with zero capacity). Returns false when null,
+     * meaning the member has no assessed limit.
+     */
+    public function hasAssessedCreditLimit(): bool
+    {
+        return $this->approved_credit_limit !== null;
+    }
+
+    /**
+     * The member's approved credit limit, as a float.
+     *
+     * Returns null when the limit has not been assessed (null in DB).
+     * Returns 0 when assessed but with no capacity.
+     * Returns the numeric value when assessed with a positive limit.
+     */
+    public function creditLimit(): ?float
+    {
+        return $this->approved_credit_limit !== null ? (float) $this->approved_credit_limit : null;
+    }
+
+    /**
      * Sum the outstanding balance of all approved loans for this member.
      *
      * Primary match: loans with user_id = this member's user_id.
@@ -141,5 +165,110 @@ class CoopMember extends Model
                 });
             }
         })->where('status', LoanStatus::APPROVED)->sum('remaining_balance');
+    }
+
+    /**
+     * Sum the outstanding principal of all approved loans for this member.
+     *
+     * Same user_id + email matching logic as outstandingBalance().
+     * Only counts approved loans.
+     */
+    public static function outstandingPrincipal(CoopMember $member): float
+    {
+        $memberEmail = $member->email ? strtolower(trim($member->email)) : null;
+
+        $loans = LoanApplication::where(function ($q) use ($member, $memberEmail) {
+            $q->where('user_id', $member->user_id);
+            if ($memberEmail) {
+                $q->orWhere(function ($q2) use ($memberEmail) {
+                    $q2->whereNull('user_id')
+                        ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
+                });
+            }
+        })->where('status', LoanStatus::APPROVED)->get();
+
+        return (float) $loans->sum(fn ($loan) => $loan->outstandingPrincipal());
+    }
+
+    /**
+     * Available credit = approved credit limit minus outstanding principal.
+     *
+     * Floored at 0 (no negative available credit). Returns null when the
+     * credit limit has not been assessed (null in DB). Returns 0 when
+     * assessed but fully consumed.
+     */
+    public function availableCredit(): ?float
+    {
+        if (!$this->hasAssessedCreditLimit()) {
+            return null;
+        }
+
+        $limit = (float) $this->approved_credit_limit;
+        $principalOutstanding = self::outstandingPrincipal($this);
+
+        return max(0, $limit - $principalOutstanding);
+    }
+
+    /**
+     * Monthly repayment capacity per member (separate from total credit limit).
+     * monthly_capacity = monthly_income * dti_limit - declared outside obligations
+     */
+    public function monthlyCapacity(): ?float
+    {
+        if ($this->monthly_income === null) {
+            return null;
+        }
+
+        $dtiLimit = (float) config('loan_evaluation.thresholds.dti_limit', 0.35);
+        $income = (float) $this->monthly_income;
+        $obligations = (float) ($this->existing_monthly_obligations ?? 0);
+
+        return max(0, ($income * $dtiLimit) - $obligations);
+    }
+
+    /**
+     * Monthly used: sum of EMI (via AmortizationService) of this member's
+     * active approved SDCC loans. Outstanding principal is used as the EMI
+     * basis with a 36-month term at the configured monthly rate.
+     */
+    public function monthlyUsed(): float
+    {
+        $loans = LoanApplication::where(function ($q) {
+            $q->where('user_id', $this->user_id);
+            if ($this->email) {
+                $q->orWhere(function ($q2) {
+                    $q2->whereNull('user_id')
+                        ->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
+                });
+            }
+        })->where('status', LoanStatus::APPROVED)->get();
+
+        $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
+        $term = 36;
+
+        $amortization = app(\App\Services\AmortizationService::class);
+        $used = 0.0;
+
+        foreach ($loans as $loan) {
+            $remainingPrincipal = $loan->outstandingPrincipal();
+            if ($remainingPrincipal > 0) {
+                $used += $amortization->emi($remainingPrincipal, $term, $monthlyRate);
+            }
+        }
+
+        return $used;
+    }
+
+    /**
+     * Monthly available = max(0, monthly_capacity - monthly_used).
+     * Returns null when capacity cannot be computed.
+     */
+    public function monthlyAvailable(): ?float
+    {
+        if ($this->monthly_income === null) {
+            return null;
+        }
+
+        return max(0, $this->monthlyCapacity() - $this->monthlyUsed());
     }
 }

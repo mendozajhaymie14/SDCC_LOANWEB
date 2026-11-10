@@ -41,7 +41,7 @@
         </div>
 
         <div style="margin-bottom: 1rem;">
-            <strong>Approved Limit:</strong> {{ $application->user?->coopMember?->approved_credit_limit ? '₱' . number_format($application->user?->coopMember?->approved_credit_limit, 2) : 'Not assessed' }}
+            <strong>Approved Limit:</strong> {{ $application->user?->coopMember?->approved_credit_limit !== null ? '₱' . number_format($application->user?->coopMember?->approved_credit_limit, 2) : 'Not assessed' }}
         </div>
 
         <div style="margin-bottom: 1rem;">
@@ -53,7 +53,7 @@
             @php
                 $approvedLimit = $application->user?->coopMember?->approved_credit_limit;
                 $outstanding = $loanApp ? ($loanApp->remaining_balance ?? 0) : 0;
-                $available = ($approvedLimit !== null && $approvedLimit > 0) ? ($approvedLimit - $outstanding) : null;
+                $available = ($approvedLimit !== null) ? ($approvedLimit - $outstanding) : null;
             @endphp
             {{ $available !== null ? '₱' . number_format($available, 2) : 'N/A' }}
         </div>

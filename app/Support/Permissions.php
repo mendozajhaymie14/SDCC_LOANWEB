@@ -57,6 +57,7 @@ class Permissions
     public const OWN_PORTAL = 'own_portal';
     public const VIEW_OWN_LOANS = 'view_own_loans';
     public const APPROVE_MEMBERSHIPS = 'approve_memberships';
+    public const OVERRIDE_CREDIT_LIMIT = 'override_credit_limit';
 
     /** The 'Become a member' form and the member's own membership status */
     public const APPLY_MEMBERSHIP = 'apply_membership';
@@ -77,6 +78,7 @@ class Permissions
             self::VIEW_DASHBOARD => true,
             self::VIEW_MEMBER_PROFILES => true,
             self::RECORD_PAYMENTS => true,
+            self::OVERRIDE_CREDIT_LIMIT => true,
             // Admins keep member profiles view-only; edit_member_profiles is
             // intentionally NOT granted here — Credit Investigators also lack it.
         ],
@@ -97,6 +99,7 @@ class Permissions
             self::VIEW_MEMBER_PROFILES => true,
             self::EDIT_MEMBER_PROFILES => true,
             self::APPROVE_MEMBERSHIPS => true,
+            self::OVERRIDE_CREDIT_LIMIT => true,
         ],
         self::ROLE_LOAN_OFFICER => [
             self::VIEW_DASHBOARD => true,
@@ -107,6 +110,9 @@ class Permissions
             self::VIEW_EVALUATION => true,
             self::RECORD_PAYMENTS => true,
             self::APPROVE_MEMBERSHIPS => true,
+            // Loan officers can approve loans, but NOT override the credit limit
+            // (that permission is reserved for admin and branch manager).
+            self::APPROVE_LOANS => true,
         ],
         self::ROLE_CREDIT_INVESTIGATOR => [
             self::VIEW_DASHBOARD => true,

@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\Payment;
+use App\Models\Application;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -63,9 +66,11 @@ class LoanEvaluationService
                 ->where('user_id', $loanApp->user_id)
                 ->first();
         }
+        $coopMember = $member ? CoopMember::where('user_id', $loanApp->user_id)->first() : null;
         $memberSavings      = (float) ($member?->savings_balance ?? 0);
-        $approvedCreditLimit = $member?->approved_credit_limit ?? null;
+        $approvedCreditLimit = $member?->approved_credit_limit !== null ? (float) $member->approved_credit_limit : null;
         $isMigs              = (bool)  ($member?->is_migs ?? false);
+        $monthlyUsed         = $coopMember ? $coopMember->monthlyUsed() : 0.0;
 
         $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
         $dtiLimit = (float) config('loan_evaluation.thresholds.dti_limit', 0.35);
@@ -100,20 +105,84 @@ class LoanEvaluationService
             'savings_balance'         => $memberSavings,
         ];
 
+        $requiresLimit = ! in_array($loanType, ['secured', 'share_cap']);
+
+        // ── Step 2a: missing / zero credit-limit handling (limit-required products only) ────────────────────────
+        if ($requiresLimit && $approvedCreditLimit === null) {
+            $eligible = false;
+            $rejectionReason = 'Credit limit not assessed. Please contact the cooperative office.';
+            $recommendedAmount = 0;
+            $details['credit_limit'] = null;
+            $details['available_credit'] = null;
+            $details['outstanding'] = 0;
+            $details['limit_applied'] = false;
+        } elseif ($requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit == 0) {
+            $eligible = false;
+            $rejectionReason = 'Credit limit assessed at zero — no borrowing capacity.';
+            $recommendedAmount = 0;
+            $details['credit_limit'] = 0;
+            $details['available_credit'] = 0;
+            $details['outstanding'] = 0;
+            $details['limit_applied'] = false;
+        }
+
         $recommendedAmount = match ($loanType) {
-            'character'  => $this->characterAmount($amount, $memberSavings, $affordablePrincipal),
             'regular'    => $this->minAndRound($amount, $affordablePrincipal),
-            'educational'=> $this->minAndRound($amount, $affordablePrincipal),
-            'emergency'  => $this->roundDown1000(min($amount, $affordablePrincipal * 0.20)),
+            'educational'=> $approvedCreditLimit !== null && $approvedCreditLimit != 0
+                ? $this->roundDown1000(min($amount, $approvedCreditLimit))
+                : 0,
+            'emergency'  => $approvedCreditLimit !== null && $approvedCreditLimit != 0
+                ? $this->roundDown1000(min($amount, $approvedCreditLimit * 0.20))
+                : 0,
             'healthcare' => $this->roundDown1000(min($amount, $affordablePrincipal)),
             'micro'      => $this->roundDown1000(min($amount, 100000)),
             'utility'    => $this->roundDown1000(min($amount, 10000)),
-            'secured'    => $this->roundDown1000(min($amount, max($memberSavings ?: $amount))),
-            'share_cap'  => $this->roundDown1000(max(0, min(self::SAVINGS_MIN - (int) $memberSavings, $amount))),
             'special'    => $this->specialAmount($amount, $memberSavings, $existingOblig, $monthlyIncome, $monthlyRate),
-            'recovery'   => min($amount, $this->recoveryAmount($memberSavings, $isMigs)),
             default      => $this->roundDown1000(min($amount, $affordablePrincipal)),
         };
+
+        // If limit check already rejected, enforce recommended_amount = 0
+        if (!$eligible) {
+            $recommendedAmount = 0;
+        }
+
+        // ── Cap at available credit for limit-required products when assessed ─────────────────────────────
+        if ($eligible && $requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit != 0) {
+            $memberModel = CoopMember::where('user_id', $loanApp->user_id)->first();
+            $outstanding = $memberModel
+                ? CoopMember::outstandingPrincipal($memberModel)
+                : 0;
+            $availableCredit = max(0, (float) $approvedCreditLimit - $outstanding);
+            if ($availableCredit < $recommendedAmount) {
+                $recommendedAmount = $this->roundDown1000($availableCredit);
+                $reasons[] = sprintf('Request exceeds available credit of ₱%s. Capped at ₱%s.',
+                    number_format($availableCredit, 2),
+                    number_format($recommendedAmount, 2)
+                );
+            }
+            $details['credit_limit'] = (float) $approvedCreditLimit;
+            $details['outstanding'] = $outstanding;
+            $details['available_credit'] = $availableCredit;
+            $details['limit_applied'] = true;
+        }
+
+        // ── Cap at monthly available for new loans exceeding capacity ─────────────────────────────
+        // If a new loan's monthly payment exceeds the member's available capacity,
+        // cap the recommended amount. Override decisions live in the controller
+        // (AdminController::approve), not in the evaluation service.
+        if ($eligible && $requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit != 0) {
+            $coopMember = $coopMember ?? CoopMember::where('user_id', $loanApp->user_id)->first();
+            $available = $coopMember?->monthlyAvailable() ?? 0.0;
+            $emi = $amortization->emi($recommendedAmount, $termMonths, $monthlyRate);
+            if ($emi > $available && $available > 0) {
+                $capped = $this->roundDown1000($available);
+                $recommendedAmount = $capped;
+                $reasons[] = sprintf('Monthly payment exceeds available capacity of ₱%s. Capped at ₱%s.',
+                    number_format($available, 2),
+                    number_format($capped, 2)
+                );
+            }
+        }
 
         // If nothing can be afforded (for affordability-based products),
         // mark the application ineligible.
@@ -124,9 +193,11 @@ class LoanEvaluationService
             }
         }
 
-        if ($loanType === 'special' && $memberSavings < 100000) {
+        $minimumSavings = (float) config('loan_evaluation.loan_constants.special_loan_minimum', 100000);
+
+        if ($loanType === 'special' && $memberSavings < $minimumSavings) {
             $eligible = false;
-            $rejectionReason = 'Special Loan requires at least ₱100,000 savings balance.';
+            $rejectionReason = sprintf('Special Loan requires at least ₱%s savings balance.', number_format($minimumSavings, 0));
             $recommendedAmount = 0;
         }
 
@@ -151,7 +222,7 @@ class LoanEvaluationService
         // to 0 when the ratio reaches 2 x the limit.
         $emi = $amortization->emi($amount, $termMonths, $monthlyRate);
         $dtiRatio = $monthlyIncome > 0
-            ? ($existingOblig + $emi) / $monthlyIncome
+            ? ($existingOblig + $monthlyUsed + $emi) / $monthlyIncome
             : 1.0;
         $dtiWeight = (int) config('loan_evaluation.weights.dti', 40);
         if ($dtiRatio <= $dtiLimit) {
@@ -177,6 +248,15 @@ class LoanEvaluationService
         $riskLevel = $riskScore >= $riskLow
             ? 'Low'
             : ($riskScore >= $riskMedium ? 'Medium' : 'High');
+
+        // Hard overrides: limit-required product with missing/zero limit => High
+        if ($requiresLimit && $approvedCreditLimit === null) {
+            $riskLevel = 'High';
+            $reasons[] = 'Credit limit not assessed. Please contact the cooperative office; risk forced to High.';
+        } elseif ($requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit == 0) {
+            $riskLevel = 'High';
+            $reasons[] = 'Credit limit assessed at zero — no borrowing capacity; risk forced to High.';
+        }
 
         // Affordability override (after risk level is computed):
         // DTI ratio > 1.5 x limit forces High; DTI ratio > limit forces
@@ -206,7 +286,7 @@ class LoanEvaluationService
             $reasons[] = 'No supporting documents uploaded.';
         }
         if ($approvedCreditLimit !== null && $approvedCreditLimit === 0) {
-            $reasons[] = 'Credit limit not assessed — evaluation cannot proceed fully.';
+            $reasons[] = 'Credit limit assessed at zero — no borrowing capacity.';
         }
         if ($dtiRatio > $dtiLimit) {
             $reasons[] = sprintf(
@@ -246,30 +326,20 @@ class LoanEvaluationService
 
     // ── Product helpers ──────────────────────────────────────────────────
 
-    private function characterAmount(float $requested, float $savingsBalance, float $affordable): float
-    {
-        // Tier 200% of savings balance (requires DTI pass)
-        $tier200 = min($requested, $savingsBalance * 2);
-        if ($tier200 > 0 && $tier200 <= $affordable) {
-            return $this->roundDown1000($tier200);
-        }
+    private function minAndRound(float $a, float $b): float
+{
+    return $this->roundDown1000(min($a, $b));
+}
 
-        // Tier 100% of savings balance (requires DTI pass)
-        $tier100 = min($requested, $savingsBalance);
-        if ($tier100 > 0 && $tier100 <= $affordable) {
-            return $this->roundDown1000($tier100);
-        }
-
-        // Tier 50% of savings balance (no DTI requirement)
-        $tier50 = min($requested, $savingsBalance * 0.5);
-        return $this->roundDown1000($tier50);
-    }
-
+    /**
+     * Special Loan: savings_balance >= config('loan_evaluation.loan_constants.special_loan_minimum');
+     * amount = min(requested, affordable principal for a 120-month term under the same DTI rule).
+     */
     private function specialAmount(float $requested, float $savingsBalance, float $obligations, float $income, float $monthlyRate): float
     {
-        // Special Loan: savings_balance >= 100 000; amount = min(requested, affordable principal
-        // for a 120-month term under the same DTI rule).
-        if ($savingsBalance < 100000) {
+        $minimumSavings = (float) config('loan_evaluation.loan_constants.special_loan_minimum', 100000);
+
+        if ($savingsBalance < $minimumSavings) {
             return 0.0;
         }
 
@@ -277,26 +347,6 @@ class LoanEvaluationService
         $affordable120 = $this->computeAffordablePrincipal($income, $obligations, $term120, $monthlyRate);
         // Cap by income-based DTI for 120 months
         return $this->roundDown1000(min($requested, $affordable120));
-    }
-
-    private function recoveryAmount(float $savingsBalance, bool $isMigs): float
-    {
-        if ($savingsBalance <= 0) {
-            return 0.0;
-        }
-
-        if ($isMigs) {
-            // 50 % of savings balance, capped at 30 000
-            return $this->roundDown1000(min($savingsBalance * 0.5, 30000));
-        }
-
-        // 70 % of 50 % = 35 % of savings balance, capped at 15 000
-        return $this->roundDown1000(min($savingsBalance * 0.35, 15000));
-    }
-
-    private function minAndRound(float $a, float $b): float
-    {
-        return $this->roundDown1000(min($a, $b));
     }
 
     private function roundDown1000(float $value): float
@@ -328,7 +378,7 @@ class LoanEvaluationService
     /**
      * Payment history score (0–30 pts).
      * Checks Payments across all of this member's earlier loan applications.
-     * No loan history → neutral 20/30.
+     * No loan history → no_history_score (default 10).
      * Late = payment date after the due date (disbursement + n months).
      * 0 late → 30 | 5 pts deducted per late payment | minimum 0.
      */
@@ -336,7 +386,7 @@ class LoanEvaluationService
     {
         $userId = $loanApp->user_id;
         if (!$userId) {
-            return (int) config('loan_evaluation.thresholds.no_history_score', 20);
+            return (int) config('loan_evaluation.thresholds.no_history_score', 10);
         }
 
         $earlierApps = LoanApplication::where('user_id', $userId)
@@ -363,13 +413,12 @@ class LoanEvaluationService
         }
 
         if ($totalPayments === 0) {
-            return (int) config('loan_evaluation.thresholds.no_history_score', 20);
+            return (int) config('loan_evaluation.thresholds.no_history_score', 10);
         }
 
         $penalty = (int) config('loan_evaluation.thresholds.late_payment_penalty', 5);
-        $neutral = (int) config('loan_evaluation.thresholds.no_history_score', 20);
 
-        return max(0, $neutral - ($latePayments * $penalty));
+        return max(0, 30 - ($latePayments * $penalty));
     }
 
     /**

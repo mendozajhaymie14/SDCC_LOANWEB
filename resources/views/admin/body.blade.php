@@ -269,7 +269,7 @@
               @forelse($loanTypes ?? [] as $loanType)
                 <tr>
                   <td class="font-semibold text-gray-700" style="text-transform: capitalize;">
-                    {{ config('loan_matrix.loan_types.' . $loanType->loan_type, ucfirst($loanType->loan_type)) }}
+                    {{ \App\Support\LoanProductHelper::getLoanTypeLabel($loanType->loan_type) }}
                   </td>
                   <td style="text-align: center;">
                     <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">

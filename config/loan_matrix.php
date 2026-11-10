@@ -14,15 +14,11 @@ return [
     */
 
     'loan_types' => [
-        'character'  => 'Productive/Provident - Character Loan (CL)',
         'healthcare' => 'Provident - Healthcare Loan',
         'micro'      => 'Productive - Micro Palangbayan Loan',
         'regular'    => 'Regular Productive and Provident Loan',
         'educational'=> 'Provident - Educational Loan',
         'emergency'  => 'Provident - Emergency Loan',
-        'recovery'   => 'Provident - Recovery Loan (Calamity)',
-        'secured'    => 'Secured Loan',
-        'share_cap'  => 'Share Capital Loan',
         'special'    => 'Productive and Provident - Special Loan',
         'utility'    => 'Provident - Utility Bills Loan',
     ],
@@ -60,17 +56,6 @@ return [
     ],
 
     'matrix' => [
-        'character' => [
-            'max_amount' => 'share_capital_x2',
-            'terms' => [36],
-            'collateral_options' => ['None'],
-            'requirements' => [
-                'Amount is 50%, 100%, or 100% × 2 of share capital.',
-                'With approved credit limit and within the approved DTI ratio (if applicable).',
-                'No approved credit limit / No DTI ratio for the 50% option.',
-            ],
-            'rate' => 0.12,
-        ],
         'healthcare' => [
             'max_amount' => 'healthcare_plan',
             'terms' => [12],
@@ -97,11 +82,11 @@ return [
             'rate' => 0.12,
         ],
         'regular' => [
-            'max_amount' => 'share_capital_x2',
+            'max_amount' => 2000000,
             'terms' => [36],
             'collateral_options' => ['None', 'Chattel', 'Real Estate Mortgage'],
             'requirements' => [
-                'Approved credit limit + 100% of share capital.',
+                'Approved credit limit.',
                 'With approved credit limit and within the approved DTI ratio.',
                 'Collateral: Chattel and/or Real Estate Mortgage (REM).',
             ],
@@ -133,41 +118,6 @@ return [
             'required_proofs' => [
                 'primary' => ['hospitalization', 'medical certificate', 'doctor\'s note', 'calamity documentation'],
                 'secondary' => [],
-            ],
-            'rate' => 0.12,
-        ],
-        'recovery' => [
-            'max_amount' => [
-                'MIGS'   => '50%_share_cap_capped_30000',
-                'NON-MIGS' => '50%_share_cap_capped_15000',
-            ],
-            'terms' => [24],
-            'collateral_options' => ['None'],
-            'requirements' => [
-                '50% of Share Capital, not exceeding P30,000.00 for MIGS.',
-                '50% of Share Capital, not exceeding P15,000.00 for NON-MIGS.',
-                'Purpose: repair of house/vehicle, household appliances/equipment, or small-business capital.',
-                'With approved credit limit and within approved DTI ratio.',
-            ],
-            'rate' => 0.12,
-        ],
-        'secured' => [
-            'max_amount' => 'share_capital_plus_savings',
-            'terms' => [36],
-            'collateral_options' => ['100% Share Capital and Savings/Time Deposit'],
-            'requirements' => [
-                'Collateral: 100% Share Capital and Savings/Time Deposit.',
-                'No loan packaging / No approved credit limit / No DTI ratio.',
-            ],
-            'rate' => 0.12,
-        ],
-        'share_cap' => [
-            'max_amount' => 'share_capital_15000_minimum',
-            'terms' => [12],
-            'collateral_options' => ['100% Share Capital'],
-            'requirements' => [
-                'Amount to complete the minimum share capital of P15,000.00.',
-                'No loan packaging / No approved credit limit / No DTI ratio.',
             ],
             'rate' => 0.12,
         ],
@@ -230,5 +180,12 @@ return [
         'rounding' => 'down_1000',
         'savings_multiple' => null,
         'include_share_capital' => false,
+    ],
+
+    'legacy_loan_types' => [
+        'character'   => 'Productive/Provident - Character Loan (CL)',
+        'recovery'    => 'Provident - Recovery Loan (Calamity)',
+        'secured'     => 'Secured Loan',
+        'share_cap'   => 'Share Capital Loan',
     ],
 ];

@@ -55,7 +55,7 @@ class StaffEncodeModalCreateTest extends TestCase
     {
         return [
             'member_id'                     => $memberId,
-            'loan_type'                     => 'character',
+            'loan_type'                     => 'regular',
             'amount'                        => 1000,
             'term_months'                   => 36,
             'purpose'                       => 'utang',

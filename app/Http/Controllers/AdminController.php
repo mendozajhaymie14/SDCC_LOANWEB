@@ -212,6 +212,19 @@ class AdminController extends Controller
             return back()->withInput()->with('error', 'Cannot encode an application for an inactive member.');
         }
 
+        // ─── AVAILABLE CREDIT CHECK ────────────────────────────────────────
+        // For limit-based products, reject requests above the member's
+        // available credit. The form's max hint is advisory only.
+        $loanTypeForCheck = $validated['loan_type'] ?? null;
+        if ($loanTypeForCheck && UserController::requiresCreditLimit($loanTypeForCheck)) {
+            $availableCredit = $member->availableCredit();
+            if ($availableCredit !== null && (float) $validated['amount'] > $availableCredit) {
+                return back()
+                    ->withInput()
+                    ->with('error', 'Requested amount exceeds available credit of ₱' . number_format($availableCredit, 2) . '. Please contact the cooperative office.');
+            }
+        }
+
         // Consent validation: require document_consent when documents are uploaded
         if ($request->hasFile('required_documents') && ! $request->boolean('document_consent')) {
             return back()->withInput()->withErrors([
@@ -230,12 +243,6 @@ class AdminController extends Controller
 
         // Validate amount against product max
         $maxAmount = UserController::maxAmountFor($validated['loan_type']);
-        if ($loanTypeConfig['max_amount'] === 'share_capital_x2') {
-            $maxAmount = 2000000;
-        }
-        if ($loanTypeConfig['max_amount'] === 'share_capital_plus_savings') {
-            $maxAmount = 2000000;
-        }
         $maxAmount = min($maxAmount ?? 2000000, 2000000);
         $maxAmountRule = ['max:' . $maxAmount];
         $amountMinRule = $maxAmount < 1000 ? ['min:1'] : ['min:1000'];
@@ -348,15 +355,53 @@ class AdminController extends Controller
         $approvedAmount = request()->json('approved_amount') ?? request('approved_amount') ?? null;
         $reason = request()->json('reason') ?? request('reason') ?? null;
 
-        // If approved amount exceeds recommended, require a reason
-        if ($approvedAmount && $approvedAmount > ($application->recommended_amount ?? 0) && !$reason) {
-            if (request()->expectsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'A reason is required when approving above the recommended amount.',
-                ], 400);
+        // ─── AUDIT LOG: above-recommendation approval ─────────────────────
+        // The "reason if above recommended" field was removed from the
+        // approval modal; instead, every approval above the recommended
+        // amount is automatically audited (recommended, approved, who).
+        if ($approvedAmount && $approvedAmount > ($application->recommended_amount ?? 0)) {
+            AuditLog::log('Above Recommended Approval', sprintf(
+                'Application %s: approved ₱%.2f above recommended ₱%.2f by %s%s',
+                $application->app_id,
+                (float) $approvedAmount,
+                (float) ($application->recommended_amount ?? 0),
+                Auth::user()?->name ?? 'Unknown',
+                $reason ? '. Reason: ' . $reason : ''
+            ));
+        }
+
+        // ─── AVAILABLE CREDIT CHECK (with override gate) ─────────────────
+        // Effective amount = approved ?? recommended ?? requested — the same
+        // value that gets stored. Block above available credit unless the
+        // override permission + reason are provided.
+        $effectiveAmount = $approvedAmount ?? $application->recommended_amount ?? 0.0;
+
+        $loanApp = $application->loanApplication;
+        $member = $loanApp ? ($loanApp->user?->coopMember ?? null) : null;
+
+        if ($member && UserController::requiresCreditLimit($application->loan_type)) {
+            $availableCredit = $member->availableCredit();
+            if ($availableCredit !== null && $effectiveAmount > $availableCredit) {
+                $canOverride = \App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT) && $reason;
+
+                if (!$canOverride) {
+                    if (request()->expectsJson()) {
+                        return response()->json([
+                            'success'  => false,
+                            'message'  => 'Approved amount exceeds available credit of ₱' . number_format($availableCredit, 2) . '. A reason is required with the override-credit-limit permission.',
+                        ], 400);
+                    }
+                    return back()->with('error', 'Approved amount exceeds available credit of ₱' . number_format($availableCredit, 2) . '. Contact the cooperative office.');
+                }
+
+                AuditLog::log('Credit Limit Override', sprintf(
+                    'Application %s: approved %.2f above available credit %.2f. Override permitted. Reason: %s',
+                    $application->app_id,
+                    $effectiveAmount,
+                    $availableCredit,
+                    $reason
+                ));
             }
-            return back()->with('error', 'A reason is required when approving above the recommended amount.');
         }
 
         $disbursementDate = now();
@@ -1465,7 +1510,49 @@ class AdminController extends Controller
         $member->existing_monthly_obligations = $validated['existing_monthly_obligations'] ?? $member->existing_monthly_obligations;
         $member->savings_balance = $validated['savings_balance'] ?? $member->savings_balance;
         $member->approved_credit_limit = $validated['approved_credit_limit'] ?? $member->approved_credit_limit;
+
+        // Server-side source decision: never trust hidden browser field.
+        // Determine whether the credit-limit field was submitted at all.
+        // Omitted field ⇒ staff left it unchanged; only recompute if source is
+        // 'auto' and financials changed. If submitted, decide auto vs manual
+        // by matching the computed suggestion.
+        $hasCreditLimit = $request->has('approved_credit_limit');
+        $submittedLimit = $hasCreditLimit ? ($request->input('approved_credit_limit') ?? null) : null;
+
+        $storedLimit = $member->getOriginal('approved_credit_limit');
+
+        // Staff explicitly changed the limit value → decide auto vs manual
+        // by matching the computed suggestion.
+        if ($hasCreditLimit && $submittedLimit != $storedLimit) {
+            $result = app(CreditLimitService::class)->calculateCreditLimit($member);
+            $member->credit_limit_source = ($submittedLimit == $result['limit']) ? 'auto' : 'manual';
+        }
+        // Value unchanged OR field omitted, and source is 'auto' with changed
+        // financials → recompute the credit limit.
+        elseif (($submittedLimit == $storedLimit || ! $hasCreditLimit)
+            && ($member->credit_limit_source ?? null) === 'auto'
+            && app(CreditLimitService::class)->needsRecompute($member, (float) ($member->monthly_income ?? 0), (float) ($member->existing_monthly_obligations ?? 0), (float) ($member->savings_balance ?? 0))) {
+            $result = app(CreditLimitService::class)->calculateCreditLimit($member);
+            if ($result['limit'] > 0) {
+                $member->approved_credit_limit = $result['limit'];
+                $member->credit_limit_computed_at = now();
+            }
+            // Never auto-store a computed 0 — leave DB empty
+        }
+
         $member->save();
+
+        // Also update the linked user's email if it exists
+        if ($member->user_id) {
+            $user = User::find($member->user_id);
+            if ($user) {
+                $user->email = $validated['email'] ?? $user->email;
+                $user->name = $validated['full_name'] ?? $user->name;
+                $user->save();
+            }
+        }
+
+        return redirect()->route('admin.members.show', $member->id)->with('success', 'Member profile updated successfully.');
 
         // Also update the linked user's email if it exists
         if ($member->user_id) {
