@@ -251,6 +251,10 @@
                 <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Approved Credit Limit</label>
                 <input type="number" id="memberApproveAmount_${m.id}" min="0" step="1000" max="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" value="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;box-sizing:border-box;" />
               </div>
+              <div style="margin-bottom:.5rem;">
+                <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Monthly Credit Limit (Suggested: ₱${m.monthlyCreditLimitRecommendation.toLocaleString('en-PH', {maximumFractionDigits:0})})</label>
+                <input type="number" id="memberApproveMonthlyLimit_${m.id}" min="0" step="1" value="${m.monthlyCreditLimitRecommendation}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;box-sizing:border-box;" />
+              </div>
               <div style="display:flex;gap:.5rem;">
                 <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;box-sizing:border-box;" onclick="confirmApproveMember(${m.id})">Confirm Approve</button>
                 <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;box-sizing:border-box;" onclick="closeApproveMemberPanel(${m.id})">Cancel</button>
@@ -308,8 +312,10 @@
   // ─── CONFIRM APPROVE MEMBER ───
   function confirmApproveMember(id) {
     var approvedAmountEl = document.getElementById('memberApproveAmount_' + id);
+    var monthlyLimitEl = document.getElementById('memberApproveMonthlyLimit_' + id);
 
     var approvedAmount = approvedAmountEl ? approvedAmountEl.value : '';
+    var monthlyLimit = monthlyLimitEl ? monthlyLimitEl.value : '';
 
     // Get recommended amount from the data
     var m = membersData[id];
@@ -338,7 +344,7 @@
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ approved_amount: approvedAmount })
+      body: JSON.stringify({ approved_amount: approvedAmount, monthly_credit_limit: monthlyLimit })
     })
       .then(function (res) {
         if (!res.ok) return res.json().then(function (err) { throw err; });

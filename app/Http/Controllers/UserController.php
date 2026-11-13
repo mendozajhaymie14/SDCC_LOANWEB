@@ -229,6 +229,28 @@ class UserController extends Controller
 
         unset($data['agree']);
 
+        // ── Monthly credit limit gate ─────────────────────────────────────────
+        // Before storing the loan application, check the member's monthly available
+        // capacity. If the requested amount would exceed affordable principal, cap it
+        // or reject. This guard runs after the basic validation above.
+        $coopMember = Auth::user()->coopMember;
+        if ($coopMember) {
+            $monthlyAvailable = $coopMember->monthlyAvailable(); // null if income null
+            if ($monthlyAvailable !== null) {
+                $loanAmount = (float) $data['amount'];
+                $termMonths = (int) $data['term_months'];
+                $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
+                $emi = app(\App\Services\AmortizationService::class)->emi($loanAmount, $termMonths, $monthlyRate);
+                if ($emi > $monthlyAvailable) {
+                    // Cap the recommended amount to what the member can afford monthly
+                    $cappedPrincipal = app(\App\Services\CreditLimitService::class)->principalForMonthlyPayment($monthlyAvailable, $termMonths, $monthlyRate);
+                    return back()
+                        ->withInput()
+                        ->withErrors(['amount' => sprintf('Requested amount exceeds your monthly available credit of ₱%s. Capped at ₱%s.', number_format($monthlyAvailable, 2), number_format($cappedPrincipal, 2))]);
+                }
+            }
+        }
+
         // Store uploaded supporting documents
         $documentPaths = [];
         if ($request->hasFile('required_documents')) {

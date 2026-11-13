@@ -93,7 +93,7 @@ class CreditLimitService
     public function calculateMonthlyCapacity(float $income, float $obligations): float
     {
         $dtiLimit = config('loan_evaluation.thresholds.dti_limit', self::DEFAULT_DTI_LIMIT);
-        return max(0.0, ($income * $dtiLimit) - $obligations);
+        return round(max(0.0, ($income * $dtiLimit) - $obligations), self::PRINCIPAL_PRECISION);
     }
 
     /**

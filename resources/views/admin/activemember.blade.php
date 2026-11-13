@@ -116,6 +116,7 @@
       data-existing-monthly-obligations="{{ $member->existing_monthly_obligations ?? '' }}"
       data-savings-balance="{{ $member->savings_balance ?? '' }}"
       data-approved-credit-limit="{{ $member->approved_credit_limit ?? '' }}"
+      data-approved-monthly-credit-limit="{{ $member->approved_monthly_credit_limit !== null ? $member->approved_monthly_credit_limit : '' }}"
       data-suggestion="{{ $suggestions[$member->id] ?? '' }}"
       data-use-suggested="{{ $useSuggested[$member->id] ?? '' }}"
       data-status="{{ $member->status ?? '' }}">
@@ -190,6 +191,7 @@
     set('#addAMemberExistingMonthlyObligations', row.dataset.existingMonthlyObligations);
     set('#addAMemberSavingsBalance', row.dataset.savingsBalance);
     set('#addAMemberApprovedCreditLimit', row.dataset.approvedCreditLimit);
+    set('#addAMemberMonthlyCreditLimit', row.dataset.approvedMonthlyCreditLimit || '');
     set('#addAMemberExcludeId', id);
 
     // Switch form to PUT (edit) mode

@@ -741,15 +741,18 @@ class AdminController extends Controller
         // can show "Suggested: ₱X (rule)" without a per-row AJAX round-trip.
         $suggestions = [];
         $useSuggested = [];
+        $monthlySuggestions = [];
         foreach ($members as $m) {
             $result = app(CreditLimitService::class)->calculateCreditLimit($m);
             $suggestions[$m->id] = app(CreditLimitService::class)->formatSuggestion($result['limit'], $result['cappedBy']);
             if ($result['limit'] > 0) {
                 $useSuggested[$m->id] = $result['limit'];
             }
+            // Suggested monthly credit limit
+            $monthlySuggestions[$m->id] = $m->suggestedMonthlyLimit() ?? null;
         }
 
-        return view('admin.activemember', compact('members', 'suggestions', 'useSuggested'));
+        return view('admin.activemember', compact('members', 'suggestions', 'useSuggested', 'monthlySuggestions'));
     }
 
     // 11. Store New Member manually
@@ -773,6 +776,7 @@ class AdminController extends Controller
             'existing_monthly_obligations' => 'nullable|numeric|min:0',
             'savings_balance' => 'nullable|numeric|min:0',
             'approved_credit_limit' => 'nullable|numeric|min:0',
+            'monthly_credit_limit' => 'nullable|numeric|min:0',
             'is_registered' => 'boolean',
             'status'        => 'required|string|in:' . implode(',', CoopMember::STATUSES),
         ], [
@@ -814,6 +818,8 @@ class AdminController extends Controller
             'existing_monthly_obligations' => $validated['existing_monthly_obligations'] ?? null,
             'savings_balance' => $validated['savings_balance'] ?? null,
             'approved_credit_limit' => $validated['approved_credit_limit'] ?? null,
+            'approved_monthly_credit_limit' => $validated['monthly_credit_limit'] ?? null,
+            'monthly_credit_limit_source' => ($validated['monthly_credit_limit'] ?? null) !== null ? 'manual' : null,
             'is_registered'  => $request->boolean('is_registered'),
             'status'         => $validated['status'] ?? CoopMember::STATUS_ACTIVE,
         ]);
@@ -867,6 +873,7 @@ class AdminController extends Controller
             'existing_monthly_obligations' => 'nullable|numeric|min:0',
             'savings_balance' => 'nullable|numeric|min:0',
             'approved_credit_limit' => 'nullable|numeric|min:0',
+            'monthly_credit_limit' => 'nullable|numeric|min:0',
             'status'        => 'required|string|in:' . implode(',', CoopMember::STATUSES),
         ]);
 
@@ -944,25 +951,33 @@ class AdminController extends Controller
             $member->approved_credit_limit = $submittedLimit;
         }
 
-        // Monthly credit limit source decision
-        if (Schema::hasColumn('coop_members', 'monthly_credit_limit_source')
-            && $submittedLimit != $storedLimit) {
-            // When overall credit limit changed, recompute monthly from current financials
-            $monthlyIncome = (float) ($member->monthly_income ?? 0);
-            $obligations = (float) ($member->existing_monthly_obligations ?? 0);
-            $computedMonthly = max(0, $monthlyIncome * 0.35 - $obligations);
-            $result = app(CreditLimitService::class)->calculateCreditLimit($member);
-            $member->monthly_credit_limit_source = ($computedMonthly == $submittedLimit) ? 'auto' : 'manual';
-            $member->approved_monthly_credit_limit = $computedMonthly;
-        } elseif (Schema::hasColumn('coop_members', 'monthly_credit_limit_source')
-            && $submittedLimit == $storedLimit
-            && ($member->credit_limit_source ?? null) === 'auto') {
-            // When financials changed but limit unchanged, recompute monthly
-            $result = app(CreditLimitService::class)->needsRecompute($member, (float) ($member->monthly_income ?? 0), (float) ($member->existing_monthly_obligations ?? 0), (float) ($member->savings_balance ?? 0));
-            if ($result['needs_recompute'] ?? false) {
-                $monthlyIncome = (float) ($member->monthly_income ?? 0);
-                $obligations = (float) ($member->existing_monthly_obligations ?? 0);
-                $member->approved_monthly_credit_limit = max(0, $monthlyIncome * 0.35 - $obligations);
+        // ── Monthly credit limit source decision ────────────────────────────
+        // Server-side source decision: never trust hidden browser field.
+        if (Schema::hasColumn('coop_members', 'monthly_credit_limit_source')) {
+            $hasMonthlyLimit = $request->has('monthly_credit_limit');
+            $submittedMonthly = $hasMonthlyLimit ? ($validated['monthly_credit_limit'] ?? null) : null;
+            $storedMonthly = $member->getOriginal('approved_monthly_credit_limit');
+
+            $suggested = $member->suggestedMonthlyLimit(); // null if income null
+
+            // Explicit monthly limit change submitted → decide auto vs manual
+            // by 2-decimal tolerance comparison with the current suggestion.
+            if ($hasMonthlyLimit && $submittedMonthly !== null) {
+                if ($suggested !== null && abs((float) $submittedMonthly - $suggested) < 0.01) {
+                    $member->approved_monthly_credit_limit = $suggested;
+                    $member->monthly_credit_limit_source = 'auto';
+                } else {
+                    $member->approved_monthly_credit_limit = (float) $submittedMonthly;
+                    $member->monthly_credit_limit_source = 'manual';
+                }
+            }
+            // Omitted or unchanged monthly limit, source is 'auto' and financials
+            // changed → auto recompute (null income → null; 0 when obligations ≥ capacity).
+            elseif (($submittedMonthly == $storedMonthly || ! $hasMonthlyLimit)
+                && ($member->monthly_credit_limit_source ?? null) === 'auto'
+                && $suggested !== null
+                && app(CreditLimitService::class)->needsRecompute($member, (float) ($member->monthly_income ?? 0), (float) ($member->existing_monthly_obligations ?? 0), (float) ($member->savings_balance ?? 0))) {
+                $member->approved_monthly_credit_limit = $suggested;
             }
         }
 
@@ -1291,6 +1306,27 @@ class AdminController extends Controller
             // Credit limit validation handled before the transaction starts.
             $submittedAmount = (float) $approvedAmount;
 
+            // ── Monthly credit limit ───────────────────────────────────────────
+            // Rule: blank → auto suggestion; submitted == suggestion → auto;
+            // submitted != suggestion → manual. Null income → null monthly limit.
+            // Income + obligations ≥ capacity → 0 (suggestion handles this).
+            $suggestedMonthly = $coopMember->suggestedMonthlyLimit(); // null if income null
+            $monthlyInput = $request->input('monthly_credit_limit');
+
+            if ($monthlyInput === null || $monthlyInput === '') {
+                // Blank → auto suggestion
+                $monthlyLimitValue = $suggestedMonthly;
+                $monthlySource = 'auto';
+            } elseif ($suggestedMonthly !== null && abs((float) $monthlyInput - $suggestedMonthly) < 0.01) {
+                // Matches suggestion → auto
+                $monthlyLimitValue = $suggestedMonthly;
+                $monthlySource = 'auto';
+            } else {
+                // Manual override (includes the case where income is null)
+                $monthlyLimitValue = (float) $monthlyInput;
+                $monthlySource = 'manual';
+            }
+
             // If approved amount is blank, treat as not assessed — do not write
             // any credit limit fields; the member is still activated.
             if ($approvedAmount === null || $approvedAmount === '') {
@@ -1306,20 +1342,30 @@ class AdminController extends Controller
                 } elseif ($source === 'auto') {
                     $coopMember->approved_credit_limit = $recommendation['limit'];
                     $coopMember->credit_limit_source = 'auto';
-                    $coopMember->approved_monthly_credit_limit = $coopMember->monthlyCapacity();
-                    $coopMember->monthly_credit_limit_source = 'auto';
+                    $coopMember->approved_monthly_credit_limit = $monthlyLimitValue;
+                    $coopMember->monthly_credit_limit_source = $monthlySource;
                     $coopMember->credit_limit_computed_at = now();
                     $coopMember->save();
                 } else {
                     $coopMember->approved_credit_limit = $submittedAmount;
                     $coopMember->credit_limit_source = 'manual';
-                    // For manual source, compute and store monthly limit from actual income/obligations
-                    $monthlyIncome = $coopMember->monthly_income ?? 0;
-                    $obligations = $coopMember->existing_monthly_obligations ?? 0;
-                    $coopMember->approved_monthly_credit_limit = max(0, $monthlyIncome * 0.35 - $obligations);
-                    $coopMember->monthly_credit_limit_source = 'manual';
+                    $coopMember->approved_monthly_credit_limit = $monthlyLimitValue;
+                    $coopMember->monthly_credit_limit_source = $monthlySource;
                     $coopMember->credit_limit_computed_at = now();
                     $coopMember->save();
+                }
+
+                // Audit entry for manual monthly limit set/change
+                if ($monthlySource === 'manual' && $monthlyLimitValue !== null) {
+                    AuditLog::log(
+                        'Monthly Credit Limit Set',
+                        'Member ' . $coopMember->member_id . ' (' . $coopMember->full_name . '): monthly credit limit set to ₱' . number_format($monthlyLimitValue, 2) . ' (manual).',
+                        $userId ?? null,
+                        null,
+                        ['approved_monthly_credit_limit' => $monthlyLimitValue, 'monthly_credit_limit_source' => 'manual'],
+                        CoopMember::class,
+                        $coopMember->id
+                    );
                 }
 
                 AuditLog::log(
@@ -1590,11 +1636,9 @@ class AdminController extends Controller
         $member->savings_balance = $validated['savings_balance'] ?? $member->savings_balance;
         $member->approved_credit_limit = $validated['approved_credit_limit'] ?? $member->approved_credit_limit;
 
+        // ── Credit limit source decision ──────────────────────────────────────
         // Server-side source decision: never trust hidden browser field.
         // Determine whether the credit-limit field was submitted at all.
-        // Omitted field ⇒ staff left it unchanged; only recompute if source is
-        // 'auto' and financials changed. If submitted, decide auto vs manual
-        // by matching the computed suggestion.
         $hasCreditLimit = $request->has('approved_credit_limit');
         $submittedLimit = $hasCreditLimit ? ($request->input('approved_credit_limit') ?? null) : null;
 
@@ -1617,6 +1661,38 @@ class AdminController extends Controller
                 $member->credit_limit_computed_at = now();
             }
             // Never auto-store a computed 0 — leave DB empty
+        }
+
+        // ── Monthly credit limit ──────────────────────────────────────────────
+        // Server-side source decision: never trust hidden browser field.
+        // Determine whether the monthly_credit_limit field was submitted at all.
+        $hasMonthlyLimit = $request->has('monthly_credit_limit');
+        $submittedMonthly = $hasMonthlyLimit ? ($request->input('monthly_credit_limit') ?? null) : null;
+
+        $storedMonthly = $member->getOriginal('approved_monthly_credit_limit');
+        $suggested = $member->suggestedMonthlyLimit(); // null if income null
+
+        // Staff explicitly changed the monthly limit → decide auto vs manual
+        // by matching the computed suggestion with 2-decimal tolerance.
+        if ($hasMonthlyLimit && $submittedMonthly !== null) {
+            if (abs((float) $submittedMonthly - ($suggested ?? 0)) < 0.01) {
+                $member->approved_monthly_credit_limit = $suggested;
+                $member->monthly_credit_limit_source = 'auto';
+            } elseif ($submittedMonthly !== $storedMonthly) {
+                $member->approved_monthly_credit_limit = (float) $submittedMonthly;
+                $member->monthly_credit_limit_source = 'manual';
+            } else {
+                // Value unchanged, keep existing source
+            }
+        }
+        // Value unchanged OR field omitted, and source is 'auto' with changed
+        // financials → recompute the monthly limit.
+        elseif (($submittedMonthly == $storedMonthly || ! $hasMonthlyLimit)
+            && ($member->monthly_credit_limit_source ?? null) === 'auto'
+            && $suggested !== null
+            && app(CreditLimitService::class)->needsRecompute($member, (float) ($member->monthly_income ?? 0), (float) ($member->existing_monthly_obligations ?? 0), (float) ($member->savings_balance ?? 0))) {
+            $member->approved_monthly_credit_limit = $suggested;
+            $member->monthly_credit_limit_source = 'auto';
         }
 
         $member->save();

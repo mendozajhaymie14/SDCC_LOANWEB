@@ -216,8 +216,7 @@ class CoopMember extends Model
     /**
      * Monthly repayment capacity per member (separate from total credit limit).
      * Returns the STORED approved_monthly_credit_limit when set (auto or manual),
-     * otherwise falls back to computed monthly_income * dti_limit - obligations.
-     * Returns null when monthly_income is null AND no stored value exists.
+     * otherwise falls back to suggestedMonthlyLimit().
      */
     public function monthlyCapacity(): ?float
     {
@@ -225,37 +224,55 @@ class CoopMember extends Model
             return (float) $this->approved_monthly_credit_limit;
         }
 
+        return $this->suggestedMonthlyLimit();
+    }
+
+    /**
+     * The system-suggested monthly credit limit: max(0, income * dti_limit - obligations).
+     * Never reads the stored value — always recomputed from current financials.
+     * Returns null when monthly_income is null, never 0 for a null income.
+     */
+    public function suggestedMonthlyLimit(): ?float
+    {
         if ($this->monthly_income === null) {
             return null;
         }
 
-        $dtiLimit = (float) config('loan_evaluation.thresholds.dti_limit', 0.35);
         $income = (float) $this->monthly_income;
         $obligations = (float) ($this->existing_monthly_obligations ?? 0);
 
-        return max(0, ($income * $dtiLimit) - $obligations);
+        return app(\App\Services\CreditLimitService::class)
+            ->calculateMonthlyCapacity($income, $obligations);
     }
 
     /**
-     * Monthly used: sum of monthly payments (via the loan accessor) of this
-     * member's active approved SDCC loans. Uses each loan's real stored
-     * monthly payment (original amount × term), not a recomputed emi().
+     * Monthly used: sum of the ORIGINAL monthly payment (loan accessor; never
+     * re-amortized) of this member's approved, not-yet-paid loans.
+     *
+     * Scoping: portal members use user_id (with an email fallback for legacy
+     * staff-encoded loans where user_id is null). Portal-less members
+     * (user_id is null) are scoped by email ONLY, so two portal-less members
+     * can never count each other's loans.
      */
     public function monthlyUsed(): float
     {
-        $loans = LoanApplication::where(function ($q) {
-            $q->where('user_id', $this->user_id);
+        $query = LoanApplication::where('status', LoanStatus::APPROVED);
+
+        if ($this->user_id) {
+            $query->where('user_id', $this->user_id);
             if ($this->email) {
-                $q->orWhere(function ($q2) {
-                    $q2->whereNull('user_id')
-                        ->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
-                });
+                $query->orWhereNull('user_id')->whereRaw(
+                    'LOWER(TRIM(email)) = ?',
+                    [strtolower(trim($this->email))]
+                );
             }
-        })->where('status', LoanStatus::APPROVED)->get();
+        } elseif ($this->email) {
+            $query->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
+        }
 
         $used = 0.0;
 
-        foreach ($loans as $loan) {
+        foreach ($query->get() as $loan) {
             if (in_array($loan->status, [LoanStatus::PAID, LoanStatus::REJECTED], true)) {
                 continue;
             }
@@ -270,15 +287,16 @@ class CoopMember extends Model
 
     /**
      * Monthly available = max(0, monthly_capacity - monthly_used).
-     * Returns null when capacity cannot be computed.
+     * Returns null when capacity is null; never returns a negative number.
      */
     public function monthlyAvailable(): ?float
     {
-        if ($this->monthly_income === null && $this->approved_monthly_credit_limit === null) {
+        $capacity = $this->monthlyCapacity();
+        if ($capacity === null) {
             return null;
         }
 
-        return max(0, $this->monthlyCapacity() - $this->monthlyUsed());
+        return max(0, $capacity - $this->monthlyUsed());
     }
 
     /**
