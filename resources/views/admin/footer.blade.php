@@ -283,6 +283,7 @@
             <label class="form-label">Existing Monthly Obligations (₱)</label>
             <input type="number" name="existing_monthly_obligations" id="encodeExistingObligations" class="form-input" step="0.01" min="0" placeholder="e.g. 5000" data-validate="money" required />
             @error('existing_monthly_obligations')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+            <div style="color:var(--muted);font-size:0.7rem;margin-top:4px;">Existing monthly obligations must exclude loans already with SDCC — SDCC loan payments are counted automatically.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Source of Income</label>
@@ -395,6 +396,7 @@
         <div class="form-group">
           <label class="form-label">Existing Monthly Obligations (₱)</label>
           <input type="number" name="existing_monthly_obligations" id="addAMemberExistingMonthlyObligations" class="form-input" step="0.01" min="0" placeholder="e.g. 2000" data-validate="money"/>
+          <div style="color:var(--muted);font-size:0.7rem;margin-top:4px;">Existing monthly obligations must exclude loans already with SDCC — SDCC loan payments are counted automatically.</div>
         </div>
       </div>
 
@@ -598,6 +600,7 @@
         name: @json($a->applicant),
         type: @json($a->loan_type),
         amount: @json('₱' . number_format($a->amount, 2)),
+        remaining_balance: @json('₱' . number_format($a->remaining_balance, 2)),
         score: {{ $aiScore ?? 'null' }},
         status: @json(strtolower($a->status)),
         date: @json(optional($a->created_at)->format('M d, Y')),
@@ -799,9 +802,9 @@
 
       // Compute Member Financial Profile data
       const memberApps = Object.values(apps).filter(a => a.name === m.name);
-      const activeLoans = memberApps.filter(a => a.status !== 'rejected');
+      const activeLoans = memberApps.filter(a => a.status === 'approved');
       const totalLoans = activeLoans.length;
-      const totalBalance = activeLoans.reduce((sum, a) => sum + (parseFloat(a.amount?.replace(/[₱,]/g, '')) || 0), 0);
+      const totalBalance = activeLoans.reduce((sum, a) => sum + (parseFloat(a.remaining_balance?.replace(/[₱,]/g, '')) || 0), 0);
 
       bodyEl.innerHTML = `
         ${row('Member ID', m.member_id)}

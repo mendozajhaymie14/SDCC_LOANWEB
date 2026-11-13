@@ -112,6 +112,7 @@ class UserFactory extends Factory
                     'user_id'        => $user->id,
                     'is_registered'  => true,
                     'status'         => CoopMember::STATUS_ACTIVE,
+                    'monthly_income' => 20000,
                 ]);
 
                 $user->forceFill(['coop_member_id' => $member->id])->save();

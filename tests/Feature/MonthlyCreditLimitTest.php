@@ -252,4 +252,206 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertGreaterThan(0, $usedA);
         $this->assertEquals(0.0, $usedB);
     }
+
+    /** @test */
+    public function monthly_used_excludes_pending_and_rejected_staff_encoded_loans()
+    {
+        // Member with email match but user_id = null (portal-less)
+        $member = $this->makePortalLessMember([
+            'email' => 'member@example.com',
+            'monthly_income' => 50000,
+            'existing_monthly_obligations' => 0,
+        ]);
+
+        // Approved staff-encoded loan (user_id = null, email match) → COUNTED
+        $loanApproved = LoanApplication::factory()->create([
+            'user_id' => null,
+            'email'   => 'member@example.com',
+            'status'  => 'approved',
+            'amount'  => 50000,
+            'term_months' => 12,
+        ]);
+
+        // Pending staff-encoded loan (user_id = null, email match) → NOT counted
+        $loanPending = LoanApplication::factory()->create([
+            'user_id' => null,
+            'email'   => 'member@example.com',
+            'status'  => 'pending',
+            'amount'  => 30000,
+            'term_months' => 12,
+        ]);
+
+        // Rejected staff-encoded loan (user_id = null, email match) → NOT counted
+        $loanRejected = LoanApplication::factory()->create([
+            'user_id' => null,
+            'email'   => 'member@example.com',
+            'status'  => 'rejected',
+            'amount'  => 20000,
+            'term_months' => 12,
+        ]);
+
+        $used = $member->monthlyUsed();
+        // Only the approved loan's monthly_payment should be counted
+        $this->assertEquals((float) $loanApproved->monthly_payment, $used);
+    }
+
+    /** @test */
+    public function max_requestable_principal_shared_helper_consistent_across_gates()
+    {
+        // Create a member with known capacity
+        $member = $this->makeMember([
+            'monthly_income' => 50000,
+            'existing_monthly_obligations' => 0,
+            'approved_monthly_credit_limit' => 10000,
+            'monthly_credit_limit_source' => 'manual',
+        ]);
+
+        // Test the shared helper directly
+        $available = $member->monthlyAvailable(); // 10000 - 0 = 10000
+        $termMonths = 12;
+
+        $max1 = $member->maxRequestablePrincipal($termMonths);
+        $max2 = app(\App\Services\CreditLimitService::class)->maxRequestablePrincipal($available, $termMonths);
+
+        // Both paths should give the same result
+        $this->assertEquals($max1, $max2);
+        $this->assertGreaterThan(0, $max1);
+
+        // Test with term 24
+        $max24 = $member->maxRequestablePrincipal(24);
+        $this->assertNotEquals($max1, $max24); // Different term = different principal
+    }
+
+    /** @test */
+    public function null_income_blocks_submission_with_contact_office_message()
+    {
+        // Member with no monthly_income
+        $member = $this->makeMember([
+            'monthly_income' => null,
+            'existing_monthly_obligations' => 0,
+            'approved_monthly_credit_limit' => null,
+            'monthly_credit_limit_source' => null,
+        ]);
+        $user = $member->user;
+
+        $this->actingAs($user)
+            ->post(route('user.loans.store'), [
+                'full_name'                  => $member->full_name,
+                'email'                      => $member->email,
+                'contact_number'             => '09123456789',
+                'source_of_income'           => 'Salary',
+                'monthly_income'             => 20000,
+                'existing_monthly_obligations' => 0,
+                'purpose_of_loan'            => 'Personal',
+                'loan_type'                  => 'regular',
+                'amount'                     => 5000,
+                'term_months'                => 36,
+                'agree'                      => 'yes',
+            ])
+            ->assertSessionHasErrors(['amount' => 'Your monthly credit capacity has not been assessed. Please contact the cooperative office.']);
+
+        // No loan application should be created
+        $this->assertEquals(0, LoanApplication::where('user_id', $user->id)->count());
+    }
+
+    /** @test */
+    public function available_zero_blocks_submission_with_clear_message()
+    {
+        // Member with capacity exactly equal to used (available = 0)
+        $member = $this->makeMember([
+            'monthly_income' => 50000,
+            'existing_monthly_obligations' => 10000,
+            'approved_monthly_credit_limit' => 7500, // manual 7500
+            'monthly_credit_limit_source' => 'manual',
+        ]);
+        $user = $member->user;
+
+        // Add an approved loan that uses 7500/month
+        LoanApplication::factory()->create([
+            'user_id' => $user->id,
+            'status'  => 'approved',
+            'amount'  => 50000,
+            'term_months' => 12,
+        ]);
+
+        // Force available = 0 by setting the stored capacity equal to the
+        // exact monthly used, so the <= 0 gate (not the max-principal gate) fires.
+        $member->refresh();
+        $used = $member->monthlyUsed();
+        $member->update([
+            'approved_monthly_credit_limit' => $used,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+        $member = $member->fresh();
+
+        $this->actingAs($user)
+            ->post(route('user.loans.store'), [
+                'full_name'                  => $member->full_name,
+                'email'                      => $member->email,
+                'contact_number'             => '09123456789',
+                'source_of_income'           => 'Salary',
+                'monthly_income'             => 50000,
+                'existing_monthly_obligations' => 10000,
+                'purpose_of_loan'            => 'Personal',
+                'loan_type'                  => 'regular',
+                'amount'                     => 5000,
+                'term_months'                => 36,
+                'agree'                      => 'yes',
+            ])
+            ->assertSessionHasErrors(['amount' => 'No monthly capacity left: used ₱' . number_format($member->monthlyUsed(), 2) . ' of ₱' . number_format((float) $member->monthlyCapacity(), 2) . '.']);
+
+        // No new loan application should be created (only the fixture loan exists)
+        $this->assertEquals(1, LoanApplication::where('user_id', $user->id)->count());
+    }
+
+    /** @test */
+    public function app_0022_evaluation_uses_same_member_resolution_as_modal()
+    {
+        // Reproduce APP-0022: micro loan, small amount, but member has large credit limit
+        // The issue was that forLoanApplication() resolution failed while applicationData() succeeded
+        $user = User::factory()->create(['usertype' => 'member']);
+        $member = CoopMember::factory()->create([
+            'user_id'                  => $user->id,
+            'status'                   => CoopMember::STATUS_ACTIVE,
+            'monthly_income'           => 50000,
+            'existing_monthly_obligations' => 0,
+            'savings_balance'          => 0,
+            'approved_credit_limit'    => 376000,
+            'is_migs'                  => false,
+        ]);
+        $user->forceFill(['coop_member_id' => $member->id])->save();
+        $member = $member->fresh();
+
+        // Create an approved loan for outstanding balance
+        $approvedLoan = LoanApplication::factory()->create([
+            'user_id' => $user->id,
+            'status'  => 'approved',
+            'amount'  => 20000,
+            'term_months' => 36,
+        ]);
+        $approvedLoan->update(['remaining_balance' => 11957.04]);
+
+        // Create the application to evaluate (micro, ₱2000, 12 mo)
+        $loanApp = LoanApplication::factory()->create([
+            'user_id'                  => $user->id,
+            'loan_type'                => 'micro',
+            'amount'                   => 2000,
+            'term_months'              => 12,
+            'monthly_income'           => 50000,
+            'existing_monthly_obligations' => 0,
+        ]);
+
+        $service = app(\App\Services\LoanEvaluationService::class);
+        $result = $service->evaluate($loanApp);
+
+        // With the fix, evaluation should find the member via email/user fallback
+        // and NOT return recommended_amount = 0 due to null credit limit
+        $this->assertNotEquals(0.0, $result['recommended_amount'], 'Evaluation should find member and not zero out recommended amount');
+        $this->assertGreaterThan(0, $result['recommended_amount']);
+
+        // Verify the member resolution works the same as applicationData
+        $coopMemberFromModal = $loanApp->user?->coopMember ?? CoopMember::where('email', $loanApp->email)->first();
+        $this->assertNotNull($coopMemberFromModal);
+        $this->assertEquals($member->id, $coopMemberFromModal->id);
+    }
 }

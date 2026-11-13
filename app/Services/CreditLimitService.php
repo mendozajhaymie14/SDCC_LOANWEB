@@ -131,6 +131,30 @@ class CreditLimitService
     }
 
     /**
+     * Max principal affordable for a term, given the monthly available amount.
+     *
+     * THE single rounding rule: EMI→principal, then floor to ₱1,000. Every gate
+     * (member form, staff encode, approve, evaluation) routes through this so
+     * they can never disagree.
+     *
+     * @param float $monthlyAvailable Leftover monthly budget after used credit.
+     * @param int   $termMonths       Loan term in months.
+     * @return float Max principal, floored to ₱1,000. 0 when no capacity.
+     */
+    public function maxRequestablePrincipal(float $monthlyAvailable, int $termMonths): float
+    {
+        if ($monthlyAvailable <= 0) {
+            return 0.0;
+        }
+
+        $rate = (float) config('loan_matrix.interest.monthly_rate', self::DEFAULT_MONTHLY_RATE);
+
+        return $this->floorTo1000(
+            $this->principalForMonthlyPayment($monthlyAvailable, $termMonths, $rate)
+        );
+    }
+
+    /**
      * Compute the credit limit for a member.
      *
      * Returns ['limit' => float, 'cappedBy' => 'affordability'|'savings'|null].

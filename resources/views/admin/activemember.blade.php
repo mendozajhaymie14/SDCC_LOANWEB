@@ -124,8 +124,8 @@
                 <td class="applicant-name">{{ $member->full_name }}</td>
                 <td>{{ $member->email ?? $member->user?->email ?? '' }}</td>
                 <td>
-                  <span class="status-pill {{ $member->is_registered ? 'approved' : 'pending' }}">
-                    {{ $member->is_registered ? 'Approved' : 'Pending' }}
+                  <span class="status-pill {{ $member->status === \App\Models\CoopMember::STATUS_ACTIVE ? 'approved' : $member->status }}">
+                    {{ ucfirst($member->status) }}
                   </span>
                 </td>
                 <td class="td-mono">

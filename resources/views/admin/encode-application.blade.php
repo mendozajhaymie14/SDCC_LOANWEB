@@ -75,6 +75,7 @@
           <label style="font-size:0.75rem;">Existing Monthly Obligations (₱)
             <input class="form-input" type="number" step="0.01" min="0" name="existing_monthly_obligations" value="{{ old('existing_monthly_obligations') }}" data-validate="positive" id="encodeObligations" />
             @error('existing_monthly_obligations')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
+            <div style="color:var(--muted);font-size:0.7rem;margin-top:4px;">Existing monthly obligations must exclude loans already with SDCC — SDCC loan payments are counted automatically.</div>
           </label>
 
           <label style="font-size:0.75rem;">Source of Income

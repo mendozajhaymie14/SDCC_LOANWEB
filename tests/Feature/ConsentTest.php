@@ -24,6 +24,7 @@ class ConsentTest extends TestCase
             'share_capital' => 30000,
             'is_migs'       => false,
             'status'        => CoopMember::STATUS_ACTIVE,
+            'monthly_income' => 20000,
         ]);
 
         // Link the CoopMember back to the User so isActiveCoopMember() passes.

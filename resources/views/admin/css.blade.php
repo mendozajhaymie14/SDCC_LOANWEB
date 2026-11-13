@@ -909,6 +909,11 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   color: var(--muted2);
 }
 
+.num {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

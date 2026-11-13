@@ -256,26 +256,22 @@ class CoopMember extends Model
      */
     public function monthlyUsed(): float
     {
-        $query = LoanApplication::where('status', LoanStatus::APPROVED);
-
-        if ($this->user_id) {
-            $query->where('user_id', $this->user_id);
-            if ($this->email) {
-                $query->orWhereNull('user_id')->whereRaw(
-                    'LOWER(TRIM(email)) = ?',
-                    [strtolower(trim($this->email))]
-                );
+        $query = LoanApplication::where('status', LoanStatus::APPROVED)->where(function ($q) {
+            // group: user_id OR email fallback, always scoped by status=approved
+            if ($this->user_id) {
+                $q->where('user_id', $this->user_id);
+                if ($this->email) {
+                    $q->orWhere(fn ($q2) => $q2->whereNull('user_id')
+                        ->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]));
+                }
+            } elseif ($this->email) {
+                $q->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
             }
-        } elseif ($this->email) {
-            $query->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
-        }
+        });
 
         $used = 0.0;
 
         foreach ($query->get() as $loan) {
-            if (in_array($loan->status, [LoanStatus::PAID, LoanStatus::REJECTED], true)) {
-                continue;
-            }
             $monthlyPayment = (float) $loan->monthly_payment;
             if ($monthlyPayment > 0) {
                 $used += $monthlyPayment;
@@ -297,6 +293,23 @@ class CoopMember extends Model
         }
 
         return max(0, $capacity - $this->monthlyUsed());
+    }
+
+    /**
+     * Max requestable principal for a term, given current monthly available.
+     *
+     * Null when capacity is not assessed (null income) or no capacity left (0).
+     * Uses the shared CreditLimitService::maxRequestablePrincipal() so every
+     * gate (member form, staff encode, approve, evaluation) agrees.
+     */
+    public function maxRequestablePrincipal(int $termMonths): ?float
+    {
+        $available = $this->monthlyAvailable();
+        if ($available === null || $available <= 0) {
+            return null;
+        }
+
+        return app(\App\Services\CreditLimitService::class)->maxRequestablePrincipal($available, $termMonths);
     }
 
     /**

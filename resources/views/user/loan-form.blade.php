@@ -65,6 +65,7 @@
                    value="{{ old('existing_monthly_obligations', 0) }}"
                    class="@error('existing_monthly_obligations') has-error @enderror" required autocomplete="off">
             @error('existing_monthly_obligations') <span class="error-text">{{ $message }}</span> @enderror
+            <p class="note">Existing monthly obligations must exclude loans already with SDCC — SDCC loan payments are counted automatically.</p>
           </div>
 
           <div class="field">

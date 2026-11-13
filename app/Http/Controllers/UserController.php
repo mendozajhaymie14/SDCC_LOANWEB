@@ -9,6 +9,7 @@ use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
+use App\Rules\MultipleOfThousand;
 use App\Support\LoanStatus;
 use App\Services\AmortizationService;
 use App\Services\CreditLimitService;
@@ -178,7 +179,7 @@ class UserController extends Controller
             'existing_monthly_obligations' => ['required', 'numeric', 'min:0'],
             'purpose_of_loan'            => ['required', 'in:Educational,Business,Personal,Emergency'],
             'loan_type'                  => ['required', 'in:' . implode(',', array_keys(Config::get('loan_matrix.loan_types')))],
-            'amount'                     => ['required', 'numeric', ...$amountMinRule, ...$maxAmountRule],
+            'amount'                     => ['required', 'numeric', new MultipleOfThousand, ...$amountMinRule, ...$maxAmountRule],
             'term_months'                => $termRule,
             'required_documents'         => ['nullable', 'array', 'max:10'],
             'required_documents.*'       => ['file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
@@ -229,29 +230,51 @@ class UserController extends Controller
 
         unset($data['agree']);
 
-        // ── Monthly credit limit gate ─────────────────────────────────────────
-        // Before storing the loan application, check the member's monthly available
-        // capacity. If the requested amount would exceed affordable principal, cap it
-        // or reject. This guard runs after the basic validation above.
+        $requestedAmount = (float) $data['amount'];
+        $declaredIncome  = (float) $data['monthly_income'];
+        $termMonths      = (int) ($data['term_months'] ?? 12);
+
+        // ─── MONTHLY CAPACITY GATE (BEFORE ANY SIDE EFFECT) ──────────────────
+        // One shared rule (CoopMember::maxRequestablePrincipal) so this path
+        // agrees with staff encode, approve and evaluation.
         $coopMember = Auth::user()->coopMember;
         if ($coopMember) {
-            $monthlyAvailable = $coopMember->monthlyAvailable(); // null if income null
-            if ($monthlyAvailable !== null) {
-                $loanAmount = (float) $data['amount'];
-                $termMonths = (int) $data['term_months'];
-                $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
-                $emi = app(\App\Services\AmortizationService::class)->emi($loanAmount, $termMonths, $monthlyRate);
-                if ($emi > $monthlyAvailable) {
-                    // Cap the recommended amount to what the member can afford monthly
-                    $cappedPrincipal = app(\App\Services\CreditLimitService::class)->principalForMonthlyPayment($monthlyAvailable, $termMonths, $monthlyRate);
-                    return back()
-                        ->withInput()
-                        ->withErrors(['amount' => sprintf('Requested amount exceeds your monthly available credit of ₱%s. Capped at ₱%s.', number_format($monthlyAvailable, 2), number_format($cappedPrincipal, 2))]);
-                }
+            $monthlyAvailable = $coopMember->monthlyAvailable();
+            if ($monthlyAvailable === null) {
+                return back()->withInput()
+                    ->withErrors(['amount' => 'Your monthly credit capacity has not been assessed. Please contact the cooperative office.']);
+            }
+            if ($monthlyAvailable <= 0) {
+                return back()->withInput()
+                    ->withErrors(['amount' => sprintf(
+                        'No monthly capacity left: used ₱%s of ₱%s.',
+                        number_format($coopMember->monthlyUsed(), 2),
+                        number_format((float) $coopMember->monthlyCapacity(), 2)
+                    )]);
+            }
+            $maxRequestable = $coopMember->maxRequestablePrincipal($termMonths);
+            if ($maxRequestable !== null && $requestedAmount > $maxRequestable) {
+                return back()->withInput()
+                    ->withErrors(['amount' => sprintf(
+                        'Your amount exceeds the maximum your monthly capacity allows (₱%s for %d months).',
+                        number_format($maxRequestable, 2),
+                        $termMonths
+                    )]);
             }
         }
 
-        // Store uploaded supporting documents
+        // ─── AVAILABLE CREDIT CHECK (BEFORE ANY SIDE EFFECT) ───────────────
+        // For limit-based products, reject requests above the member's
+        // available credit. The form's max hint is advisory only.
+        if ($coopMember && \App\Support\LoanProductHelper::requiresCreditLimit($loanType)) {
+            $availableCredit = $coopMember->availableCredit();
+            if ($availableCredit !== null && $requestedAmount > $availableCredit) {
+                return back()->withInput()
+                    ->with('error', 'Your requested amount exceeds your available credit of ₱' . number_format($availableCredit, 2) . '. Please contact the cooperative office.');
+            }
+        }
+
+        // ─── STORE UPLOADED DOCUMENTS (only after every gate passes) ───────
         $documentPaths = [];
         if ($request->hasFile('required_documents')) {
             foreach ($request->file('required_documents') as $document) {
@@ -265,40 +288,7 @@ class UserController extends Controller
         $data['reference'] = LoanApplication::makeReference();
         $data['status']    = 'pending';
 
-        $requestedAmount = (float) $data['amount'];
-        $declaredIncome  = (float) $data['monthly_income'];
-
-        // ─── MONTHLY-AVAILABLE GATE (BEFORE CREATION) ────────────────────────
-        // Reject if requested amount exceeds what monthly capacity allows for this term.
-        $coopMember = Auth::user()->coopMember;
-        if ($coopMember) {
-            $monthlyAvailable = $coopMember->monthlyAvailable();
-            if ($monthlyAvailable !== null && $monthlyAvailable > 0) {
-                $term = (int) ($data['term_months'] ?? 12);
-                $rate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
-                $maxRequestable = app(CreditLimitService::class)->principalForMonthlyPayment($monthlyAvailable, $term, $rate);
-                $maxRequestable = floor($maxRequestable / 1000) * 1000;
-                if ($requestedAmount > $maxRequestable && $maxRequestable > 0) {
-                    return back()
-                        ->withInput()
-                        ->with('error', 'Your requested amount exceeds the maximum you can afford with your current monthly capacity (₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months).');
-                }
-            }
-        }
-
         $application = LoanApplication::create($data);
-
-        // ─── AVAILABLE CREDIT CHECK ────────────────────────────────────────
-        // For limit-based products, reject requests above the member's
-        // available credit. The form's max hint is advisory only.
-        if ($coopMember && \App\Support\LoanProductHelper::requiresCreditLimit($loanType)) {
-            $availableCredit = $coopMember->availableCredit();
-            if ($availableCredit !== null && $requestedAmount > $availableCredit) {
-                return back()
-                    ->withInput()
-                    ->with('error', 'Your requested amount exceeds your available credit of ₱' . number_format($availableCredit, 2) . '. Please contact the cooperative office.');
-            }
-        }
 
         // ─── RULE-BASED EVALUATION (SYNCHRONOUS) ───
         $evaluation  = app(LoanEvaluationService::class)->evaluate($application);

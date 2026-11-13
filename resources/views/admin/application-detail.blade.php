@@ -40,23 +40,60 @@
             <strong>Requested Amount:</strong> {{ '₱' . number_format($application->amount, 2) }}
         </div>
 
+        @php
+            $coopMember = $application->user?->coopMember;
+            if (!$coopMember && $application->email) {
+                $coopMember = \App\Models\CoopMember::where('email', $application->email)->first();
+            }
+            $monthlyCapacity = $coopMember ? $coopMember->monthlyCapacity() : null;
+            $monthlyUsed = $coopMember ? $coopMember->monthlyUsed() : 0;
+            $monthlyAvailable = $coopMember ? $coopMember->monthlyAvailable() : null;
+            $maxForTerm = $coopMember ? $coopMember->maxRequestablePrincipal($application->term_months ?? 12) : null;
+            $approvedLimit = $coopMember ? $coopMember->approved_credit_limit : null;
+            $outstanding = $coopMember ? \App\Models\CoopMember::outstandingBalance($coopMember) : 0;
+            $availableCreditTotal = $approvedLimit !== null ? (float)$approvedLimit - $outstanding : null;
+            $isCapacitySuggested = $monthlyCapacity !== null && $coopMember && $coopMember->monthly_credit_limit_source === 'auto';
+        @endphp
+
         <div style="margin-bottom: 1rem;">
-            <strong>Approved Limit:</strong> {{ $application->user?->coopMember?->approved_credit_limit !== null ? '₱' . number_format($application->user?->coopMember?->approved_credit_limit, 2) : 'Not assessed' }}
+            <strong>Monthly Credit Limit:</strong>
+            @if($monthlyCapacity !== null)
+                <span class="num">{{ '₱' . number_format($monthlyCapacity, 2) }}</span>
+                @if($isCapacitySuggested)
+                    <span style="font-size:.75rem;color:var(--muted);margin-left:.4rem;">(suggested)</span>
+                @endif
+            @else
+                <span style="color:var(--muted);font-style:italic;">Not assessed</span>
+            @endif
         </div>
 
         <div style="margin-bottom: 1rem;">
-            <strong>Outstanding:</strong> {{ $loanApp ? ($loanApp->remaining_balance ? '₱' . number_format($loanApp->remaining_balance, 2) : '₱0.00') : 'N/A' }}
+            <strong>Monthly Used:</strong> <span class="num">{{ '₱' . number_format($monthlyUsed, 2) }}</span>
         </div>
 
         <div style="margin-bottom: 1rem;">
-            <strong>Available:</strong>
-            @php
-                $approvedLimit = $application->user?->coopMember?->approved_credit_limit;
-                $outstanding = $loanApp ? ($loanApp->remaining_balance ?? 0) : 0;
-                $available = ($approvedLimit !== null) ? ($approvedLimit - $outstanding) : null;
-            @endphp
-            {{ $available !== null ? '₱' . number_format($available, 2) : 'N/A' }}
+            <strong>Monthly Available:</strong>
+            @if($monthlyAvailable !== null)
+                <span class="num" style="color:var(--success);font-weight:700;">{{ '₱' . number_format($monthlyAvailable, 2) }}</span>
+            @else
+                <span style="color:var(--muted);font-style:italic;">Not assessed</span>
+            @endif
         </div>
+
+        <div style="margin-bottom: 1rem;">
+            <strong>Max for {{ $application->term_months ?? 12 }} months:</strong>
+            @if($maxForTerm !== null)
+                <span class="num">{{ '₱' . number_format($maxForTerm, 2) }}</span>
+            @else
+                <span style="color:var(--muted);font-style:italic;">Not assessed</span>
+            @endif
+        </div>
+
+        @if($approvedLimit !== null)
+        <div style="margin-bottom: 1rem; display:flex;justify-content:space-between;padding:.4rem 0;font-size:.78rem;color:var(--muted);">
+            <span>Total credit limit <span class="num">{{ '₱' . number_format($approvedLimit, 2) }}</span> · Available credit <span class="num">{{ '₱' . number_format($availableCreditTotal ?? 0, 2) }}</span></span>
+        </div>
+        @endif
 
         <div style="margin-bottom: 1rem;">
             <strong>Status:</strong>

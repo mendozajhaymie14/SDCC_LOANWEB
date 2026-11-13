@@ -181,15 +181,30 @@ window.renderApplicationModal = function (app) {
     const showActions = statusStr === 'pending' || statusStr === 'review';
 
     /* Credit limit display from the application data */
-    const approvedLimit = app.approved_credit_limit ?? null;
-    const outstanding = app.outstanding_balance ?? 0;
-    const available = app.available_credit ?? null;
-    const creditLimitHtml =
-        (approvedLimit !== null && approvedLimit !== undefined)
-            ? row('Approved Limit', '<span style="font-family:monospace;">' + fmtMoney(approvedLimit) + '</span>') +
-              row('Outstanding', '<span style="font-family:monospace;">' + fmtMoney(outstanding) + '</span>') +
-              row('Available', '<span style="font-family:monospace;">' + (available !== null ? fmtMoney(available) : 'N/A') + '</span>')
-            : row('Approved Limit', '<span style="color:var(--muted);font-style:italic;">Not assessed</span>');
+    const monthlyCapacity = app.monthly_capacity ?? null;
+    const monthlyUsed = app.monthly_used ?? 0;
+    const monthlyAvailable = app.monthly_available ?? null;
+    const maxForTerm = app.max_for_term ?? null;
+    const totalCreditLimit = app.total_credit_limit ?? null;
+    const availableCreditTotal = app.available_credit_total ?? null;
+
+    // Check if monthly_capacity is a fallback (suggested) vs truly assessed
+    const isCapacitySuggested = monthlyCapacity !== null && app.monthly_capacity_source === 'auto';
+    const isCapacityAssessed = monthlyCapacity !== null && app.monthly_capacity_source !== 'auto';
+
+    const rowHtml = (label, value, extra = '') => `
+        <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
+          <span style="color:var(--muted);">${label}</span>
+          <span style="font-weight:600;">${value} ${extra}</span>
+        </div>`;
+
+    const creditLimitHtml = `
+        ${rowHtml('Monthly Credit Limit', monthlyCapacity !== null ? '<span class="num">' + fmtMoney(monthlyCapacity) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>', isCapacitySuggested ? '<span style="font-size:.75rem;color:var(--muted);margin-left:.4rem;">(suggested)</span>' : '')}
+        ${rowHtml('Monthly Used', '<span class="num">' + fmtMoney(monthlyUsed) + '</span>')}
+        ${rowHtml('Monthly Available', monthlyAvailable !== null ? '<span class="num" style="color:var(--success);font-weight:700;">' + fmtMoney(monthlyAvailable) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${rowHtml('Max for ' + termMonths + ' months', maxForTerm !== null ? '<span class="num">' + fmtMoney(maxForTerm) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${totalCreditLimit !== null ? '<div style="display:flex;justify-content:space-between;padding:.4rem 0;font-size:.78rem;color:var(--muted);"><span>Total credit limit <span class="num">' + fmtMoney(totalCreditLimit) + '</span> · Available credit <span class="num">' + fmtMoney(availableCreditTotal ?? 0) + '</span></span></div>' : ''}
+    `;
 
     bodyEl.innerHTML =
         row('Applicant', applicantName) +

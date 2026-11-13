@@ -54,8 +54,19 @@ class LoanEvaluationService
         $monthlyIncome = (float) ($loanApp->monthly_income ?? 0);
         $existingOblig = (float) ($loanApp->existing_monthly_obligations ?? 0);
 
-        // Member profile data — resolved via helper: users.coop_member_id → coop_members.user_id → email fallback.
-        $coopMember = CoopMember::forLoanApplication($loanApp);
+        // Member profile data — resolved same as applicationData():
+        // $loanApp->user?->coopMember → coop_members.user_id → email fallback.
+        // (Union of forLoanApplication() and applicationData() so APP-0022 and
+        //  existing test fixtures both resolve the same member.)
+        $coopMember = $loanApp->user?->coopMember;
+        if (!$coopMember && $loanApp->user_id) {
+            $coopMember = CoopMember::withTrashed()->where('user_id', $loanApp->user_id)->first();
+        }
+        if (!$coopMember && $loanApp->email) {
+            $coopMember = CoopMember::withTrashed()
+                ->whereRaw('LOWER(email) = ?', [strtolower(trim($loanApp->email))])
+                ->first();
+        }
         $memberSavings      = (float) ($coopMember?->savings_balance ?? 0);
         $approvedCreditLimit = $coopMember?->approved_credit_limit !== null ? (float) $coopMember->approved_credit_limit : null;
         $isMigs              = (bool)  ($coopMember?->is_migs ?? false);
@@ -157,16 +168,26 @@ class LoanEvaluationService
 
         // ── Cap at monthly available for new loans exceeding capacity ─────────────────────────────
         // If a new loan's monthly payment exceeds the member's available capacity,
-        // cap the recommended amount. Override decisions live in the controller
-        // (AdminController::approve), not in the evaluation service.
+        // cap the recommended amount. When available is 0, block with clear reason.
         if ($eligible && $requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit != 0) {
-            // coopMember already resolved at method start via forLoanApplication()
+            // coopMember resolved above via matching resolution
             $available = $coopMember?->monthlyAvailable();
-            if ($available !== null && $available > 0) {
+            if ($available === null) {
+                // Income not assessed — don't cap, don't reject; override decisions
+                // live in the controller (AdminController::approve), not here.
+            } elseif ($available <= 0) {
+                $recommendedAmount = 0;
+                $eligible = false;
+                $rejectionReason = sprintf(
+                    'No monthly capacity left: used ₱%s of ₱%s.',
+                    number_format($coopMember->monthlyUsed(), 2),
+                    number_format((float) $coopMember->monthlyCapacity(), 2)
+                );
+            } else {
                 $emi = $amortization->emi($recommendedAmount, $termMonths, $monthlyRate);
                 if ($emi > $available) {
                     $capped = $this->roundDown1000(
-                        app(CreditLimitService::class)->principalForMonthlyPayment($available, $termMonths, $monthlyRate)
+                        app(CreditLimitService::class)->maxRequestablePrincipal($available, $termMonths)
                     );
                     $recommendedAmount = $capped;
                     $reasons[] = sprintf('Monthly payment exceeds available capacity of ₱%s. Capped at ₱%s.',
@@ -175,8 +196,6 @@ class LoanEvaluationService
                     );
                 }
             }
-            // If $available is null (income unknown), we don't cap and don't reject:
-            // override decisions live in the controller, not here.
         }
 
         // If nothing can be affordable (for affordability-based products),
