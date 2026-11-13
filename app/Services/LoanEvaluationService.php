@@ -15,21 +15,16 @@ use Illuminate\Support\Facades\DB;
  * and risk level. Called synchronously at application submit time.
  *
  * Scoring (sum to 100):
- *   - DTI affordability ........... 40 pts
- *   - Payment history ............. 30 pts
- *   - Document verification ....... 15 pts
- *   - Savings coverage ............ 15 pts
+ *   - DTI affordability ........... 45 pts
+ *   - Payment history ............. 35 pts
+ *   - Document verification ....... 0 pts (advisory only)
+ *   - Savings coverage ............ 20 pts
  *
  * Risk levels:  >=70 Low | 50–69 Medium | <50 High
  * ai_score < 50 is treated as a risk flag (syncs with the admin side).
  */
 class LoanEvaluationService
 {
-    /**
-     * Minimum savings balance for Share Capital Loan.
-     */
-    public const SAVINGS_MIN = 15000;
-
     /** Income warning threshold: warn when requested amount exceeds this fraction of monthly income. */
     public const INCOME_WARNING_THRESHOLD = 0.70;
 
@@ -59,18 +54,12 @@ class LoanEvaluationService
         $monthlyIncome = (float) ($loanApp->monthly_income ?? 0);
         $existingOblig = (float) ($loanApp->existing_monthly_obligations ?? 0);
 
-        // Member profile data from the linked User → CoopMember.
-        $member = null;
-        if ($loanApp->user_id) {
-            $member = DB::table('coop_members')
-                ->where('user_id', $loanApp->user_id)
-                ->first();
-        }
-        $coopMember = $member ? CoopMember::where('user_id', $loanApp->user_id)->first() : null;
-        $memberSavings      = (float) ($member?->savings_balance ?? 0);
-        $approvedCreditLimit = $member?->approved_credit_limit !== null ? (float) $member->approved_credit_limit : null;
-        $isMigs              = (bool)  ($member?->is_migs ?? false);
-        $monthlyUsed         = $coopMember ? $coopMember->monthlyUsed() : 0.0;
+        // Member profile data — resolved via helper: users.coop_member_id → coop_members.user_id → email fallback.
+        $coopMember = CoopMember::forLoanApplication($loanApp);
+        $memberSavings      = (float) ($coopMember?->savings_balance ?? 0);
+        $approvedCreditLimit = $coopMember?->approved_credit_limit !== null ? (float) $coopMember->approved_credit_limit : null;
+        $isMigs              = (bool)  ($coopMember?->is_migs ?? false);
+        $monthlyUsed         = $coopMember?->monthlyUsed() ?? 0.0;
 
         $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
         $dtiLimit = (float) config('loan_evaluation.thresholds.dti_limit', 0.35);
@@ -105,7 +94,7 @@ class LoanEvaluationService
             'savings_balance'         => $memberSavings,
         ];
 
-        $requiresLimit = ! in_array($loanType, ['secured', 'share_cap']);
+        $requiresLimit = true;
 
         // ── Step 2a: missing / zero credit-limit handling (limit-required products only) ────────────────────────
         if ($requiresLimit && $approvedCreditLimit === null) {
@@ -171,22 +160,28 @@ class LoanEvaluationService
         // cap the recommended amount. Override decisions live in the controller
         // (AdminController::approve), not in the evaluation service.
         if ($eligible && $requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit != 0) {
-            $coopMember = $coopMember ?? CoopMember::where('user_id', $loanApp->user_id)->first();
-            $available = $coopMember?->monthlyAvailable() ?? 0.0;
-            $emi = $amortization->emi($recommendedAmount, $termMonths, $monthlyRate);
-            if ($emi > $available && $available > 0) {
-                $capped = $this->roundDown1000($available);
-                $recommendedAmount = $capped;
-                $reasons[] = sprintf('Monthly payment exceeds available capacity of ₱%s. Capped at ₱%s.',
-                    number_format($available, 2),
-                    number_format($capped, 2)
-                );
+            // coopMember already resolved at method start via forLoanApplication()
+            $available = $coopMember?->monthlyAvailable();
+            if ($available !== null && $available > 0) {
+                $emi = $amortization->emi($recommendedAmount, $termMonths, $monthlyRate);
+                if ($emi > $available) {
+                    $capped = $this->roundDown1000(
+                        app(CreditLimitService::class)->principalForMonthlyPayment($available, $termMonths, $monthlyRate)
+                    );
+                    $recommendedAmount = $capped;
+                    $reasons[] = sprintf('Monthly payment exceeds available capacity of ₱%s. Capped at ₱%s.',
+                        number_format($available, 2),
+                        number_format($capped, 2)
+                    );
+                }
             }
+            // If $available is null (income unknown), we don't cap and don't reject:
+            // override decisions live in the controller, not here.
         }
 
-        // If nothing can be afforded (for affordability-based products),
+        // If nothing can be affordable (for affordability-based products),
         // mark the application ineligible.
-        if ($recommendedAmount <= 0 && $loanType !== 'share_cap') {
+        if ($recommendedAmount <= 0) {
             $eligible = false;
             if (!$rejectionReason) {
                 $rejectionReason = 'Unable to afford monthly payment within DTI limit.';
@@ -199,10 +194,6 @@ class LoanEvaluationService
             $eligible = false;
             $rejectionReason = sprintf('Special Loan requires at least ₱%s savings balance.', number_format($minimumSavings, 0));
             $recommendedAmount = 0;
-        }
-
-        if ($loanType === 'share_cap' && !$loanApp->user) {
-            $reasons[] = 'Share Capital Loan requires an active member account.';
         }
 
         // ── 70% income threshold warning (non-blocking) ──────────────────
@@ -234,9 +225,9 @@ class LoanEvaluationService
         // 3b. Payment history  (0–30 pts)
         $paymentScore = $this->paymentHistoryScore($loanApp);
 
-        // 3c. Document verification  (0–15 pts)
+        // 3c. Document verification  (0–0 pts; weight 0 = advisory only)
         $hasDocs = $loanApp->documents && count((array) $loanApp->documents) > 0;
-        $docScore = $hasDocs ? 15 : 0;
+        $docScore = $hasDocs ? (int) config('loan_evaluation.weights.documents', 0) : 0;
 
         // 3d. Savings coverage  (0–15 pts) — replaces share-capital coverage.
         $savingsScore = $this->savingsScore($memberSavings, $amount);
@@ -321,6 +312,7 @@ class LoanEvaluationService
                 'savings_score'    => $savingsScore,
                 'is_migs'          => $isMigs,
             ]),
+            'evaluation_reasons'   => $reasons,
         ];
     }
 
@@ -376,20 +368,20 @@ class LoanEvaluationService
     }
 
     /**
-     * Payment history score (0–30 pts).
+     * Payment history score (0–35 pts).
      * Checks Payments across all of this member's earlier loan applications.
-     * No loan history → no_history_score (default 10).
+     * No loan history → no_history_score (default 18).
      * Late = payment date after the due date (disbursement + n months).
-     * 0 late → 30 | 5 pts deducted per late payment | minimum 0.
+     * 0 late → 35 | penalty per late payment based on config; minimum 0.
      */
     private function paymentHistoryScore(LoanApplication $loanApp): int
     {
         $userId = $loanApp->user_id;
         if (!$userId) {
-            return (int) config('loan_evaluation.thresholds.no_history_score', 10);
+            return (int) config('loan_evaluation.thresholds.no_history_score', 18);
         }
 
-        $earlierApps = LoanApplication::where('user_id', $userId)
+        $earlierApps = LoanApplication::where('user_id', $loanApp->user_id)
             ->where('id', '!=', $loanApp->id)
             ->get();
 
@@ -413,16 +405,18 @@ class LoanEvaluationService
         }
 
         if ($totalPayments === 0) {
-            return (int) config('loan_evaluation.thresholds.no_history_score', 10);
+            return (int) config('loan_evaluation.thresholds.no_history_score', 18);
         }
 
-        $penalty = (int) config('loan_evaluation.thresholds.late_payment_penalty', 5);
+        $penalty = (int) config('loan_evaluation.thresholds.late_payment_penalty', 10);
 
-        return max(0, 30 - ($latePayments * $penalty));
+        $maxScore = (int) config('loan_evaluation.weights.payment_history', 35);
+
+        return max(0, $maxScore - ($latePayments * $penalty));
     }
 
     /**
-     * Savings coverage score (0–15 pts).
+     * Savings coverage score (0–20 pts).
      * How well the REQUESTED amount is covered by savings balance.
      * coverage = savings_balance / requested amount.
      */
@@ -435,9 +429,10 @@ class LoanEvaluationService
         $bands = config('loan_evaluation.thresholds.savings_coverage', [
             'full' => 1.0, 'partial' => 0.5, 'minimal' => 0.2,
         ]);
-        if ($coverage >= (float) $bands['full'])  return 15;
-        if ($coverage >= (float) $bands['partial'])  return 10;
-        if ($coverage >= (float) $bands['minimal']) return 5;
+        $maxScore = (int) config('loan_evaluation.weights.savings', 20);
+        if ($coverage >= (float) $bands['full'])  return $maxScore;
+        if ($coverage >= (float) $bands['partial'])  return (int) round($maxScore / 2);
+        if ($coverage >= (float) $bands['minimal']) return (int) round($maxScore / 4);
         return 0;
     }
 }

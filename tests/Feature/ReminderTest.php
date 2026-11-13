@@ -928,4 +928,31 @@ class ReminderTest extends TestCase
         $this->assertEquals(0, $data2['sent'], 'Second same-day run should send nothing new');
         $this->assertEquals(1, $data2['skipped'], 'Second same-day run should count the duplicate as skipped');
     }
+
+    /** @test */
+    public function legacy_loan_type_creates_due_today_notification()
+    {
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $member = $this->makeMember();
+        $loan   = $this->makeLoan($member, 'approved', $this->getManilaToday(), 800);
+        // Force a legacy loan type so the same path handles old-style rows
+        $loan->loan_type = 'character';
+        $loan->save();
+
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $this->assertDatabaseHas('app_notifications', [
+            'user_id'            => $member->id,
+            'loan_application_id'=> $loan->id,
+            'type'               => 'due_today',
+        ]);
+
+        // Only one notification for this loan — legacy loan type does not break dedup
+        $this->assertEquals(1, AppNotification::where('loan_application_id', $loan->id)->count());
+    }
 }

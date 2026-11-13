@@ -298,4 +298,190 @@ class ValidationTest extends TestCase
 
         $response->assertStatus(200);
     }
+
+    /** @test */
+    public function loan_product_rejected_character_member_path()
+    {
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $this->withoutExceptionHandling();
+
+        $user = User::factory()->create(['usertype' => 'user']);
+        $member = CoopMember::factory()->create([
+            'user_id' => $user->id,
+            'full_name' => 'Juan Santos',
+            'status' => CoopMember::STATUS_ACTIVE,
+        ]);
+        $user->forceFill(['coop_member_id' => $member->id])->save();
+        $this->actingAs($user);
+
+        $response = $this->post(route('user.loans.store'), [
+            'loan_type' => 'character',
+            'amount' => 5000,
+            'monthly_income' => 20000,
+            'existing_monthly_obligations' => 2000,
+            'purpose_of_loan' => 'test',
+            'source_of_income' => 'Salary',
+            'document_consent' => '1',
+            '_token'           => csrf_token(),
+        ]);
+
+        $response->assertSessionHasErrors('loan_type');
+        $response->assertStatus(302);
+    }
+
+    /** @test */
+    public function loan_product_rejected_recovery_member_path()
+    {
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $this->withoutExceptionHandling();
+
+        $user = User::factory()->create(['usertype' => 'user']);
+        $member = CoopMember::factory()->create([
+            'user_id' => $user->id,
+            'full_name' => 'Carlos Ray',
+            'status' => CoopMember::STATUS_ACTIVE,
+        ]);
+        $user->forceFill(['coop_member_id' => $member->id])->save();
+        $this->actingAs($user);
+
+        $response = $this->post(route('user.loans.store'), [
+            'loan_type' => 'recovery',
+            'amount' => 5000,
+            'monthly_income' => 20000,
+            'existing_monthly_obligations' => 2000,
+            'purpose_of_loan' => 'test',
+            'source_of_income' => 'Salary',
+            'document_consent' => '1',
+            '_token'           => csrf_token(),
+        ]);
+
+        $response->assertSessionHasErrors('loan_type');
+        $response->assertStatus(302);
+    }
+
+    /** @test */
+    public function loan_product_rejected_secured_member_path()
+    {
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $this->withoutExceptionHandling();
+
+        $user = User::factory()->create(['usertype' => 'user']);
+        $member = CoopMember::factory()->create([
+            'user_id' => $user->id,
+            'full_name' => 'Amir Security',
+            'status' => CoopMember::STATUS_ACTIVE,
+        ]);
+        $user->forceFill(['coop_member_id' => $member->id])->save();
+        $this->actingAs($user);
+
+        $response = $this->post(route('user.loans.store'), [
+            'loan_type' => 'secured',
+            'amount' => 5000,
+            'monthly_income' => 20000,
+            'existing_monthly_obligations' => 2000,
+            'purpose_of_loan' => 'test',
+            'source_of_income' => 'Salary',
+            'document_consent' => '1',
+            '_token'           => csrf_token(),
+        ]);
+
+        $response->assertSessionHasErrors('loan_type');
+        $response->assertStatus(302);
+    }
+
+    /** @test */
+    public function loan_product_rejected_share_cap_member_path()
+    {
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $this->withoutExceptionHandling();
+
+        $user = User::factory()->create(['usertype' => 'user']);
+        $member = CoopMember::factory()->create([
+            'user_id' => $user->id,
+            'full_name' => 'Sora Share Capital',
+            'status' => CoopMember::STATUS_ACTIVE,
+        ]);
+        $user->forceFill(['coop_member_id' => $member->id])->save();
+        $this->actingAs($user);
+
+        $response = $this->post(route('user.loans.store'), [
+            'loan_type' => 'share_cap',
+            'amount' => 5000,
+            'monthly_income' => 20000,
+            'existing_monthly_obligations' => 2000,
+            'purpose_of_loan' => 'test',
+            'source_of_income' => 'Salary',
+            'document_consent' => '1',
+            '_token'           => csrf_token(),
+        ]);
+
+        $response->assertSessionHasErrors('loan_type');
+        $response->assertStatus(302);
+    }
+
+    /** @test */
+    public function user_without_coop_member_gets_ineligible_result()
+    {
+        /** Member path (UserController::storeApplication):
+         *  A registered user WITHOUT a coop_member_id link should be rejected
+         *  because isActiveCoopMember() returns false, redirecting with an error.
+         *  The loan application should not be created and the user should see
+         *  an appropriate error (not a missing-session-errors failure).
+         */
+        $user = User::factory()->create(['usertype' => 'user']);
+        // Note: coop_member_id is NOT set, so isActiveCoopMember() returns false
+
+        $response = $this->actingAs($user)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('user.loans.store'), [
+                'loan_type' => 'personal',
+                'amount' => 5000,
+                'monthly_income' => 20000,
+                'existing_monthly_obligations' => 0,
+                'purpose_of_loan' => 'Test',
+                'source_of_income' => 'Salary',
+                'document_consent' => '1',
+                '_token'           => csrf_token(),
+            ]);
+
+        // Should redirect because user is not an active coop member
+        $response->assertStatus(302);
+
+        // The redirected session should have a flash error (not validation errors
+        // on 'loan_type' — those only appear when the user IS an active member
+        // and form validation fails)
+        $response->assertSessionHas('error');
+
+        /** Staff-encoded path (LoanSubmissionService::submit):
+         *  A LoanApplication created with user_id pointing to a user who has
+         *  no coop_member_id should result in "Credit limit not assessed" —
+         *  the evaluate() method finds no member linked to that user_id,
+         *  making approvedCreditLimit null, which forces ineligibility.
+         */
+        $unlinkedMember = CoopMember::factory()->create([
+            'user_id' => null,
+            'full_name' => 'Unlinked Member',
+            'status' => CoopMember::STATUS_ACTIVE,
+            'savings_balance' => 0,
+        ]);
+
+        $service = app(LoanEvaluationService::class);
+        $loanApp = LoanApplication::factory()->create([
+            'user_id' => null,  // staff-encoded, no user_id
+            'amount' => 5000,
+            'monthly_income' => 20000,
+            'loan_type' => 'personal',
+            'term_months' => 12,
+            'existing_monthly_obligations' => 0,
+            'status' => 'pending',
+        ]);
+
+        $result = $service->evaluate($loanApp);
+
+        // Should be ineligible with "Credit limit not assessed"
+        $this->assertFalse($result['eligible']);
+        $this->assertStringContainsString('Credit limit not assessed', $result['rejection_reason'] ?? '');
+        $this->assertEquals(0, $result['recommended_amount']);
+        $this->assertEquals('High', $result['risk_level']);
+    }
 }

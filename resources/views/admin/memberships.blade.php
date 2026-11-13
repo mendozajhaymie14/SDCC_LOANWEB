@@ -171,6 +171,7 @@
         $rec = $creditLimitService->calculateCreditLimitRaw($income, $obligations, $savings, config('loan_matrix.credit_limit.term', 36), config('loan_matrix.interest.monthly_rate', 0.01));
         ?>
         creditLimitRecommendation: @json(['limit' => (float) ($rec['limit'] ?? 0), 'cappedBy' => $rec['cappedBy'] ?? 'affordability']),
+        monthlyCreditLimitRecommendation: @json((float) $creditLimitService->calculateMonthlyCapacity($income, $obligations)),
       }{{ !$loop->last ? ',' : '' }}
     @endforeach
   };
@@ -223,6 +224,10 @@
         <div style="margin-top:.8rem;">
           ${row('Recommended credit limit', '<span style="font-family:monospace;">₱' + Number(m.creditLimitRecommendation.limit).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')}
           <div style="font-size:0.75rem;color:var(--muted);margin-top:.15rem;">Capped by: ${m.creditLimitRecommendation.cappedBy}</div>
+        </div>
+        <div style="margin-top:.8rem;">
+          ${row('Recommended monthly credit limit', '<span style="font-family:monospace;">₱' + Number(m.monthlyCreditLimitRecommendation).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')}
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:.15rem;">DTI 35% of income minus obligations</div>
         </div>
         ` : ''}
 

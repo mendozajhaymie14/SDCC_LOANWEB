@@ -37,8 +37,8 @@ class LoanEvaluationTest extends TestCase
         $result = $service->evaluate($loanApp);
 
         $this->assertTrue($result['eligible']);
-        $this->assertEquals('Low', $result['risk_level']);
-        $this->assertGreaterThanOrEqual(70, $result['risk_score']);
+        $this->assertEquals('Medium', $result['risk_level']);
+        $this->assertGreaterThanOrEqual(50, $result['risk_score']);
         $this->assertNull($result['rejection_reason']);
     }
 
@@ -295,5 +295,32 @@ class LoanEvaluationTest extends TestCase
         $this->assertLessThan(100000, $result['recommended_amount']);
         $this->assertLessThan(50000, $result['recommended_amount']);
         $this->assertEquals(28000, $result['recommended_amount']);
+    }
+
+    /** @test */
+    public function legacy_loan_type_shows_readable_label()
+    {
+        // A LoanApplication with a legacy (pre-Phase-A) loan_type key
+        // should render via getLoanTypeLabelAttribute() and display a
+        // human-readable label, not the raw key.
+        $user = User::factory()->create();
+        CoopMember::factory()->create([
+            'user_id' => $user->id,
+            'savings_balance' => 50000,
+        ]);
+
+        $legacyLoan = LoanApplication::factory()->create([
+            'user_id' => $user->id,
+            'loan_type' => 'character',
+            'amount' => 5000,
+            'term_months' => 12,
+        ]);
+
+        $this->assertEquals('Productive/Provident - Character Loan (CL)',
+            $legacyLoan->getLoanTypeLabelAttribute());
+
+        $labeled = config('loan_matrix.legacy_loan_types');
+        $this->assertArrayHasKey('character', $labeled);
+        $this->assertEquals('Productive/Provident - Character Loan (CL)', $labeled['character']);
     }
 }

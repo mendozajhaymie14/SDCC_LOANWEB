@@ -401,7 +401,7 @@
             <tr data-status="{{ strtolower($app->status) }}">
               <td class="td-mono">#{{ $app->app_id }}</td>
               <td><strong>{{ $app->loanApplication?->user->name ?? $app->applicant }}</strong></td>
-              <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
+              <td><span class="loan-type-tag">{{ $app->loan_type_label ?? $app->loan_type }}</span></td>
               <td>₱{{ number_format($app->amount, 2) }}</td>
               <td>₱{{ number_format($app->recommended_amount ?? 0, 2) }}</td>
               <td class="td-mono">

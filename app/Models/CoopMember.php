@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Support\LoanStatus;
+use App\Services\CreditLimitService;
 
 class CoopMember extends Model
 {
@@ -41,6 +42,7 @@ class CoopMember extends Model
         'status',
         'user_id',
         'approved_credit_limit',
+        'approved_monthly_credit_limit',
         'savings_balance',
         'is_migs',
         'address',
@@ -49,6 +51,7 @@ class CoopMember extends Model
         'existing_monthly_obligations',
         'credit_limit_source',
         'credit_limit_computed_at',
+        'monthly_credit_limit_source',
     ];
 
     protected $casts = [
@@ -57,6 +60,7 @@ class CoopMember extends Model
         'status' => 'string',
         'credit_limit_source' => 'string',
         'credit_limit_computed_at' => 'datetime',
+        'monthly_credit_limit_source' => 'string',
     ];
 
     /**
@@ -211,10 +215,16 @@ class CoopMember extends Model
 
     /**
      * Monthly repayment capacity per member (separate from total credit limit).
-     * monthly_capacity = monthly_income * dti_limit - declared outside obligations
+     * Returns the STORED approved_monthly_credit_limit when set (auto or manual),
+     * otherwise falls back to computed monthly_income * dti_limit - obligations.
+     * Returns null when monthly_income is null AND no stored value exists.
      */
     public function monthlyCapacity(): ?float
     {
+        if ($this->approved_monthly_credit_limit !== null) {
+            return (float) $this->approved_monthly_credit_limit;
+        }
+
         if ($this->monthly_income === null) {
             return null;
         }
@@ -227,9 +237,9 @@ class CoopMember extends Model
     }
 
     /**
-     * Monthly used: sum of EMI (via AmortizationService) of this member's
-     * active approved SDCC loans. Outstanding principal is used as the EMI
-     * basis with a 36-month term at the configured monthly rate.
+     * Monthly used: sum of monthly payments (via the loan accessor) of this
+     * member's active approved SDCC loans. Uses each loan's real stored
+     * monthly payment (original amount × term), not a recomputed emi().
      */
     public function monthlyUsed(): float
     {
@@ -243,16 +253,15 @@ class CoopMember extends Model
             }
         })->where('status', LoanStatus::APPROVED)->get();
 
-        $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
-        $term = 36;
-
-        $amortization = app(\App\Services\AmortizationService::class);
         $used = 0.0;
 
         foreach ($loans as $loan) {
-            $remainingPrincipal = $loan->outstandingPrincipal();
-            if ($remainingPrincipal > 0) {
-                $used += $amortization->emi($remainingPrincipal, $term, $monthlyRate);
+            if (in_array($loan->status, [LoanStatus::PAID, LoanStatus::REJECTED], true)) {
+                continue;
+            }
+            $monthlyPayment = (float) $loan->monthly_payment;
+            if ($monthlyPayment > 0) {
+                $used += $monthlyPayment;
             }
         }
 
@@ -265,10 +274,41 @@ class CoopMember extends Model
      */
     public function monthlyAvailable(): ?float
     {
-        if ($this->monthly_income === null) {
+        if ($this->monthly_income === null && $this->approved_monthly_credit_limit === null) {
             return null;
         }
 
         return max(0, $this->monthlyCapacity() - $this->monthlyUsed());
+    }
+
+    /**
+     * Resolve the CoopMember for a loan application.
+     *
+     * Order: users.coop_member_id relation → coop_members.user_id → email fallback.
+     * Returns null when no member can be resolved.
+     */
+    public static function forLoanApplication(LoanApplication $loanApp): ?self
+    {
+        if ($loanApp->user_id) {
+            $user = User::withTrashed()->find($loanApp->user_id);
+            if ($user && $user->coop_member_id) {
+                $member = self::withTrashed()->find($user->coop_member_id);
+                if ($member) {
+                    return $member;
+                }
+            }
+            $member = self::withTrashed()->where('user_id', $loanApp->user_id)->first();
+            if ($member) {
+                return $member;
+            }
+        }
+
+        if ($loanApp->email) {
+            return self::withTrashed()
+                ->whereRaw('LOWER(email) = ?', [strtolower(trim($loanApp->email))])
+                ->first();
+        }
+
+        return null;
     }
 }

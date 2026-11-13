@@ -626,6 +626,8 @@
         is_registered: @json($m->is_registered),
         date: @json(optional($m->created_at)->format('M d, Y')),
         approved_credit_limit: @json($m->approved_credit_limit),
+        monthly_capacity: @json($m->monthlyCapacity() !== null ? number_format($m->monthlyCapacity(), 2) : null),
+        monthly_available: @json($m->monthlyAvailable() !== null ? number_format($m->monthlyAvailable(), 2) : null),
       },
     @endforeach
   };
@@ -799,6 +801,8 @@
         ${row('Email Address', m.email)}
         ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</span>`)}
         ${row('Credit Limit', (m.approved_credit_limit !== null && m.approved_credit_limit !== undefined && m.approved_credit_limit !== '') ? `<span style="font-family:monospace;">${fmtMoney(m.approved_credit_limit)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${row('Monthly Capacity', (m.monthly_capacity !== null && m.monthly_capacity !== undefined && m.monthly_capacity !== '') ? `<span style="font-family:monospace;">${fmtMoney(m.monthly_capacity)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${row('Available Monthly', (m.monthly_available !== null && m.monthly_available !== undefined && m.monthly_available !== '') ? `<span style="font-family:monospace;color:var(--success);font-weight:700;">${fmtMoney(m.monthly_available)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${row('Date Joined', m.date)}
         ${row('Status', `<span class="status-pill ${m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
 

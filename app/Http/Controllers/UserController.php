@@ -11,6 +11,7 @@ use App\Models\MemberApplication;
 use App\Models\Payment;
 use App\Support\LoanStatus;
 use App\Services\AmortizationService;
+use App\Services\CreditLimitService;
 use App\Services\LoanEvaluationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -116,18 +117,6 @@ class UserController extends Controller
         // Registered non-member with no membership link
         return redirect()->route('user.dashboard')
             ->with('error', 'Your account is not linked to an active membership record. Please contact the cooperative office.');
-    }
-
-    /**
-     * Determine whether a loan product requires an assessed credit limit.
-     * Products exempt from the limit: secured, share_cap.
-     * Character 50% tier and micro-with-no-collateral are handled in
-     * LoanEvaluationService::evaluate().
-     */
-    public static function requiresCreditLimit(string $loanType): bool
-    {
-        $exempt = ['secured', 'share_cap'];
-        return !in_array($loanType, $exempt, true);
     }
 
     /**
@@ -254,16 +243,33 @@ class UserController extends Controller
         $data['reference'] = LoanApplication::makeReference();
         $data['status']    = 'pending';
 
-        $application = LoanApplication::create($data);
-
         $requestedAmount = (float) $data['amount'];
         $declaredIncome  = (float) $data['monthly_income'];
+
+        // ─── MONTHLY-AVAILABLE GATE (BEFORE CREATION) ────────────────────────
+        // Reject if requested amount exceeds what monthly capacity allows for this term.
+        $coopMember = Auth::user()->coopMember;
+        if ($coopMember) {
+            $monthlyAvailable = $coopMember->monthlyAvailable();
+            if ($monthlyAvailable !== null && $monthlyAvailable > 0) {
+                $term = (int) ($data['term_months'] ?? 12);
+                $rate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
+                $maxRequestable = app(CreditLimitService::class)->principalForMonthlyPayment($monthlyAvailable, $term, $rate);
+                $maxRequestable = floor($maxRequestable / 1000) * 1000;
+                if ($requestedAmount > $maxRequestable && $maxRequestable > 0) {
+                    return back()
+                        ->withInput()
+                        ->with('error', 'Your requested amount exceeds the maximum you can afford with your current monthly capacity (₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months).');
+                }
+            }
+        }
+
+        $application = LoanApplication::create($data);
 
         // ─── AVAILABLE CREDIT CHECK ────────────────────────────────────────
         // For limit-based products, reject requests above the member's
         // available credit. The form's max hint is advisory only.
-        $coopMember = Auth::user()->coopMember;
-        if ($coopMember && self::requiresCreditLimit($loanType)) {
+        if ($coopMember && \App\Support\LoanProductHelper::requiresCreditLimit($loanType)) {
             $availableCredit = $coopMember->availableCredit();
             if ($availableCredit !== null && $requestedAmount > $availableCredit) {
                 return back()
@@ -279,10 +285,11 @@ class UserController extends Controller
             : null;
 
         $application->update([
-            'recommended_amount' => $evaluation['recommended_amount'],
-            'risk_level'         => $evaluation['risk_level'],
-            'risk_score'         => $evaluation['risk_score'],
-            'risk_factors'       => $riskFactors,
+            'recommended_amount'  => $evaluation['recommended_amount'],
+            'risk_level'          => $evaluation['risk_level'],
+            'risk_score'          => $evaluation['risk_score'],
+            'risk_factors'        => $riskFactors,
+            'evaluation_reasons'  => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
         ]);
 
         // ─── MIRROR INTO THE ADMIN APPLICATIONS TABLE ───
@@ -290,17 +297,19 @@ class UserController extends Controller
         $appId  = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
         Application::create([
-            'loan_application_id' => $application->id,
-            'app_id'              => $appId,
-            'applicant'           => $application->full_name,
-            'loan_type'           => $application->loan_type,
-            'amount'              => $application->amount,
-            'status'              => 'Pending',
-            'recommended_amount'  => $evaluation['recommended_amount'],
-            'risk_level'          => $evaluation['risk_level'],
-            'risk_score'          => $evaluation['risk_score'],
-            'risk_factors'        => $riskFactors,
-            'ai_score'            => null, // filled in by the document analysis job
+            'loan_application_id'   => $application->id,
+            'app_id'                => $appId,
+            'applicant'             => $application->full_name,
+            'loan_type'             => $application->loan_type,
+            'amount'                => $application->amount,
+            'term_months'           => $application->term_months,
+            'status'                => 'Pending',
+            'recommended_amount'    => $evaluation['recommended_amount'],
+            'risk_level'            => $evaluation['risk_level'],
+            'risk_score'            => $evaluation['risk_score'],
+            'risk_factors'          => $riskFactors,
+            'evaluation_reasons'    => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
+            'ai_score'              => null, // filled in by the document analysis job
         ]);
 
         // ─── AI DOCUMENT ANALYSIS ───

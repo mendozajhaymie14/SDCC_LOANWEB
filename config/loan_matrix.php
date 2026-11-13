@@ -179,13 +179,11 @@ return [
         'cap' => 2000000,
         'rounding' => 'down_1000',
         'savings_multiple' => null,
-        'include_share_capital' => false,
     ],
 
     'legacy_loan_types' => [
         'character'   => 'Productive/Provident - Character Loan (CL)',
         'recovery'    => 'Provident - Recovery Loan (Calamity)',
         'secured'     => 'Secured Loan',
-        'share_cap'   => 'Share Capital Loan',
     ],
 ];

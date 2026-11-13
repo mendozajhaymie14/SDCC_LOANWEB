@@ -31,10 +31,11 @@ class LoanSubmissionService
             : null;
 
         $application->update([
-            'recommended_amount' => $evaluation['recommended_amount'],
-            'risk_level'         => $evaluation['risk_level'],
-            'risk_score'         => $evaluation['risk_score'],
-            'risk_factors'       => $riskFactors,
+            'recommended_amount'  => $evaluation['recommended_amount'],
+            'risk_level'          => $evaluation['risk_level'],
+            'risk_score'          => $evaluation['risk_score'],
+            'risk_factors'        => $riskFactors,
+            'evaluation_reasons'  => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
         ]);
 
         // Mirror into the admin applications table. app_id must be unique, so
@@ -44,17 +45,19 @@ class LoanSubmissionService
         $appId  = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
         Application::create([
-            'loan_application_id' => $application->id,
-            'app_id'              => $appId,
-            'applicant'           => $data['full_name'],
-            'loan_type'           => $application->loan_type,
-            'amount'              => $application->amount,
-            'status'              => 'Pending',
-            'recommended_amount'  => $evaluation['recommended_amount'],
-            'risk_level'          => $evaluation['risk_level'],
-            'risk_score'          => $evaluation['risk_score'],
-            'risk_factors'        => $riskFactors,
-            'ai_score'            => null,
+            'loan_application_id'   => $application->id,
+            'app_id'                => $appId,
+            'applicant'             => $data['full_name'],
+            'loan_type'             => $application->loan_type,
+            'amount'                => $application->amount,
+            'term_months'           => $application->term_months,
+            'status'                => 'Pending',
+            'recommended_amount'    => $evaluation['recommended_amount'],
+            'risk_level'            => $evaluation['risk_level'],
+            'risk_score'            => $evaluation['risk_score'],
+            'risk_factors'          => $riskFactors,
+            'evaluation_reasons'    => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
+            'ai_score'              => null,
         ]);
 
         return $application;

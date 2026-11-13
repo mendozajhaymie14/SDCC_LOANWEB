@@ -47,11 +47,12 @@ class LoanProductHelper
 
     /**
      * Check whether a loan type requires an assessed credit limit.
-     * Exempt: secured, share_cap (these remain exempt even in legacy).
+     * Phase A removed secured and share_cap products, so all 7 kept products
+     * require a credit limit — no exemption list is needed anymore.
      */
     public static function requiresCreditLimit(string $loanType): bool
     {
-        $exempt = ['secured', 'share_cap'];
-        return ! in_array($loanType, $exempt, true);
+        // All currently-kept loan types require an assessed credit limit.
+        return true;
     }
 }

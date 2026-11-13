@@ -5,7 +5,7 @@
  *   phone     09 + 9 digits (a 10-digit number starting with 9 is accepted, like PhilippineMobileNumber)
  *   email     basic address format
  *   positive  number greater than zero (monthly income, loan amount)
- *   money     number of zero or more (savings, share capital, obligations, credit limit)
+ *   money     number of zero or more (savings, obligations, credit limit)
  *   name      letters, spaces and . , - '
  *   required  any other required field must not be empty
  *
@@ -24,7 +24,7 @@
   var SKIP = /^(hidden|password|submit|button|reset|image|range|color)$/;
   var PHONE_NAMES = /^(phone|contact_number|contact)$/;
   var POSITIVE_NAMES = /^(monthly_income|amount)$/;
-  var MONEY_NAMES = /^(existing_monthly_obligations|savings_balance|share_capital|approved_credit_limit)$/;
+  var MONEY_NAMES = /^(existing_monthly_obligations|savings_balance|approved_credit_limit)$/;
   var NAME_NAMES = /^(name|full_name|first_name|middle_name|surname|last_name|applicant)$/;
   var INCOME_WARNING = 0.7; // same threshold as LoanEvaluationService::INCOME_WARNING_THRESHOLD
 

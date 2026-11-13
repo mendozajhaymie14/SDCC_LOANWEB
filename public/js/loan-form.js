@@ -47,7 +47,6 @@
   var loanType = document.getElementById('loan_type');
   var amountHint = document.getElementById('amountHint');
   var termSelect = document.getElementById('term_months');
-  var collateralSelect = document.getElementById('collateral');
   var requirementsPanel = document.getElementById('requirementsPanel');
 
   function money(value) {
@@ -111,19 +110,6 @@
     rebuildTermOptions(config.terms || [12]);
     if (termSelect.value && (config.terms || []).indexOf(Number(termSelect.value)) === -1) {
       termSelect.value = '';
-    }
-
-    // Collateral
-    if (collateralSelect) {
-      var options = config.collateral_options || ['None'];
-      collateralSelect.innerHTML = '';
-      options.forEach(function (value) {
-        var opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = value === 'None' ? 'None required' : value;
-        collateralSelect.appendChild(opt);
-      });
-      collateralSelect.required = options.indexOf('None') === -1;
     }
 
     // Requirements

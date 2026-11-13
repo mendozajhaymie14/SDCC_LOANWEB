@@ -6,8 +6,28 @@
   <title>Amortization Schedule — {{ $application->app_id ?? 'Application' }}</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <style>
+    @font-face {
+        font-family: 'DejaVu Sans';
+        src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans.ttf')) }}');
+    }
+    @font-face {
+        font-family: 'DejaVu Sans';
+        font-weight: bold;
+        src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans-Bold.ttf')) }}');
+    }
+    @font-face {
+        font-family: 'DejaVu Sans';
+        font-style: italic;
+        src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans-Oblique.ttf')) }}');
+    }
+    @font-face {
+        font-family: 'DejaVu Sans';
+        font-weight: bold;
+        font-style: italic;
+        src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans-BoldOblique.ttf')) }}');
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'DM Sans', sans-serif; font-size: 12px; color: #1e293b; line-height: 1.5; padding: 20mm; }
+    body { font-family: 'DejaVu Sans', 'DM Sans', sans-serif; font-size: 12px; color: #1e293b; line-height: 1.5; padding: 20mm; }
     .header { text-align: center; margin-bottom: 24px; border-bottom: 2px solid #0891b2; padding-bottom: 16px; }
     .header h1 { font-size: 24px; font-weight: 700; color: #0891b2; }
     .header p { color: #6b7280; margin-top: 4px; }

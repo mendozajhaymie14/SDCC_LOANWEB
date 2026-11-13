@@ -2,22 +2,69 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SDCC {{ucfirst(str_replace('_', ' ', $type))}} Report</title>
+    <title>SDCC {{ ucwords(str_replace('_', ' ', $type)) }} Report</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+        @font-face {
+            font-family: 'DejaVu Sans';
+            src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans.ttf')) }}');
+        }
+        @font-face {
+            font-family: 'DejaVu Sans';
+            font-weight: bold;
+            src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans-Bold.ttf')) }}');
+        }
+        @font-face {
+            font-family: 'DejaVu Sans';
+            font-style: italic;
+            src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans-Oblique.ttf')) }}');
+        }
+        @font-face {
+            font-family: 'DejaVu Sans';
+            font-weight: bold;
+            font-style: italic;
+            src: url('file:///{{ str_replace('\\', '/', base_path('vendor/dompdf/dompdf/lib/fonts/DejaVuSans-BoldOblique.ttf')) }}');
+        }
+        body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 20px; color: #333; }
         h1 { color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 8px; }
+        h2 { color: #1e40af; margin-top: 25px; }
+        h3 { color: #374151; margin-top: 18px; }
+        .filters { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 15px; font-size: 13px; }
+        .filters strong { color: #374151; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #1e40af; color: #fff; }
         tr:nth-child(even) { background-color: #f2f2f2; }
-        .summary { margin-top: 20px; }
-        .summary p { margin: 4px 0; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
         .footer { margin-top: 30px; font-size: 12px; color: #666; border-top: 1px solid #ccc; padding-top: 10px; }
     </style>
 </head>
 <body>
-    <h1>San Dionisio Credit Cooperative — {{ucfirst(str_replace('_', ' ', $type))}} Report</h1>
+    <h1>San Dionisio Credit Cooperative — {{ ucwords(str_replace('_', ' ', $type)) }} Report</h1>
     <p>Generated: {{ now()->format('F d, Y g:i A') }}</p>
+
+    <div class="filters">
+        <strong>Applied Filters:</strong>
+        @php
+            $filterParts = [];
+            if (!empty($filters['start_date']) || !empty($filters['end_date'])) {
+                $start = $filters['start_date'] ? \Carbon\Carbon::parse($filters['start_date'])->format('M d, Y') : 'Beginning';
+                $end = $filters['end_date'] ? \Carbon\Carbon::parse($filters['end_date'])->format('M d, Y') : 'Present';
+                $filterParts[] = "Date Range: {$start} to {$end}";
+            }
+            if (!empty($filters['status'])) {
+                $filterParts[] = "Status: " . ucfirst($filters['status']);
+            }
+            if (!empty($filters['risk_level'])) {
+                $filterParts[] = "Risk Level: " . $filters['risk_level'];
+            }
+        @endphp
+        @if(!empty($filterParts))
+            <span> {{ implode(' | ', $filterParts) }}</span>
+        @else
+            <span style="color: #9ca3af;"> None</span>
+        @endif
+    </div>
 
     @if($type === 'loan_summary')
         <h2>Loan Summary</h2>

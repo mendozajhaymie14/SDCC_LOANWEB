@@ -18,10 +18,10 @@ return [
 | Risk score weights (must total 100).
 */
 'weights' => [
-    'dti'             => 40, // affordability: (existing obligations + EMI) / income
-    'payment_history' => 30, // repayment behaviour on the applicant's loans
-    'documents'       => 15, // supporting documents on file
-    'savings'         => 15, // savings balance covers the requested amount
+    'dti'             => 45, // affordability: (existing obligations + EMI) / income
+    'payment_history' => 35, // repayment behaviour on the applicant's loans
+    'documents'       => 0,  // supporting documents on file
+    'savings'         => 20, // savings balance covers the requested amount
 ],
 
 /*
@@ -35,7 +35,7 @@ return [
     'risk_low'    => 70,
     'risk_medium' => 50,
 
-    // Savings-coverage bands for the 15-point savings score.
+    // Savings-coverage bands for the 20-point savings score.
     // 'full' means savings >= requested amount, 'partial' means >= 50%,
     // 'minimal' means >= 20% of the requested amount.
     'savings_coverage' => [
@@ -46,11 +46,14 @@ return [
 
     // Points deducted per late payment, and the neutral score used when
     // there is no payment history to judge.
-    'late_payment_penalty' => 5,
-    'no_history_score'     => 20,
+    'late_payment_penalty' => 10,
+    'no_history_score'     => 18,
 
     // A request this many times the recommended amount can never be Low risk.
     'request_escalation_multiple' => 2,
+
+    // DTI override multiplier: DTI > 1.5 x limit forces High.
+    'dti_override_multiplier' => 1.5,
 
     // Days after which a recorded payment counts as late — compared to the
     // loan's due date, not a fixed 30-day window.
@@ -61,9 +64,6 @@ return [
 | Loan product constants.
 */
 'loan_constants' => [
-    // Minimum savings balance for Share Capital Loan.
-    'share_cap_loan_minimum' => 15000,
-
     // Special Loan requires this much savings balance.
     'special_loan_minimum' => 100000,
 ],

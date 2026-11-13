@@ -65,16 +65,20 @@ class EvaluationEngineTest extends TestCase
     public static function sampleProvider(): array
     {
         return [
-            // 1. Low risk — comfortable income, savings, documents.
-            'low risk' => [
+            // 1. Medium risk — comfortable income, savings, documents.
+            //    EMI 50000 @ 12m = 4442; DTI = (5000+4442)/30000 = 0.315.
+            //    Score: DTI 45 + payment 18 (no_history=18) + docs 0 + savings 5 (20%) = 68 → Medium.
+            'medium risk' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 5000,
                  'savings_balance' => 10000],
                 ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12],
                 50000,
-                'Low',
+                'Medium',
             ],
 
             // 2. Medium risk — the request is more than twice the recommendation.
+            //    Utility loan capped at 10000; DTI within limit.
+            //    Score: DTI 45 + payment 18 + docs 0 + savings 0 = 63 → Medium.
             'medium risk (request above 2x recommended)' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 2000,
                  'savings_balance' => 0],
@@ -84,6 +88,7 @@ class EvaluationEngineTest extends TestCase
             ],
 
             // 3. High risk — over-obligated: obligations eat the whole DTI budget.
+            //    Score: DTI 9 + payment 18 + docs 0 + savings 0 = 27 → High.
             'high risk (over-obligated)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
                  'savings_balance' => 0],
@@ -93,39 +98,43 @@ class EvaluationEngineTest extends TestCase
                 'High',
             ],
 
-            // 4. No payment history, no documents — neutral history score, zero doc points.
-            //    Educational is capped by the approved credit limit (50000) per
-            //    Phase 4. Monthly capacity is kept sufficient so it doesn't bind.
+            // 4. No payment history, no documents — neutral history score (18 pts), zero doc points.
+            //    Obligations eat the whole DTI budget, leaving only ₱500/month.
+            //    The monthly-capacity cap converts that ₱500 monthly payment to
+            //    principal via the annuity formula: 500 * (1-1.01^-12)/0.01 ≈ 5627
+            //    → floor to 5000. Score: DTI 40 + payment 18 + docs 0 + savings 0 = 58 → Medium.
             'no payment history (cannot afford)' => [
-                ['monthly_income' => 30000, 'existing_monthly_obligations' => 2000,
+                ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
                  'savings_balance' => 0],
                 ['loan_type' => 'educational', 'amount' => 20000, 'term_months' => 12,
                  'documents' => []],
-                20000,
+                5000,
                 'Medium',
             ],
 
             // 5. Zero savings — no equity behind the loan, documents on file.
+            //    Score: DTI 45 + payment 18 + docs 0 + savings 0 = 63 → Medium.
             'zero savings' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 0,
                  'savings_balance' => 0],
                 ['loan_type' => 'regular', 'amount' => 50000, 'term_months' => 12],
                 50000,
-                'Low',
+                'Medium',
             ],
 
             // 6. Request above capacity — affordable principal caps the recommendation.
-            // No documents so docScore=0, keeping risk High (29+20+0+0=49).
+            //    No documents so docScore=0. Score: DTI 33 + payment 18 + docs 0 + savings 0 = 51 → Medium.
             'request above capacity' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 0,
                  'savings_balance' => 0],
                 ['loan_type' => 'regular', 'amount' => 100000, 'term_months' => 12,
                  'documents' => []],
                 78000,
-                'High',
+                'Medium',
             ],
 
             // 7. Missing documents — no doc points, everything else healthy.
+            //    Score: DTI 45 + payment 18 + docs 0 + savings 5 (20%) = 68 → Medium.
             'missing documents' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 5000,
                  'savings_balance' => 10000],
@@ -193,13 +202,13 @@ class EvaluationEngineTest extends TestCase
         $result = app(LoanEvaluationService::class)->evaluate($loanApp);
         $details = $result['details'];
 
-        // 40 (DTI) + 20 (no history) + 15 (docs) + 5 (savings covers 20 %) = 80 → Low
-        $this->assertSame(40, $details['dti_score']);
-        $this->assertSame(20, $details['payment_score']);
-        $this->assertSame(15, $details['doc_score']);
+        // 45 (DTI) + 18 (no history) + 0 (docs weight 0) + 5 (savings minimal 20% of 50k) = 68 → Medium
+        $this->assertSame(45, $details['dti_score']);
+        $this->assertSame(18, $details['payment_score']);
+        $this->assertSame(0, $details['doc_score']);
         $this->assertSame(5, $details['savings_score']);
-        $this->assertSame(80, $result['risk_score']);
-        $this->assertSame('Low', $result['risk_level']);
+        $this->assertSame(68, $result['risk_score']);
+        $this->assertSame('Medium', $result['risk_level']);
     }
 
     /** @test */
@@ -222,9 +231,9 @@ class EvaluationEngineTest extends TestCase
 
             $result = app(LoanEvaluationService::class)->evaluate($loanApp);
 
-            // 20 (DTI) + 20 (history) + 15 (docs) + 5 (savings) = 60 → still Low at 60
-            $this->assertSame(60, $result['risk_score']);
-            $this->assertSame('Low', $result['risk_level']);
+            // 20 (DTI) + 18 (history) + 0 (docs weight 0) + 5 (savings) = 43 → High at threshold 60
+            $this->assertSame(43, $result['risk_score']);
+            $this->assertSame('High', $result['risk_level']);
         } finally {
             config()->set('loan_evaluation.weights.dti', $originalDti);
             config()->set('loan_evaluation.thresholds.risk_low', $originalLow);

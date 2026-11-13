@@ -82,12 +82,61 @@ class CreditLimitService
     }
 
     /**
+     * Monthly repayment capacity per member.
+     * monthly_capacity = max(0, income * dti_limit - obligations)
+     * Single source of truth for capacity-based monthly credit limit.
+     *
+     * @param float $income Monthly income in pesos.
+     * @param float $obligations Existing monthly obligations in pesos.
+     * @return float Monthly credit limit capacity in pesos.
+     */
+    public function calculateMonthlyCapacity(float $income, float $obligations): float
+    {
+        $dtiLimit = config('loan_evaluation.thresholds.dti_limit', self::DEFAULT_DTI_LIMIT);
+        return max(0.0, ($income * $dtiLimit) - $obligations);
+    }
+
+    /**
+     * Convert a monthly payment amount to the equivalent principal
+     * using the annuity formula (inverse of EMI).
+     *
+     * EMI = P * r / (1 - (1+r)^-n)
+     * P = EMI * (1 - (1+r)^-n) / r
+     *
+     * @param float $monthlyPayment  Monthly payment budget (EMI)
+     * @param int   $termMonths      Loan term in months
+     * @param float|null $monthlyRate Monthly interest rate (default: config or 0.01)
+     * @return float Principal amount rounded to 2dp (NOT floored to 1000)
+     */
+    public function principalForMonthlyPayment(
+        float $monthlyPayment,
+        int $termMonths,
+        ?float $monthlyRate = null,
+    ): float {
+        $monthlyRate = $monthlyRate ?? config('loan_matrix.interest.monthly_rate', self::DEFAULT_MONTHLY_RATE);
+
+        if ($monthlyPayment <= 0) {
+            return 0;
+        }
+
+        $annuityFactor = $monthlyRate > 0
+            ? $monthlyRate / (1 - pow(1 + $monthlyRate, -$termMonths))
+            : (1 / $termMonths);
+
+        if ($annuityFactor <= 0) {
+            return 0;
+        }
+
+        return round($monthlyPayment / $annuityFactor, self::PRINCIPAL_PRECISION);
+    }
+
+    /**
      * Compute the credit limit for a member.
      *
      * Returns ['limit' => float, 'cappedBy' => 'affordability'|'savings'|null].
      * The DTI-based principal is floored to 1,000 and capped at credit_limit_cap.
      * If savings_multiple is not null, the limit is min'd with
-     * savings_multiple * (savings_balance + share_capital).
+     * savings_multiple * savings_balance.
      *
      * Returns limit 0 when obligations >= 35% of income — callers must never
      * auto-store 0; leave the DB empty.
@@ -101,10 +150,8 @@ class CreditLimitService
         $income = (float) ($member->monthly_income ?? 0);
         $obligations = (float) ($member->existing_monthly_obligations ?? 0);
         $savings = (float) ($member->savings_balance ?? 0);
-        $includeShareCapital = (bool) ($config['include_share_capital'] ?? false);
-        $shareCapital = $includeShareCapital ? (float) ($member->share_capital ?? 0) : null;
 
-        return $this->calculateCreditLimitRaw($income, $obligations, $savings, $term, $monthlyRate, $shareCapital);
+        return $this->calculateCreditLimitRaw($income, $obligations, $savings, $term, $monthlyRate);
     }
 
     /**
@@ -164,19 +211,18 @@ class CreditLimitService
     }
 
     /**
-     * Compute the credit limit from raw income/obligations/savings/shareCapital (no CoopMember required).
+     * Compute the credit limit from raw income/obligations/savings (no CoopMember required).
      *
      * Returns ['limit' => float, 'cappedBy' => 'affordability'|'savings'|null].
      * The DTI-based principal is floored to 1,000 and capped at credit_limit_cap.
      * If savings_multiple is not null, the limit is min'd with
-     * savings_multiple * (savings_balance + shareCapital).
+     * savings_multiple * savings_balance.
      *
-     * @param float $income             Monthly income in pesos.
-     * @param float $obligations        Existing monthly obligations in pesos.
-     * @param float $savings            Savings/time deposit balance in pesos.
-     * @param float|null $shareCapital  Share capital balance in pesos.
-     * @param int   $termMonths         Term in months (default: 36).
-     * @param float $monthlyRate        Monthly interest rate (default: config or 0.01).
+     * @param float $income          Monthly income in pesos.
+     * @param float $obligations     Existing monthly obligations in pesos.
+     * @param float $savings         Savings/time deposit balance in pesos.
+     * @param int   $termMonths      Term in months (default: 36).
+     * @param float $monthlyRate     Monthly interest rate (default: config or 0.01).
      *
      * @return array{limit: float, cappedBy: string|int|null}
      */
@@ -186,7 +232,6 @@ class CreditLimitService
         float $savings = 0,
         int $termMonths = self::DEFAULT_TERM,
         ?float $monthlyRate = null,
-        ?float $shareCapital = null,
     ): array {
         $monthlyRate = $monthlyRate ?? config('loan_matrix.interest.monthly_rate', self::DEFAULT_MONTHLY_RATE);
         $dtiLimit = config('loan_evaluation.thresholds.dti_limit', self::DEFAULT_DTI_LIMIT);
@@ -216,10 +261,7 @@ class CreditLimitService
 
         $savingsMultiple = config('loan_matrix.credit_limit.savings_multiple') ?? null;
         if ($savingsMultiple !== null) {
-            $savingsBalance = $savings;
-            $includeShareCapital = (bool) config('loan_matrix.credit_limit.include_share_capital', false);
-            $shareCapital = $includeShareCapital ? ($shareCapital ?? 0) : 0;
-            $savingsCap = (float) $savingsMultiple * ($savingsBalance + $shareCapital);
+            $savingsCap = (float) $savingsMultiple * $savings;
 
             if ($limit > $savingsCap) {
                 $limit = $this->floorTo1000($savingsCap);

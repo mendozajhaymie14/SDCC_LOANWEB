@@ -76,4 +76,31 @@ class StaffEncodeModalTest extends TestCase
         $response->assertRedirect();
         $response->assertSessionHasErrors('member_id');
     }
+
+    /** @test */
+    public function rejected_loan_type_staff_encode_redirects_back()
+    {
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $officer = User::factory()->asLoanOfficer()->create();
+        $this->actingAs($officer);
+
+        foreach (['character', 'recovery', 'secured', 'share_cap'] as $lt) {
+            $payload = [
+                'member_id'                    => '1', // exists:coop_members,id
+                'loan_type'                    => $lt,
+                'amount'                       => 5000,
+                'term_months'                  => 36,
+                'purpose'                      => 'Business capital',
+                'monthly_income'               => 50000,
+                'existing_monthly_obligations' => 5000,
+                'source_of_income'             => 'Salary',
+                'document_consent'             => '1',
+            ];
+
+            $response = $this->post(route('applications.encode.store'), $payload);
+            $response->assertRedirect();
+            $response->assertSessionHasErrors('loan_type');
+            $response->assertStatus(302);
+        }
+    }
 }

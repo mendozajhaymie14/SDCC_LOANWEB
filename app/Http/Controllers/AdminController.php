@@ -216,12 +216,27 @@ class AdminController extends Controller
         // For limit-based products, reject requests above the member's
         // available credit. The form's max hint is advisory only.
         $loanTypeForCheck = $validated['loan_type'] ?? null;
-        if ($loanTypeForCheck && UserController::requiresCreditLimit($loanTypeForCheck)) {
+        if ($loanTypeForCheck && \App\Support\LoanProductHelper::requiresCreditLimit($loanTypeForCheck)) {
             $availableCredit = $member->availableCredit();
             if ($availableCredit !== null && (float) $validated['amount'] > $availableCredit) {
                 return back()
                     ->withInput()
                     ->with('error', 'Requested amount exceeds available credit of ₱' . number_format($availableCredit, 2) . '. Please contact the cooperative office.');
+            }
+        }
+
+        // ─── MONTHLY-AVAILABLE GATE ────────────────────────────────────────
+        // Reject if requested amount exceeds what monthly capacity allows for this term.
+        $monthlyAvailable = $member->monthlyAvailable();
+        if ($monthlyAvailable !== null && $monthlyAvailable > 0) {
+            $term = (int) $validated['term_months'];
+            $rate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
+            $maxRequestable = app(CreditLimitService::class)->principalForMonthlyPayment($monthlyAvailable, $term, $rate);
+            $maxRequestable = floor($maxRequestable / 1000) * 1000;
+            if ((float) $validated['amount'] > $maxRequestable && $maxRequestable > 0) {
+                return back()
+                    ->withInput()
+                    ->with('error', 'Requested amount exceeds the maximum you can afford with your current monthly capacity (₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months).');
             }
         }
 
@@ -379,7 +394,7 @@ class AdminController extends Controller
         $loanApp = $application->loanApplication;
         $member = $loanApp ? ($loanApp->user?->coopMember ?? null) : null;
 
-        if ($member && UserController::requiresCreditLimit($application->loan_type)) {
+        if ($member && \App\Support\LoanProductHelper::requiresCreditLimit($application->loan_type)) {
             $availableCredit = $member->availableCredit();
             if ($availableCredit !== null && $effectiveAmount > $availableCredit) {
                 $canOverride = \App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT) && $reason;
@@ -401,6 +416,41 @@ class AdminController extends Controller
                     $availableCredit,
                     $reason
                 ));
+            }
+        }
+
+        // ─── MONTHLY-AVAILABLE GATE ──────────────────────────────────────
+        // Reject approval above the member's monthly capacity for this term,
+        // unless the override-credit-limit permission + reason are provided.
+        if ($member) {
+            $monthlyAvailable = $member->monthlyAvailable();
+            if ($monthlyAvailable !== null && $monthlyAvailable > 0) {
+                $term = (int) ($loanApp?->term_months ?? 12);
+                $rate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
+                $maxRequestable = app(CreditLimitService::class)->principalForMonthlyPayment($monthlyAvailable, $term, $rate);
+                $maxRequestable = floor($maxRequestable / 1000) * 1000;
+                if ($effectiveAmount > $maxRequestable && $maxRequestable > 0) {
+                    $canOverride = \App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT) && $reason;
+
+                    if (!$canOverride) {
+                        if (request()->expectsJson()) {
+                            return response()->json([
+                                'success'  => false,
+                                'message'  => 'Approved amount exceeds monthly capacity of ₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months. A reason is required with the override-credit-limit permission.',
+                            ], 400);
+                        }
+                        return back()->with('error', 'Approved amount exceeds monthly capacity of ₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months. A reason is required with the override-credit-limit permission.');
+                    }
+
+                    AuditLog::log('Monthly Capacity Override', sprintf(
+                        'Application %s: approved %.2f above monthly capacity %.2f for %d months. Override permitted. Reason: %s',
+                        $application->app_id,
+                        $effectiveAmount,
+                        $maxRequestable,
+                        $term,
+                        $reason
+                    ));
+                }
             }
         }
 
@@ -894,6 +944,28 @@ class AdminController extends Controller
             $member->approved_credit_limit = $submittedLimit;
         }
 
+        // Monthly credit limit source decision
+        if (Schema::hasColumn('coop_members', 'monthly_credit_limit_source')
+            && $submittedLimit != $storedLimit) {
+            // When overall credit limit changed, recompute monthly from current financials
+            $monthlyIncome = (float) ($member->monthly_income ?? 0);
+            $obligations = (float) ($member->existing_monthly_obligations ?? 0);
+            $computedMonthly = max(0, $monthlyIncome * 0.35 - $obligations);
+            $result = app(CreditLimitService::class)->calculateCreditLimit($member);
+            $member->monthly_credit_limit_source = ($computedMonthly == $submittedLimit) ? 'auto' : 'manual';
+            $member->approved_monthly_credit_limit = $computedMonthly;
+        } elseif (Schema::hasColumn('coop_members', 'monthly_credit_limit_source')
+            && $submittedLimit == $storedLimit
+            && ($member->credit_limit_source ?? null) === 'auto') {
+            // When financials changed but limit unchanged, recompute monthly
+            $result = app(CreditLimitService::class)->needsRecompute($member, (float) ($member->monthly_income ?? 0), (float) ($member->existing_monthly_obligations ?? 0), (float) ($member->savings_balance ?? 0));
+            if ($result['needs_recompute'] ?? false) {
+                $monthlyIncome = (float) ($member->monthly_income ?? 0);
+                $obligations = (float) ($member->existing_monthly_obligations ?? 0);
+                $member->approved_monthly_credit_limit = max(0, $monthlyIncome * 0.35 - $obligations);
+            }
+        }
+
         $member->status = $validated['status'] ?? $member->status;
         $member->save();
 
@@ -1234,11 +1306,18 @@ class AdminController extends Controller
                 } elseif ($source === 'auto') {
                     $coopMember->approved_credit_limit = $recommendation['limit'];
                     $coopMember->credit_limit_source = 'auto';
+                    $coopMember->approved_monthly_credit_limit = $coopMember->monthlyCapacity();
+                    $coopMember->monthly_credit_limit_source = 'auto';
                     $coopMember->credit_limit_computed_at = now();
                     $coopMember->save();
                 } else {
                     $coopMember->approved_credit_limit = $submittedAmount;
                     $coopMember->credit_limit_source = 'manual';
+                    // For manual source, compute and store monthly limit from actual income/obligations
+                    $monthlyIncome = $coopMember->monthly_income ?? 0;
+                    $obligations = $coopMember->existing_monthly_obligations ?? 0;
+                    $coopMember->approved_monthly_credit_limit = max(0, $monthlyIncome * 0.35 - $obligations);
+                    $coopMember->monthly_credit_limit_source = 'manual';
                     $coopMember->credit_limit_computed_at = now();
                     $coopMember->save();
                 }
@@ -2347,11 +2426,53 @@ class AdminController extends Controller
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
 
+        // Set sheet name based on report type
+        switch ($type) {
+            case 'loan_summary':
+                $sheet->setTitle('Loan Summary');
+                break;
+            case 'approved_records':
+                $sheet->setTitle('Approved Records');
+                break;
+            case 'borrower_performance':
+                $sheet->setTitle('Borrower Performance');
+                break;
+            case 'overdue_payments':
+                $sheet->setTitle('Overdue Payments');
+                break;
+        }
+
         if ($type === 'loan_summary') {
             $data = $this->loanSummaryData($filters);
 
             $sheet->setCellValue('A1', 'Loan Summary Report');
             $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
+
+            // Applied filters in header
+            $filterLabel = '';
+            if (!empty($filters['start_date']) || !empty($filters['end_date'])) {
+                $s = $filters['start_date'] ? \Carbon\Carbon::parse($filters['start_date'])->format('M d, Y') : '';
+                $e = $filters['end_date'] ? \Carbon\Carbon::parse($filters['end_date'])->format('M d, Y') : '';
+                $datePart = $s && $e ? "{$s} - {$e}" : ($s ? $s : ($e ? $e : ''));
+                if ($datePart) {
+                    $filterLabel .= "Date Range: {$datePart} | ";
+                }
+            }
+            if (!empty($filters['status'])) {
+                $filterLabel .= "Status: {$filters['status']} | ";
+            }
+            if (!empty($filters['risk_level'])) {
+                $filterLabel .= "Risk: {$filters['risk_level']} | ";
+            }
+            $sheet->setCellValue('A3', rtrim($filterLabel, ' | '));
+
+            // Column widths
+            $sheet->getColumnDimension('A')->setWidth(30);
+            $sheet->getColumnDimension('B')->setWidth(15);
+            $sheet->getColumnDimension('C')->setWidth(20);
+
+            // Number format for amount columns
+            $sheet->getStyle('C')->getNumberFormat()->setFormatCode('₱#,##0.00');
 
             $sheet->setCellValue('A4', 'By Status');
             $sheet->setCellValue('A5', 'Status');
@@ -2403,6 +2524,39 @@ class AdminController extends Controller
             $sheet->setCellValue('A1', 'Approved Loan Records');
             $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
 
+            // Applied filters in header
+            $filterLabel = '';
+            if (!empty($filters['start_date']) || !empty($filters['end_date'])) {
+                $s = $filters['start_date'] ? \Carbon\Carbon::parse($filters['start_date'])->format('M d, Y') : '';
+                $e = $filters['end_date'] ? \Carbon\Carbon::parse($filters['end_date'])->format('M d, Y') : '';
+                $datePart = $s && $e ? "{$s} - {$e}" : ($s ? $s : ($e ? $e : ''));
+                if ($datePart) {
+                    $filterLabel .= "Date Range: {$datePart} | ";
+                }
+            }
+            if (!empty($filters['status'])) {
+                $filterLabel .= "Status: {$filters['status']} | ";
+            }
+            if (!empty($filters['risk_level'])) {
+                $filterLabel .= "Risk: {$filters['risk_level']} | ";
+            }
+            $sheet->setCellValue('A3', rtrim($filterLabel, ' | '));
+
+            // Column widths
+            $sheet->getColumnDimension('A')->setWidth(15);
+            $sheet->getColumnDimension('B')->setWidth(30);
+            $sheet->getColumnDimension('C')->setWidth(20);
+            $sheet->getColumnDimension('D')->setWidth(20);
+            $sheet->getColumnDimension('E')->setWidth(12);
+            $sheet->getColumnDimension('F')->setWidth(12);
+            $sheet->getColumnDimension('G')->setWidth(20);
+            $sheet->getColumnDimension('H')->setWidth(18);
+            $sheet->getColumnDimension('I')->setWidth(20);
+
+            // Number format for amount columns (D: Approved Amount, G: Recommended Amount)
+            $sheet->getStyle('D')->getNumberFormat()->setFormatCode('₱#,##0.00');
+            $sheet->getStyle('G')->getNumberFormat()->setFormatCode('₱#,##0.00');
+
             $headers = ['App ID', 'Member', 'Loan Type', 'Approved Amount', 'Term (mo)', 'Risk Level', 'Recommended Amount', 'Approved Date', 'Approved By'];
             foreach ($headers as $i => $h) {
                 $sheet->setCellValue(chr(65 + $i) . '4', $h);
@@ -2427,6 +2581,40 @@ class AdminController extends Controller
             $sheet->setCellValue('A1', 'Borrower Performance Report');
             $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
 
+            // Applied filters in header
+            $filterLabel = '';
+            if (!empty($filters['start_date']) || !empty($filters['end_date'])) {
+                $s = $filters['start_date'] ? \Carbon\Carbon::parse($filters['start_date'])->format('M d, Y') : '';
+                $e = $filters['end_date'] ? \Carbon\Carbon::parse($filters['end_date'])->format('M d, Y') : '';
+                $datePart = $s && $e ? "{$s} - {$e}" : ($s ? $s : ($e ? $e : ''));
+                if ($datePart) {
+                    $filterLabel .= "Date Range: {$datePart} | ";
+                }
+            }
+            if (!empty($filters['status'])) {
+                $filterLabel .= "Status: {$filters['status']} | ";
+            }
+            if (!empty($filters['risk_level'])) {
+                $filterLabel .= "Risk: {$filters['risk_level']} | ";
+            }
+            $sheet->setCellValue('A3', rtrim($filterLabel, ' | '));
+
+            // Column widths
+            $sheet->getColumnDimension('A')->setWidth(30);
+            $sheet->getColumnDimension('B')->setWidth(15);
+            $sheet->getColumnDimension('C')->setWidth(20);
+            $sheet->getColumnDimension('D')->setWidth(20);
+            $sheet->getColumnDimension('E')->setWidth(20);
+            $sheet->getColumnDimension('F')->setWidth(12);
+            $sheet->getColumnDimension('G')->setWidth(12);
+            $sheet->getColumnDimension('H')->setWidth(15);
+            $sheet->getColumnDimension('I')->setWidth(18);
+
+            // Number format for amount columns (C: Total Approved, D: Total Paid, E: Outstanding)
+            $sheet->getStyle('C')->getNumberFormat()->setFormatCode('₱#,##0.00');
+            $sheet->getStyle('D')->getNumberFormat()->setFormatCode('₱#,##0.00');
+            $sheet->getStyle('E')->getNumberFormat()->setFormatCode('₱#,##0.00');
+
             $headers = ['Member', 'Total Loans', 'Total Approved', 'Total Paid', 'Outstanding', 'On-time', 'Late', 'Overdue', 'Performance'];
             foreach ($headers as $i => $h) {
                 $sheet->setCellValue(chr(65 + $i) . '4', $h);
@@ -2450,6 +2638,35 @@ class AdminController extends Controller
 
             $sheet->setCellValue('A1', 'Overdue Payments Report');
             $sheet->setCellValue('A2', 'Generated: ' . now()->format('Y-m-d H:i:s'));
+
+            // Applied filters in header
+            $filterLabel = '';
+            if (!empty($filters['start_date']) || !empty($filters['end_date'])) {
+                $s = $filters['start_date'] ? \Carbon\Carbon::parse($filters['start_date'])->format('M d, Y') : '';
+                $e = $filters['end_date'] ? \Carbon\Carbon::parse($filters['end_date'])->format('M d, Y') : '';
+                $datePart = $s && $e ? "{$s} - {$e}" : ($s ? $s : ($e ? $e : ''));
+                if ($datePart) {
+                    $filterLabel .= "Date Range: {$datePart} | ";
+                }
+            }
+            if (!empty($filters['status'])) {
+                $filterLabel .= "Status: {$filters['status']} | ";
+            }
+            if (!empty($filters['risk_level'])) {
+                $filterLabel .= "Risk: {$filters['risk_level']} | ";
+            }
+            $sheet->setCellValue('A3', rtrim($filterLabel, ' | '));
+
+            // Column widths
+            $sheet->getColumnDimension('A')->setWidth(20);
+            $sheet->getColumnDimension('B')->setWidth(30);
+            $sheet->getColumnDimension('C')->setWidth(20);
+            $sheet->getColumnDimension('D')->setWidth(20);
+            $sheet->getColumnDimension('E')->setWidth(15);
+            $sheet->getColumnDimension('F')->setWidth(15);
+
+            // Number format for amount column (D: Overdue Amount)
+            $sheet->getStyle('D')->getNumberFormat()->setFormatCode('₱#,##0.00');
 
             $headers = ['App ID', 'Member', 'Loan Type', 'Overdue Amount', 'Due Date', 'Overdue Days'];
             foreach ($headers as $i => $h) {
@@ -3045,28 +3262,28 @@ public function createBackup(Request $request)
             $riskFactors =$result['risk_factors'] ?? [];
             $recommendedAmount =$result['recommended_amount'] ?? 0.0;
 
-            $application->ai_score =$score;
-            $application->ai_analysis_note =$analysisNote;
-            $application->risk_level =$riskLevel;
-            $application->risk_score =$score;
-            $application->risk_factors = json_encode($riskFactors);
-            $application->recommended_amount =$recommendedAmount;
+            $application->ai_score = $score;
+            $application->ai_analysis_note = $analysisNote;
             if (Schema::hasColumn('applications', 'last_scanned_at')) {
                 $application->last_scanned_at = now();
             }
-            if (Schema::hasColumn('applications', 'has_risk_flags')) {
-                $application->has_risk_flags =$hasRiskFlags;
+            if (Schema::hasColumn('applications', 'document_processing_status')) {
+                $application->document_processing_status = $hasRiskFlags ? 'flagged' : 'completed';
             }
+            if (Schema::hasColumn('applications', 'has_risk_flags')) {
+                $application->has_risk_flags = $hasRiskFlags;
+            }
+            // DO NOT overwrite rule-based: risk_score, risk_level, recommended_amount, evaluation_reasons
+            // Document Check is advisory only.
             $application->save();
 
-            if ($loanApp) {$loanApp->update([
+            if ($loanApp) {
+                $loanApp->update([
                     'ai_score'                   => $score,
                     'ai_analysis_notes'          => $analysisNote,
                     'document_processing_status' => $hasRiskFlags ? 'flagged' : 'completed',
-                    'risk_level'                 => $riskLevel,
-                    'risk_score'                 => $score,
-                    'risk_factors'               => json_encode($riskFactors),
-                    'recommended_amount'         => $recommendedAmount,
+                    'last_scanned_at'            => now(),
+                    // DO NOT overwrite rule-based: risk_score, risk_level, recommended_amount, evaluation_reasons
                 ]);
             }
 

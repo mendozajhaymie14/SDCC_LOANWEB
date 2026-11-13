@@ -422,9 +422,9 @@ class CreditLimitEnforcementTest extends TestCase
         $loanApp = $this->createLoanApp($member, ['loan_type' => 'regular', 'amount' => 20000]);
         $result = app(LoanEvaluationService::class)->evaluate($loanApp);
 
-        // 3 late payments → payment score = max(0, 30 - 15) = 15
-        // With no docs, no savings, and good DTI: dtiScore=40, payment=15, doc=0, savings=0 → total=55 → Medium
+        // 3 late payments → payment score = max(0, 35 - 3*10) = 5
+        // With no docs, no savings, and good DTI: dtiScore=45, payment=5, doc=0, savings=0 → total=50 → Medium
         // We just verify the payment score is computed correctly
-        $this->assertEquals(15, $result['details']['payment_score']);
+        $this->assertEquals(5, $result['details']['payment_score']);
     }
 }
