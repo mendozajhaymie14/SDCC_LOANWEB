@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Carbon\Carbon;
 use App\Support\LoanStatus;
 use App\Services\CreditLimitService;
 
@@ -161,12 +162,20 @@ class CoopMember extends Model
         $memberEmail = $member->email ? strtolower(trim($member->email)) : null;
 
         return (float) LoanApplication::where(function ($q) use ($member, $memberEmail) {
-            $q->where('user_id', $member->user_id);
-            if ($memberEmail) {
-                $q->orWhere(function ($q2) use ($memberEmail) {
-                    $q2->whereNull('user_id')
-                        ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
-                });
+            if ($member->user_id) {
+                $q->where('user_id', $member->user_id);
+                if ($memberEmail) {
+                    $q->orWhere(function ($q2) use ($memberEmail) {
+                        $q2->whereNull('user_id')
+                            ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
+                    });
+                }
+            } else {
+                // Portal-less member: identified by email only. A bare
+                // `user_id IS NULL` clause sweeps in every other
+                // portal-less member's loans.
+                $q->whereNull('user_id')
+                    ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail ?? '']);
             }
         })->where('status', LoanStatus::APPROVED)->sum('remaining_balance');
     }
@@ -182,12 +191,20 @@ class CoopMember extends Model
         $memberEmail = $member->email ? strtolower(trim($member->email)) : null;
 
         $loans = LoanApplication::where(function ($q) use ($member, $memberEmail) {
-            $q->where('user_id', $member->user_id);
-            if ($memberEmail) {
-                $q->orWhere(function ($q2) use ($memberEmail) {
-                    $q2->whereNull('user_id')
-                        ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
-                });
+            if ($member->user_id) {
+                $q->where('user_id', $member->user_id);
+                if ($memberEmail) {
+                    $q->orWhere(function ($q2) use ($memberEmail) {
+                        $q2->whereNull('user_id')
+                            ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
+                    });
+                }
+            } else {
+                // Portal-less member: identified by email only. A bare
+                // `user_id IS NULL` clause sweeps in every other
+                // portal-less member's loans.
+                $q->whereNull('user_id')
+                    ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail ?? '']);
             }
         })->where('status', LoanStatus::APPROVED)->get();
 
@@ -246,15 +263,56 @@ class CoopMember extends Model
     }
 
     /**
-     * Monthly used: sum of the ORIGINAL monthly payment (loan accessor; never
-     * re-amortized) of this member's approved, not-yet-paid loans.
+     * Monthly used: sum of the AMOUNT (principal) of this member's loans
+     * APPROVED during the CURRENT calendar month (Asia/Manila). Resets on
+     * the 1st. Pending/rejected never count; paid-off status is irrelevant.
      *
      * Scoping: portal members use user_id (with an email fallback for legacy
      * staff-encoded loans where user_id is null). Portal-less members
      * (user_id is null) are scoped by email ONLY, so two portal-less members
-     * can never count each other's loans.
+     * can never count each other's loans. A member with neither user_id nor
+     * email scopes to zero loans.
      */
     public function monthlyUsed(): float
+    {
+        if (!$this->user_id && !$this->email) {
+            return 0.0;
+        }
+
+        $now = Carbon::now('Asia/Manila');
+        $start = $now->copy()->startOfMonth()->setTimezone('UTC');
+        $end   = $now->copy()->endOfMonth()->setTimezone('UTC');
+
+        $query = LoanApplication::where('status', LoanStatus::APPROVED)
+            ->whereNotNull('reviewed_at')
+            ->whereBetween('reviewed_at', [$start, $end])
+            ->where(function ($q) {
+                // group: user_id OR email fallback, always scoped by status=approved
+                if ($this->user_id) {
+                    $q->where('user_id', $this->user_id);
+                    if ($this->email) {
+                        $q->orWhere(fn ($q2) => $q2->whereNull('user_id')
+                            ->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]));
+                    }
+                } elseif ($this->email) {
+                    $q->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
+                }
+            });
+
+        return (float) $query->sum('amount');
+    }
+
+    /**
+     * Sum of the ORIGINAL monthly payment (loan accessor; never
+     * re-amortized) of this member's approved, not-yet-paid loans.
+     *
+     * This is the old EMI-based "monthly used" figure, kept ONLY for the
+     * DTI ratio in LoanEvaluationService — it is NOT the monthly allowance
+     * consumed by approvals (see monthlyUsed()).
+     *
+     * Scoping: same user_id + email fallback as monthlyUsed().
+     */
+    public function monthlyPaymentsActive(): float
     {
         $query = LoanApplication::where('status', LoanStatus::APPROVED)->where(function ($q) {
             // group: user_id OR email fallback, always scoped by status=approved
@@ -282,6 +340,38 @@ class CoopMember extends Model
     }
 
     /**
+     * OTHER pending loans: [count, sum of AMOUNT (principal)]. Pending loans
+     * are not yet in monthlyUsed() — this is what approving them would add.
+     * Same user_id/email scoping as monthlyUsed(); excludes $exceptLoanId
+     * so an application's own pending loan does not warn about itself.
+     *
+     * @return array{0: int, 1: float}
+     */
+    public function otherPendingLoans(?int $exceptLoanId = null): array
+    {
+        $query = LoanApplication::where('status', LoanStatus::PENDING)->where(function ($q) {
+            // group: user_id OR email fallback, always scoped by status=pending
+            if ($this->user_id) {
+                $q->where('user_id', $this->user_id);
+                if ($this->email) {
+                    $q->orWhere(fn ($q2) => $q2->whereNull('user_id')
+                        ->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]));
+                }
+            } elseif ($this->email) {
+                $q->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
+            }
+        });
+
+        if ($exceptLoanId) {
+            $query->where('id', '!=', $exceptLoanId);
+        }
+
+        $loans = $query->get();
+
+        return [$loans->count(), $loans->sum(fn ($l) => (float) $l->amount)];
+    }
+
+    /**
      * Monthly available = max(0, monthly_capacity - monthly_used).
      * Returns null when capacity is null; never returns a negative number.
      */
@@ -293,23 +383,6 @@ class CoopMember extends Model
         }
 
         return max(0, $capacity - $this->monthlyUsed());
-    }
-
-    /**
-     * Max requestable principal for a term, given current monthly available.
-     *
-     * Null when capacity is not assessed (null income) or no capacity left (0).
-     * Uses the shared CreditLimitService::maxRequestablePrincipal() so every
-     * gate (member form, staff encode, approve, evaluation) agrees.
-     */
-    public function maxRequestablePrincipal(int $termMonths): ?float
-    {
-        $available = $this->monthlyAvailable();
-        if ($available === null || $available <= 0) {
-            return null;
-        }
-
-        return app(\App\Services\CreditLimitService::class)->maxRequestablePrincipal($available, $termMonths);
     }
 
     /**

@@ -94,12 +94,12 @@
           <tbody>
             @forelse($applications as $app)
   <tr data-status="{{ strtolower($app->status) }}" data-app-id="{{ $app->app_id }}">
-    <td class="td-mono">#{{ $app->app_id }}</td>
+    <td class="td-num">#{{ $app->app_id }}</td>
     <td class="applicant-name">{{ $app->loanApplication?->fullName() ?? $app->applicant ?? 'Applicant' }}</td>
     <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
-    <td>₱{{ number_format($app->amount, 2) }}</td>
-    <td>₱{{ number_format($app->recommended_amount, 2) }}</td>
-    <td class="td-mono">
+    <td class="num">{{ \App\Support\Format::money($app->amount) }}</td>
+    <td class="num">{{ \App\Support\Format::money($app->recommended_amount) }}</td>
+    <td class="td-num">
       <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
         {{ ucfirst($app->risk_level ?? 'None') }}
       </span>
@@ -109,12 +109,12 @@
         {{ ucfirst($app->status) }}
       </span>
     </td>
-    <td class="td-mono">
+    <td class="td-num">
       @php
         $score = $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null);
         $aiColor = $score !== null && $score >= 51 ? 'var(--accent3)' : ($score !== null ? 'var(--red)' : 'var(--muted)');
       @endphp
-      <span style="font-weight:700; color: {{ $aiColor }}">{{ $score ?? 'N/A' }}</span>
+      <span class="num" style="font-weight:700; color: {{ $aiColor }}">{{ $score ?? 'N/A' }}</span>
     </td>
     <td class="td-date">{{ \Carbon\Carbon::parse($app->created_at)->format('M d, Y') }}</td>
     <td>

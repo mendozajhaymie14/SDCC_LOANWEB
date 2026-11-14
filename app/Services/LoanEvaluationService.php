@@ -70,7 +70,7 @@ class LoanEvaluationService
         $memberSavings      = (float) ($coopMember?->savings_balance ?? 0);
         $approvedCreditLimit = $coopMember?->approved_credit_limit !== null ? (float) $coopMember->approved_credit_limit : null;
         $isMigs              = (bool)  ($coopMember?->is_migs ?? false);
-        $monthlyUsed         = $coopMember?->monthlyUsed() ?? 0.0;
+        $monthlyUsed         = $coopMember?->monthlyPaymentsActive() ?? 0.0;
 
         $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
         $dtiLimit = (float) config('loan_evaluation.thresholds.dti_limit', 0.35);
@@ -148,9 +148,12 @@ class LoanEvaluationService
 
         // ── Cap at available credit for limit-required products when assessed ─────────────────────────────
         if ($eligible && $requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit != 0) {
-            $memberModel = CoopMember::where('user_id', $loanApp->user_id)->first();
-            $outstanding = $memberModel
-                ? CoopMember::outstandingPrincipal($memberModel)
+            // $coopMember was resolved above with the same resolution order as
+            // everywhere else (user relation → user_id → email). Re-querying by
+            // user_id here returns the FIRST portal-less member when user_id is
+            // null, charging another member's loans to this one.
+            $outstanding = $coopMember
+                ? CoopMember::outstandingPrincipal($coopMember)
                 : 0;
             $availableCredit = max(0, (float) $approvedCreditLimit - $outstanding);
             if ($availableCredit < $recommendedAmount) {
@@ -166,36 +169,34 @@ class LoanEvaluationService
             $details['limit_applied'] = true;
         }
 
-        // ── Cap at monthly available for new loans exceeding capacity ─────────────────────────────
-        // If a new loan's monthly payment exceeds the member's available capacity,
-        // cap the recommended amount. When available is 0, block with clear reason.
+        // ── Cap at monthly available (peso principal allowance) ────────────
+        // Monthly Available = max(0, monthly limit − principal approved this
+        // calendar month). A request above it is capped at exactly the
+        // available amount (no round-down); zero available blocks outright.
+        // Term/EMI play no part in this check.
         if ($eligible && $requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit != 0) {
             // coopMember resolved above via matching resolution
             $available = $coopMember?->monthlyAvailable();
-            if ($available === null) {
-                // Income not assessed — don't cap, don't reject; override decisions
-                // live in the controller (AdminController::approve), not here.
-            } elseif ($available <= 0) {
-                $recommendedAmount = 0;
-                $eligible = false;
-                $rejectionReason = sprintf(
-                    'No monthly capacity left: used ₱%s of ₱%s.',
-                    number_format($coopMember->monthlyUsed(), 2),
-                    number_format((float) $coopMember->monthlyCapacity(), 2)
-                );
-            } else {
-                $emi = $amortization->emi($recommendedAmount, $termMonths, $monthlyRate);
-                if ($emi > $available) {
-                    $capped = $this->roundDown1000(
-                        app(CreditLimitService::class)->maxRequestablePrincipal($available, $termMonths)
+            if ($available !== null) {
+                if ($available <= 0) {
+                    $recommendedAmount = 0;
+                    $eligible = false;
+                    $rejectionReason = sprintf(
+                        'No monthly credit limit left this month: used ₱%s of ₱%s.',
+                        number_format($coopMember->monthlyUsed(), 2),
+                        number_format((float) $coopMember->monthlyCapacity(), 2)
                     );
-                    $recommendedAmount = $capped;
-                    $reasons[] = sprintf('Monthly payment exceeds available capacity of ₱%s. Capped at ₱%s.',
+                } elseif ($recommendedAmount > $available) {
+                    $recommendedAmount = $available;
+                    $reasons[] = sprintf(
+                        'Requested amount exceeds this month\'s available credit of ₱%s. Capped at ₱%s.',
                         number_format($available, 2),
-                        number_format($capped, 2)
+                        number_format($available, 2)
                     );
                 }
             }
+            // Income not assessed — don't cap, don't reject; override decisions
+            // live in the controller (AdminController::approve), not here.
         }
 
         // If nothing can be affordable (for affordability-based products),
@@ -259,8 +260,17 @@ class LoanEvaluationService
             ? 'Low'
             : ($riskScore >= $riskMedium ? 'Medium' : 'High');
 
+        // Rejection reason first so it precedes any forced-risk reason.
+        if ($rejectionReason) {
+            $reasons[] = $rejectionReason;
+        }
+
         // Hard overrides: limit-required product with missing/zero limit => High
-        if ($requiresLimit && $approvedCreditLimit === null) {
+        if ($coopMember && $coopMember->monthlyCapacity() !== null
+                && $coopMember->monthlyAvailable() !== null && $coopMember->monthlyAvailable() <= 0) {
+            $riskLevel = 'High';
+            $reasons[] = 'Risk forced to High: no monthly credit limit left this month.';
+        } elseif ($requiresLimit && $approvedCreditLimit === null) {
             $riskLevel = 'High';
             $reasons[] = 'Credit limit not assessed. Please contact the cooperative office; risk forced to High.';
         } elseif ($requiresLimit && $approvedCreditLimit !== null && $approvedCreditLimit == 0) {
@@ -289,9 +299,6 @@ class LoanEvaluationService
         }
 
         // ── Build plain-language reasons ─────────────────────────────────
-        if ($rejectionReason) {
-            $reasons[] = $rejectionReason;
-        }
         if (!$hasDocs) {
             $reasons[] = 'No supporting documents uploaded.';
         }

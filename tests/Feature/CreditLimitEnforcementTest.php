@@ -53,6 +53,38 @@ class CreditLimitEnforcementTest extends TestCase
         return $member->fresh();
     }
 
+    /** Portal-less member (no User account) — matched by email only. */
+    private function createPortalLessMember(array $overrides = []): CoopMember
+    {
+        $member = CoopMember::factory()->create(array_merge([
+            'user_id'                  => null,
+            'email'                    => 'portal-less@example.com',
+            'status'                   => CoopMember::STATUS_ACTIVE,
+            'monthly_income'           => 30000,
+            'existing_monthly_obligations' => 0,
+            'savings_balance'          => 0,
+            'approved_credit_limit'    => 5000,
+            'is_migs'                  => false,
+        ], $overrides));
+
+        return $member->fresh();
+    }
+
+    /** Staff-encoded loan: user_id null, email matches the portal-less member. */
+    private function createStaffEncodedLoanApp(CoopMember $member, array $overrides = []): LoanApplication
+    {
+        return LoanApplication::factory()->create(array_merge([
+            'user_id'                        => null,
+            'email'                          => $member->email,
+            'loan_type'                      => 'regular',
+            'amount'                         => 20000,
+            'term_months'                    => 36,
+            'monthly_income'                 => (float) $member->monthly_income,
+            'existing_monthly_obligations'   => (float) $member->existing_monthly_obligations,
+            'status'                         => 'pending',
+        ], $overrides));
+    }
+
     private function createLoanApp(CoopMember $member, array $overrides = []): LoanApplication
     {
         return LoanApplication::factory()->create(array_merge([
@@ -69,7 +101,13 @@ class CreditLimitEnforcementTest extends TestCase
     /** @test */
     public function member_submission_above_available_credit_is_rejected()
     {
-        $member = $this->createMember(['approved_credit_limit' => 10000]);
+        // Manual monthly limit high enough that the MONTHLY gate passes and
+        // the available-credit gate is what this test exercises.
+        $member = $this->createMember([
+            'approved_credit_limit'         => 10000,
+            'approved_monthly_credit_limit' => 100000,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
 
         $user = $member->user;
         $this->actingAs($user)
@@ -148,7 +186,13 @@ class CreditLimitEnforcementTest extends TestCase
     /** @test */
     public function outstanding_balance_reduces_available_credit()
     {
-        $member = $this->createMember(['approved_credit_limit' => 100000]);
+        // Manual monthly limit high enough that the MONTHLY gate passes and
+        // the available-credit gate is what this test exercises.
+        $member = $this->createMember([
+            'approved_credit_limit'         => 100000,
+            'approved_monthly_credit_limit' => 100000,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
         $loanApp = $this->createLoanApp($member, ['amount' => 80000, 'status' => 'approved']);
         $loanApp->status = LoanStatus::APPROVED;
         $loanApp->save();
@@ -426,5 +470,176 @@ class CreditLimitEnforcementTest extends TestCase
         // With no docs, no savings, and good DTI: dtiScore=45, payment=5, doc=0, savings=0 → total=50 → Medium
         // We just verify the payment score is computed correctly
         $this->assertEquals(5, $result['details']['payment_score']);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Bug 2: Approve gate skips staff-encoded loans for portal-less members.
+    // $loanApp->user?->coopMember fails when user_id is null, so both credit
+    // gates are silently skipped. Fix: use CoopMember::forLoanApplication().
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function approve_staff_encoded_loan_for_portal_less_member_blocked_above_available_credit()
+    {
+        // Portal-less member with low credit limit
+        $member = $this->createPortalLessMember([
+            'approved_credit_limit' => 5000, // available = 5000
+        ]);
+
+        // Staff-encoded loan: user_id null, email matches member
+        $loanApp = $this->createStaffEncodedLoanApp($member, ['amount' => 20000]);
+
+        $application = Application::create([
+            'loan_application_id' => $loanApp->id,
+            'app_id'              => 'APP-0099',
+            'applicant'           => $loanApp->full_name,
+            'loan_type'           => $loanApp->loan_type,
+            'amount'              => $loanApp->amount,
+            'status'              => 'Pending',
+            'recommended_amount'  => 20000,
+            'risk_level'          => 'Low',
+            'risk_score'          => 80,
+        ]);
+
+        // Loan officer has APPROVE_LOANS but NOT OVERRIDE_CREDIT_LIMIT
+        $loanOfficer = User::factory()->create(['usertype' => 'loan_officer']);
+        $this->assertTrue(Permissions::has($loanOfficer, Permissions::APPROVE_LOANS));
+        $this->assertFalse(Permissions::has($loanOfficer, Permissions::OVERRIDE_CREDIT_LIMIT));
+
+        // Approve 20000 > available 5000 → blocked
+        $response = $this->actingAs($loanOfficer)
+            ->postJson(route('applications.approve', $application->id), [
+                'approved_amount' => 20000,
+                'reason'          => 'No override permission',
+            ]);
+
+        $response->assertStatus(400);
+        $response->assertJson(['success' => false]);
+        $content = json_decode($response->getContent(), true);
+        $this->assertStringContainsString('exceeds available credit', $content['message']);
+    }
+
+    /** @test */
+    public function approve_staff_encoded_loan_for_portal_less_member_allowed_with_override_and_audit()
+    {
+        $member = $this->createPortalLessMember([
+            'approved_credit_limit' => 5000,
+        ]);
+
+        $loanApp = $this->createStaffEncodedLoanApp($member, ['amount' => 20000]);
+
+        $application = Application::create([
+            'loan_application_id' => $loanApp->id,
+            'app_id'              => 'APP-0100',
+            'applicant'           => $loanApp->full_name,
+            'loan_type'           => $loanApp->loan_type,
+            'amount'              => $loanApp->amount,
+            'status'              => 'Pending',
+            'recommended_amount'  => 20000,
+            'risk_level'          => 'Low',
+            'risk_score'          => 80,
+        ]);
+
+        // Branch Manager has OVERRIDE_CREDIT_LIMIT
+        $branchManager = User::factory()->asBranchManager()->create();
+        $this->assertTrue(Permissions::has($branchManager, Permissions::OVERRIDE_CREDIT_LIMIT));
+
+        $response = $this->actingAs($branchManager)
+            ->postJson(route('applications.approve', $application->id), [
+                'approved_amount' => 20000,
+                'reason'          => 'Exceptional payment history',
+            ]);
+
+        $response->assertJson(['success' => true]);
+
+        // AuditLog 'Credit Limit Override' entry written
+        $this->assertDatabaseHas('audit_logs', [
+            'action'   => 'Credit Limit Override',
+            'details'  => 'Application APP-0100: approved 20000.00 above available credit 5000.00. Override permitted. Reason: Exceptional payment history',
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Bug 3: LoanEvaluationService reads the wrong member's outstanding
+    // credit. Line ~151 did CoopMember::where('user_id', $loanApp->user_id)
+    // ->first(); with user_id null that's user_id IS NULL → first portal-less
+    // member, not the member evaluate() already resolved.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function evaluation_uses_correct_portal_less_members_outstanding_credit()
+    {
+        $memberA = $this->createPortalLessMember([
+            'email'                 => 'portal-a@example.com',
+            'approved_credit_limit' => 100000,
+        ]);
+        $memberB = $this->createPortalLessMember([
+            'email'                 => 'portal-b@example.com',
+            'approved_credit_limit' => 100000,
+        ]);
+
+        // Different outstanding loans: A owes 80000, B owes 10000.
+        $this->createStaffEncodedLoanApp($memberA, ['amount' => 80000, 'status' => 'approved']);
+        $this->createStaffEncodedLoanApp($memberB, ['amount' => 10000, 'status' => 'approved']);
+
+        // New pending loan for member B (user_id null, email matches B).
+        $loanApp = $this->createStaffEncodedLoanApp($memberB, [
+            'amount'      => 100000,
+            'term_months' => 12,
+            'status'      => 'pending',
+        ]);
+
+        $result = app(LoanEvaluationService::class)->evaluate($loanApp);
+
+        // Must use B's outstanding principal (10000), not A's (80000).
+        $this->assertEquals(10000, $result['details']['outstanding']);
+        // Consequence: available credit 90000 — NOT 10000 (which A's balance
+        // would cause). The monthly allowance (10500) now caps below that,
+        // so the recommendation lands exactly on Monthly Available.
+        $this->assertEquals(10500, $result['recommended_amount']);
+        $this->assertTrue(collect($result['evaluation_reasons'])->contains(
+            fn ($r) => str_contains($r, 'this month\'s available credit')
+        ));
+    }
+
+    /** @test */
+    public function approve_staff_encoded_loan_for_portal_less_member_blocked_above_monthly_capacity()
+    {
+        // Portal-less member with income 30000, obligations 0 → monthly capacity 10500
+        // Request 400000 → exceeds the monthly allowance gate
+        $member = $this->createPortalLessMember([
+            'monthly_income'           => 30000,
+            'existing_monthly_obligations' => 0,
+            'approved_credit_limit'    => 1000000, // large credit limit
+        ]);
+
+        $loanApp = $this->createStaffEncodedLoanApp($member, ['amount' => 400000]);
+
+        $application = Application::create([
+            'loan_application_id' => $loanApp->id,
+            'app_id'              => 'APP-0101',
+            'applicant'           => $loanApp->full_name,
+            'loan_type'           => $loanApp->loan_type,
+            'amount'              => $loanApp->amount,
+            'status'              => 'Pending',
+            'recommended_amount'  => 400000,
+            'risk_level'          => 'Low',
+            'risk_score'          => 80,
+        ]);
+
+        $loanOfficer = User::factory()->create(['usertype' => 'loan_officer']);
+        $this->assertFalse(Permissions::has($loanOfficer, Permissions::OVERRIDE_CREDIT_LIMIT));
+
+        // 400000 > monthly available 10500 → blocked by monthly gate
+        $response = $this->actingAs($loanOfficer)
+            ->postJson(route('applications.approve', $application->id), [
+                'approved_amount' => 400000,
+                'reason'          => 'No override permission',
+            ]);
+
+        $response->assertStatus(400);
+        $response->assertJson(['success' => false]);
+        $content = json_decode($response->getContent(), true);
+        $this->assertStringContainsString('exceeds the monthly credit limit', $content['message']);
     }
 }

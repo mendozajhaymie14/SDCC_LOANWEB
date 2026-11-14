@@ -25,6 +25,9 @@ class ConsentTest extends TestCase
             'is_migs'       => false,
             'status'        => CoopMember::STATUS_ACTIVE,
             'monthly_income' => 20000,
+            // Monthly allowance ≥ 10,000 request so monthly gate passes
+            'approved_monthly_credit_limit' => 20000,
+            'monthly_credit_limit_source' => 'manual',
         ]);
 
         // Link the CoopMember back to the User so isActiveCoopMember() passes.
@@ -115,6 +118,9 @@ class ConsentTest extends TestCase
             'share_capital' => 30000,
             'savings_balance' => 20000,
             'approved_credit_limit' => 50000,
+            // Monthly allowance ≥ 10,000 request so monthly gate passes
+            'approved_monthly_credit_limit' => 50000,
+            'monthly_credit_limit_source' => 'manual',
             'address'      => '12 Rizal St, Brgy.centro',
             'occupation'   => 'Farmer',
         ]);
@@ -159,6 +165,9 @@ class ConsentTest extends TestCase
             'share_capital' => 30000,
             'savings_balance' => 20000,
             'approved_credit_limit' => 50000,
+            // Monthly allowance ≥ 10,000 request so monthly gate passes
+            'approved_monthly_credit_limit' => 50000,
+            'monthly_credit_limit_source' => 'manual',
             'address'      => '12 Rizal St, Brgy.centro',
             'occupation'   => 'Farmer',
         ]);

@@ -903,10 +903,11 @@ tbody tr:last-child { border-bottom: none; }
 tbody tr:hover { background: rgba(2, 132, 199, 0.04); }
 tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
 
-.td-mono {
+.td-num {
   font-family: 'DM Sans', sans-serif;
   font-size: 0.78rem;
   color: var(--muted2);
+  font-variant-numeric: tabular-nums;
 }
 
 .num {

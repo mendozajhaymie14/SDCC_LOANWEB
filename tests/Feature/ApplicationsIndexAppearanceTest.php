@@ -40,6 +40,9 @@ class ApplicationsIndexAppearanceTest extends TestCase
             'share_capital'    => 30000,
             'savings_balance'  => 20000,
             'approved_credit_limit' => 50000,
+            // Monthly allowance ≥ 20,000 encode amount so the monthly gate passes
+            'approved_monthly_credit_limit' => 50000,
+            'monthly_credit_limit_source' => 'manual',
             'address'          => '12 Rizal St',
             'occupation'       => 'Farmer',
         ], [

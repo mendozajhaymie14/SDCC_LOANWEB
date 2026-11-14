@@ -37,6 +37,10 @@ class BugRegressionTest extends TestCase
             'existing_monthly_obligations' => 0,
             'savings_balance' => 20000,
             'approved_credit_limit' => 50000,
+            // Stored monthly allowance above the 20,000 encode amount;
+            // without it the monthly gate blocks the encode.
+            'approved_monthly_credit_limit' => 50000,
+            'monthly_credit_limit_source' => 'manual',
             'address' => '12 Rizal St',
             'occupation' => 'Farmer',
         ], [

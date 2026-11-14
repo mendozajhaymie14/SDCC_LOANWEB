@@ -61,6 +61,7 @@ class ReminderTest extends TestCase
             'user_id'         => $member->id,
             'share_capital'   => 30000,
             'is_migs'         => false,
+            'monthly_income'  => 20000,
         ]);
 
         return LoanApplication::factory()->create([
@@ -226,6 +227,7 @@ class ReminderTest extends TestCase
             'user_id'       => $member->id,
             'share_capital' => 30000,
             'is_migs'       => false,
+            'monthly_income' => 20000,
         ]);
 
         return LoanApplication::factory()->create([

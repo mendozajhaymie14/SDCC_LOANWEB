@@ -201,9 +201,9 @@
                 <td class="font-semibold text-gray-700">#{{ $app->app_id }}</td>
                 <td><strong>{{ $app->loanApplication?->user->name ?? $app->applicant ?? 'Applicant' }}</strong></td>
                 <td><span class="loan-type-tag">{{ $app->loan_type ?? 'educational' }}</span></td>
-                <td>₱{{ number_format($app->amount, 2) }}</td>
-                <td>₱{{ number_format($app->recommended_amount ?? 0, 2) }}</td>
-                <td class="td-mono">
+                <td class="num">{{ \App\Support\Format::money($app->amount) }}</td>
+                <td class="num">{{ \App\Support\Format::money($app->recommended_amount ?? 0) }}</td>
+                <td class="td-num">
                   <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
                     {{ ucfirst($app->risk_level ?? 'None') }}
                   </span>
@@ -213,7 +213,7 @@
                         <span class="status-dot"></span>{{ ucfirst($app->status ?? 'pending') }}
                     </span>
                 </td>
-                <td class="td-mono">
+                <td class="td-num">
                   @php
                     $score = $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null);
                     if ($score !== null && $score >= 80) {
@@ -226,7 +226,7 @@
                         $badgeStyle = 'background-color: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db;';
                     }
                   @endphp
-                  <span class="px-2.5 py-1 text-xs font-bold rounded-full" style="{{ $badgeStyle }} padding: 0.2rem 0.6rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; display: inline-block;">
+                  <span class="num px-2.5 py-1 text-xs font-bold rounded-full" style="{{ $badgeStyle }} padding: 0.2rem 0.6rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; display: inline-block;">
                       {{ $score ?? 'N/A' }}
                   </span>
                 </td>
@@ -399,12 +399,12 @@
                 ];
             @endphp
             <tr data-status="{{ strtolower($app->status) }}">
-              <td class="td-mono">#{{ $app->app_id }}</td>
+              <td class="td-num">#{{ $app->app_id }}</td>
               <td><strong>{{ $app->loanApplication?->user->name ?? $app->applicant }}</strong></td>
               <td><span class="loan-type-tag">{{ $app->loan_type_label ?? $app->loan_type }}</span></td>
               <td>₱{{ number_format($app->amount, 2) }}</td>
               <td>₱{{ number_format($app->recommended_amount ?? 0, 2) }}</td>
-              <td class="td-mono">
+              <td class="td-num">
                 <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
                   {{ ucfirst($app->risk_level ?? 'None') }}
                 </span>
@@ -414,7 +414,7 @@
                   <span class="status-dot"></span>{{ ucfirst($app->status) }}
                 </span>
               </td>
-              <td class="td-mono">{{ $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null) ?? 'N/A' }}</td>
+              <td class="td-num">{{ $app->risk_score ?? ($app->loanApplication ? $app->loanApplication->risk_score : null) ?? 'N/A' }}</td>
               <td>{{ $app->created_at?->format('M d') ?? '—' }}</td>
               <td>
                 <button class="btn-review" type="button" onclick="openApplicationModal({{ json_encode($formattedApp) }})">View</button>

@@ -99,13 +99,13 @@
             @forelse($loans as $loan)
               @php $mirror = $mirrors->get($loan->id); @endphp
               <tr>
-                <td class="td-mono">{{ $mirror->app_id ?? '—' }}</td>
-                <td class="td-mono">{{ \App\Support\Format::money($loan->amount) }}</td>
+                <td class="td-num">{{ $mirror->app_id ?? '—' }}</td>
+                <td class="td-num">{{ \App\Support\Format::money($loan->amount) }}</td>
                 <td>{{ $loan->term_months }} mo</td>
                 <td><span class="status-pill">{{ $loan->getStatusLabelAttribute() }}</span></td>
-                <td class="td-mono">{{ $loan->recommended_amount > 0 ? \App\Support\Format::money($loan->recommended_amount) : '—' }}</td>
+                <td class="td-num">{{ $loan->recommended_amount > 0 ? \App\Support\Format::money($loan->recommended_amount) : '—' }}</td>
                 <td>{{ $loan->risk_level }}</td>
-                <td class="td-mono">{{ \App\Support\Format::money($loan->remaining_balance) }}</td>
+                <td class="td-num">{{ \App\Support\Format::money($loan->remaining_balance) }}</td>
                 <td>{{ \App\Support\Format::date($loan->next_due_date) }}</td>
                 <td>
                   @if($mirror)
@@ -130,9 +130,9 @@
           <tbody>
             @foreach($overdue as $loan)
               <tr>
-                <td class="td-mono">{{ $mirrors->get($loan->id)?->app_id ?? '—' }}</td>
-                <td class="td-mono">{{ \App\Support\Format::money($loan->amount) }}</td>
-                <td class="td-mono">{{ \App\Support\Format::money($loan->remaining_balance) }}</td>
+                <td class="td-num">{{ $mirrors->get($loan->id)?->app_id ?? '—' }}</td>
+                <td class="td-num">{{ \App\Support\Format::money($loan->amount) }}</td>
+                <td class="td-num">{{ \App\Support\Format::money($loan->remaining_balance) }}</td>
                 <td>{{ \App\Support\Format::date($loan->next_due_date) }}</td>
               </tr>
             @endforeach
@@ -150,8 +150,8 @@
           <tbody>
             @forelse($payments as $p)
               <tr>
-                <td class="td-mono">{{ $mirrors->get($p->loan_application_id)?->app_id ?? '—' }}</td>
-                <td class="td-mono">{{ \App\Support\Format::money($p->amount_paid) }}</td>
+                <td class="td-num">{{ $mirrors->get($p->loan_application_id)?->app_id ?? '—' }}</td>
+                <td class="td-num">{{ \App\Support\Format::money($p->amount_paid) }}</td>
                 <td>{{ \App\Support\Format::date($p->payment_date) }}</td>
                 <td>{{ $p->payment_method }}</td>
               </tr>

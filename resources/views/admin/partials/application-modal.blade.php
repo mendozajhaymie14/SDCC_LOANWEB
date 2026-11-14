@@ -117,6 +117,8 @@ window.renderApplicationModal = function (app) {
     const scanNote      = app.ai_analysis_note || app.ai_notes || app.ai_analysis_notes || null;
     const docStatus     = (app.document_processing_status || 'pending').toLowerCase();
     const lastScan      = app.last_scanned_at || app.last_scan_at || app.scanned_at || null;
+    const pendingCount       = app.pending_loans_count ?? 0;
+    const pendingMonthlyTotal = app.pending_loans_monthly_total ?? 0;
     let docStatusLabel  = 'Pending scan';
     if (docs.length === 0) docStatusLabel = 'No documents';
     else if (docStatus === 'completed') docStatusLabel = 'Verified';
@@ -184,13 +186,13 @@ window.renderApplicationModal = function (app) {
     const monthlyCapacity = app.monthly_capacity ?? null;
     const monthlyUsed = app.monthly_used ?? 0;
     const monthlyAvailable = app.monthly_available ?? null;
-    const maxForTerm = app.max_for_term ?? null;
+    const monthlyMax12 = app.monthly_max_12 ?? null;
     const totalCreditLimit = app.total_credit_limit ?? null;
     const availableCreditTotal = app.available_credit_total ?? null;
+    const pendingLoansTotal = app.pending_loans_total ?? 0;
 
     // Check if monthly_capacity is a fallback (suggested) vs truly assessed
     const isCapacitySuggested = monthlyCapacity !== null && app.monthly_capacity_source === 'auto';
-    const isCapacityAssessed = monthlyCapacity !== null && app.monthly_capacity_source !== 'auto';
 
     const rowHtml = (label, value, extra = '') => `
         <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
@@ -199,20 +201,21 @@ window.renderApplicationModal = function (app) {
         </div>`;
 
     const creditLimitHtml = `
-        ${rowHtml('Monthly Credit Limit', monthlyCapacity !== null ? '<span class="num">' + fmtMoney(monthlyCapacity) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>', isCapacitySuggested ? '<span style="font-size:.75rem;color:var(--muted);margin-left:.4rem;">(suggested)</span>' : '')}
         ${rowHtml('Monthly Used', '<span class="num">' + fmtMoney(monthlyUsed) + '</span>')}
-        ${rowHtml('Monthly Available', monthlyAvailable !== null ? '<span class="num" style="color:var(--success);font-weight:700;">' + fmtMoney(monthlyAvailable) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
-        ${rowHtml('Max for ' + termMonths + ' months', maxForTerm !== null ? '<span class="num">' + fmtMoney(maxForTerm) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${rowHtml('Monthly Available', monthlyAvailable !== null ? '<span class="num" style="color:var(--success);">' + fmtMoney(monthlyAvailable) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${monthlyCapacity !== null && monthlyAvailable !== null ? '<div style="padding:.2rem 0;font-size:.75rem;color:var(--muted);">This month: <span class="num">' + fmtMoney(monthlyUsed) + '</span> approved of <span class="num">' + fmtMoney(monthlyCapacity) + '</span> limit' + (isCapacitySuggested ? ' (suggested)' : '') + '</div>' : ''}
+        ${rowHtml('Max for 12 months', monthlyMax12 !== null ? '<span class="num">' + fmtMoney(monthlyMax12) + '</span>' : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${totalCreditLimit !== null ? '<div style="display:flex;justify-content:space-between;padding:.4rem 0;font-size:.78rem;color:var(--muted);"><span>Total credit limit <span class="num">' + fmtMoney(totalCreditLimit) + '</span> · Available credit <span class="num">' + fmtMoney(availableCreditTotal ?? 0) + '</span></span></div>' : ''}
+        ${pendingCount > 0 ? '<div style="padding:.4rem 0;font-size:.8rem;color:var(--muted);">Member has ' + pendingCount + ' other pending loan(s) totalling <span class="num">' + fmtMoney(pendingLoansTotal) + '</span>.</div>' : ''}
     `;
 
     bodyEl.innerHTML =
         row('Applicant', applicantName) +
         row('Loan Type', loanType) +
-        row('Requested Amount', '<span style="font-family:monospace;">' + fmtMoney(amount) + '</span>') +
-        row('Recommended Amount', '<span style="font-family:monospace;">' + fmtMoney(recommended) + '</span>') +
+        row('Requested Amount', '<span class="num">' + fmtMoney(amount) + '</span>') +
+        row('Recommended Amount', '<span class="num">' + fmtMoney(recommended) + '</span>') +
         row('Risk', '<span class="risk-badge risk-badge-' + riskLevel + '" style="padding:0.2rem 0.6rem;border-radius:9999px;font-size:0.78rem;font-weight:700;">' + riskLevel + '</span>') +
-        row('Score', '<span id="modalAiScore" style="font-family:monospace;color:' + scoreC + ';font-weight:700;">' + (score != null ? score : 'N/A') + '</span>') +
+        row('Score', '<span id="modalAiScore" class="num" style="color:' + scoreC + ';">' + (score != null ? score : 'N/A') + '</span>') +
         row('Term', termMonths + ' months') +
         creditLimitHtml +
         '<div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">' +
@@ -254,7 +257,7 @@ function modalActionSection(appId, recommendedAmount) {
             '<h4 style="margin:0 0 .5rem;font-size:.9rem;font-weight:600;">Approve Application</h4>' +
             '<div style="margin-bottom:.5rem;">' +
                 '<label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Approved Amount</label>' +
-                '<input type="number" id="approvedAmount" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;" value="' + (Number(String(recommendedAmount).replace(/[₱,]/g, '')) || 0) + '" />' +
+                '<input type="number" id="approvedAmount" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;" value="' + (Number(String(recommendedAmount).replace(/[₱,]/g, '')) || 0) + '" />' +
             '</div>' +
             '<div style="margin-bottom:.5rem;">' +
             (p.override ? '<div style="margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
@@ -583,7 +586,7 @@ window.triggerAiScan = function (id) {
             /* Update table row score if visible */
             var tableRow = document.querySelector('tr[data-app-id="' + id + '"]');
             if (tableRow) {
-                var scoreCells = tableRow.querySelectorAll('td.td-mono');
+                var scoreCells = tableRow.querySelectorAll('td.td-num');
                 if (scoreCells.length > 0) {
                     var lastCell = scoreCells[scoreCells.length - 1];
                     lastCell.innerHTML = '<span style="font-weight:700;color:' + (score != null ? scoreColor(score) : 'var(--muted)') + '">' + (score != null ? score : 'N/A') + '</span>';

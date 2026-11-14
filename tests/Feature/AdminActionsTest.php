@@ -24,6 +24,7 @@ class AdminActionsTest extends TestCase
         CoopMember::factory()->create([
             'user_id' => $member->id,
             'share_capital' => 30000,
+            'monthly_income' => 20000,
         ]);
 
         $loanApp = LoanApplication::factory()->create([

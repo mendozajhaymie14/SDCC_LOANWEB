@@ -17,17 +17,17 @@
             </div>
             <div style="background-color: #e2e8f0; border: 1px solid #cbd5e1; padding: 0.5rem 1rem; border-radius: 8px; text-align: center;">
                 <span style="font-size: 0.7rem; color: #4a5568; display: block; text-transform: uppercase;">Amount</span>
-                <span style="font-size: 1.25rem; font-weight: 700; color: #1e293b;">{{ '₱' . number_format($application->amount, 2) }}</span>
+                <span class="num" style="font-size: 1.25rem; font-weight: 700; color: #1e293b;">{{ \App\Support\Format::money($application->amount) }}</span>
             </div>
             <div style="background-color: #e2e8f0; border: 1px solid #cbd5e1; padding: 0.5rem 1rem; border-radius: 8px; text-align: center;">
                 <span style="font-size: 0.7rem; color: #4a5568; display: block; text-transform: uppercase;">Recommended Amount & Risk (Rule-Based)</span>
-                <span style="font-size: 1.25rem; font-weight: 700; color: #1e293b;">{{ $application->ai_score }}/100</span>
+                <span class="num" style="font-size: 1.25rem; font-weight: 700; color: #1e293b;">{{ $application->ai_score }}/100</span>
             </div>
         </div>
     </div>
 
     <!-- Application Details Card -->
-    <div style="background: #ffffff; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); padding: 1.25rem;">
+    <div id="appDetailCard" style="background: #ffffff; border-radius: 12px; border: 1px solid #eaecf0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); padding: 1.25rem;">
         <div style="font-size: 0.875rem; color: #4a5568; margin-bottom: 1rem;">
             <strong>Applicant:</strong> {{ $application->applicant }}
         </div>
@@ -37,7 +37,7 @@
         </div>
 
         <div style="margin-bottom: 1rem;">
-            <strong>Requested Amount:</strong> {{ '₱' . number_format($application->amount, 2) }}
+            <strong>Requested Amount:</strong> <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($application->amount) }}</span>
         </div>
 
         @php
@@ -48,7 +48,6 @@
             $monthlyCapacity = $coopMember ? $coopMember->monthlyCapacity() : null;
             $monthlyUsed = $coopMember ? $coopMember->monthlyUsed() : 0;
             $monthlyAvailable = $coopMember ? $coopMember->monthlyAvailable() : null;
-            $maxForTerm = $coopMember ? $coopMember->maxRequestablePrincipal($application->term_months ?? 12) : null;
             $approvedLimit = $coopMember ? $coopMember->approved_credit_limit : null;
             $outstanding = $coopMember ? \App\Models\CoopMember::outstandingBalance($coopMember) : 0;
             $availableCreditTotal = $approvedLimit !== null ? (float)$approvedLimit - $outstanding : null;
@@ -56,34 +55,28 @@
         @endphp
 
         <div style="margin-bottom: 1rem;">
-            <strong>Monthly Credit Limit:</strong>
-            @if($monthlyCapacity !== null)
-                <span class="num">{{ '₱' . number_format($monthlyCapacity, 2) }}</span>
-                @if($isCapacitySuggested)
-                    <span style="font-size:.75rem;color:var(--muted);margin-left:.4rem;">(suggested)</span>
-                @endif
-            @else
-                <span style="color:var(--muted);font-style:italic;">Not assessed</span>
-            @endif
-        </div>
-
-        <div style="margin-bottom: 1rem;">
-            <strong>Monthly Used:</strong> <span class="num">{{ '₱' . number_format($monthlyUsed, 2) }}</span>
+            <strong>Monthly Used:</strong> <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($monthlyUsed) }}</span>
         </div>
 
         <div style="margin-bottom: 1rem;">
             <strong>Monthly Available:</strong>
             @if($monthlyAvailable !== null)
-                <span class="num" style="color:var(--success);font-weight:700;">{{ '₱' . number_format($monthlyAvailable, 2) }}</span>
+                <span class="num" style="color:var(--success);font-weight:600;">{{ \App\Support\Format::money($monthlyAvailable) }}</span>
             @else
                 <span style="color:var(--muted);font-style:italic;">Not assessed</span>
+            @endif
+            @if($monthlyCapacity !== null)
+                <div style="font-size:.75rem;color:var(--muted);margin-top:.2rem;">
+                    This month: <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($monthlyUsed) }}</span> approved of <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($monthlyCapacity) }}</span> limit
+                    @if($isCapacitySuggested) <span style="font-size:.75rem;color:var(--muted);">(suggested)</span> @endif
+                </div>
             @endif
         </div>
 
         <div style="margin-bottom: 1rem;">
-            <strong>Max for {{ $application->term_months ?? 12 }} months:</strong>
-            @if($maxForTerm !== null)
-                <span class="num">{{ '₱' . number_format($maxForTerm, 2) }}</span>
+            <strong>Max for 12 months:</strong>
+            @if($monthlyCapacity !== null)
+                <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($monthlyCapacity * 12) }}</span>
             @else
                 <span style="color:var(--muted);font-style:italic;">Not assessed</span>
             @endif
@@ -91,7 +84,7 @@
 
         @if($approvedLimit !== null)
         <div style="margin-bottom: 1rem; display:flex;justify-content:space-between;padding:.4rem 0;font-size:.78rem;color:var(--muted);">
-            <span>Total credit limit <span class="num">{{ '₱' . number_format($approvedLimit, 2) }}</span> · Available credit <span class="num">{{ '₱' . number_format($availableCreditTotal ?? 0, 2) }}</span></span>
+            <span>Total credit limit <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($approvedLimit) }}</span> · Available credit <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($availableCreditTotal ?? 0) }}</span></span>
         </div>
         @endif
 
@@ -112,10 +105,10 @@
             <strong>DTI Ratio:</strong> {{ isset($loanApp->debt_to_income_ratio) ? $loanApp->debt_to_income_ratio . '%' : 'N/A' }}
         </div>
         <div style="margin-bottom: 0.5rem;">
-            <strong>Document Check:</strong> {{ $application->ai_score !== null ? $application->ai_score . '/100 (Rule-Based Score)' : 'N/A' }}
+            <strong>Document Check:</strong> <span class="num" style="font-weight:600;">{{ $application->ai_score !== null ? $application->ai_score . '/100' : 'N/A' }}</span> (Rule-Based Score)
         </div>
         <div>
-            <strong>Credit Rating:</strong> {{ isset($loanApp->ai_credit_score) ? $loanApp->ai_credit_score : 'N/A' }}
+            <strong>Credit Rating:</strong> <span class="num" style="font-weight:600;">{{ isset($loanApp->ai_credit_score) ? $loanApp->ai_credit_score : 'N/A' }}</span>
         </div>
 
         {{-- Risk Evaluation Results --}}
@@ -124,21 +117,21 @@
             <strong>Loan Evaluation:</strong>
         </div>
         <div style="margin-bottom: 0.5rem;">
-            <strong>Recommended Amount:</strong> {{ '₱' . number_format($application->recommended_amount, 2) }}
+            <strong>Recommended Amount:</strong> <span class="num" style="font-weight:600;">{{ \App\Support\Format::money($application->recommended_amount) }}</span>
         </div>
         <div style="margin-bottom: 0.5rem;">
             <strong>Risk Level:</strong>
             <span style="background-color: {{ $application->risk_level === 'Low' ? '#dcfce7' : ($application->risk_level === 'Medium' ? '#fef3c7' : '#fee2e2') }}; color: {{ $application->risk_level === 'Low' ? '#15803d' : ($application->risk_level === 'Medium' ? '#92400e' : '#dc2626') }}; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">{{ ucfirst($application->risk_level) }}</span>
         </div>
         <div style="margin-bottom: 0.5rem;">
-            <strong>Risk Score:</strong> {{ $application->risk_score }}/100
+            <strong>Risk Score:</strong> <span class="num" style="font-weight:600;">{{ $application->risk_score }}/100</span>
         </div>
-        @if($application->risk_factors)
+        @if($application->reasons)
         <div style="margin-bottom: 0.5rem;">
             <strong>Risk Factors:</strong>
             <ul style="margin: 0; padding-left: 1.25rem; color: #4a5568; font-size: 0.875rem;">
-                @foreach(json_decode($application->risk_factors, true) as $factor)
-                    <li>{{ $factor['reason'] ?? $factor }}</li>
+                @foreach($application->reasons as $reason)
+                    <li>{{ $reason }}</li>
                 @endforeach
             </ul>
         </div>

@@ -101,7 +101,7 @@
                       $income = $latestBorrower?->monthly_income;
                   }
                   $monthlyIncome = ($income !== null && $income !== '' && (float) $income > 0)
-                      ? number_format((float) $income, 2)
+                      ? \App\Support\Format::money((float) $income)
                       : '';
               ?>
               <tr data-id="{{ $member->id }}"
@@ -120,7 +120,7 @@
       data-suggestion="{{ $suggestions[$member->id] ?? '' }}"
       data-use-suggested="{{ $useSuggested[$member->id] ?? '' }}"
       data-status="{{ $member->status ?? '' }}">
-                <td class="td-mono">#{{ $member->member_id }}</td>
+                <td class="td-num">#{{ $member->member_id }}</td>
                 <td class="applicant-name">{{ $member->full_name }}</td>
                 <td>{{ $member->email ?? $member->user?->email ?? '' }}</td>
                 <td>
@@ -128,17 +128,21 @@
                     {{ ucfirst($member->status) }}
                   </span>
                 </td>
-                <td class="td-mono">
-                  {{ $monthlyIncome ? '₱' . $monthlyIncome : '—' }}
+                <td class="td-num">
+                  <span class="num">{{ $monthlyIncome ?: '—' }}</span>
                 </td>
-                <td class="td-mono">
+                <td class="td-num">
                   @php
                     $creditLimit = $member->approved_credit_limit;
                     $creditLimitDisplay = ($creditLimit !== null)
-                      ? '₱' . number_format((float) $creditLimit, 2)
+                      ? \App\Support\Format::money((float) $creditLimit)
                       : 'Not assessed';
                   @endphp
-                  <span style="color:var(--muted);font-style:italic;">{{ $creditLimitDisplay === 'Not assessed' ? 'Not assessed' : $creditLimitDisplay }}</span>
+                  @if($creditLimitDisplay === 'Not assessed')
+                    <span style="color:var(--muted);font-style:italic;">Not assessed</span>
+                  @else
+                    <span class="num">{{ $creditLimitDisplay }}</span>
+                  @endif
                 </td>
                 <td>
                   <button class="btn-review" type="button" onclick="openActiveMemberDetail('{{ $member->id }}')">View</button>

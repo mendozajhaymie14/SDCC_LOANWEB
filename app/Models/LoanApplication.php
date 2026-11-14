@@ -25,7 +25,7 @@ class LoanApplication extends Model
         'loan_type', 'purpose_of_loan', 'amount',
         'documents', 'term_months', 'status', 'admin_remarks', 'reviewed_at',
         'remaining_balance', 'next_due_date',
-        'recommended_amount', 'risk_level', 'risk_score', 'risk_factors',
+        'recommended_amount', 'risk_level', 'risk_score', 'risk_factors', 'evaluation_reasons',
         'document_check',
         // AI scoring fields (added for synchronous fallback)
         'ai_score', 'ai_analysis_notes', 'extracted_document_data', 'document_processing_status',

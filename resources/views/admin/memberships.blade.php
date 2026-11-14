@@ -72,10 +72,10 @@
             @if($applications->count() > 0)
               @foreach($applications as $app)
                 <tr data-id="{{ $app->id }}" data-status="{{ strtolower($app->status) }}">
-                  <td class="td-mono">#{{ str_pad($app->id, 5, '0', STR_PAD_LEFT) }}</td>
+                  <td class="td-num">#{{ str_pad($app->id, 5, '0', STR_PAD_LEFT) }}</td>
                   <td class="applicant-name">{{ $app->fullName }}</td>
                   <td>{{ $app->email }}</td>
-                  <td class="td-mono">{{ $app->contact_number ?? '—' }}</td>
+                  <td class="td-num">{{ $app->contact_number ?? '—' }}</td>
                   <td>
                     <span class="status-pill {{ strtolower($app->status) }}">
                       <span class="status-dot"></span>
@@ -216,17 +216,17 @@
         ${row('Occupation', m.occupation)}
         ${row('Permanent Address', m.address || '—')}
         ${row('Birthdate', m.dateOfBirth ? m.dateOfBirth : '—')}
-        ${row('Monthly Income', m.monthlyIncome ? '₱' + Number(m.monthlyIncome).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '₱0.00')}
-        ${row('Savings Balance (declared)', m.savingsBalance && m.savingsBalance !== '—' ? '₱' + Number(m.savingsBalance).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—')}
-        ${row('Existing Monthly Obligations', m.existingMonthlyObligations && m.existingMonthlyObligations !== '—' ? '₱' + Number(m.existingMonthlyObligations).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—')}
+        ${row('Monthly Income', m.monthlyIncome ? fmtMoney(m.monthlyIncome) : '₱0.00')}
+        ${row('Savings Balance (declared)', m.savingsBalance && m.savingsBalance !== '—' ? fmtMoney(m.savingsBalance) : '—')}
+        ${row('Existing Monthly Obligations', m.existingMonthlyObligations && m.existingMonthlyObligations !== '—' ? fmtMoney(m.existingMonthlyObligations) : '—')}
 
         ${m.creditLimitRecommendation && m.creditLimitRecommendation.limit > 0 ? `
         <div style="margin-top:.8rem;">
-          ${row('Recommended credit limit', '<span style="font-family:monospace;">₱' + Number(m.creditLimitRecommendation.limit).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')}
+          ${row('Recommended credit limit', '<span class="num">' + fmtMoney(m.creditLimitRecommendation.limit) + '</span>')}
           <div style="font-size:0.75rem;color:var(--muted);margin-top:.15rem;">Capped by: ${m.creditLimitRecommendation.cappedBy}</div>
         </div>
         <div style="margin-top:.8rem;">
-          ${row('Recommended monthly credit limit', '<span style="font-family:monospace;">₱' + Number(m.monthlyCreditLimitRecommendation).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')}
+          ${row('Recommended monthly credit limit', '<span class="num">' + fmtMoney(m.monthlyCreditLimitRecommendation) + '</span>')}
           <div style="font-size:0.75rem;color:var(--muted);margin-top:.15rem;">DTI 35% of income minus obligations</div>
         </div>
         ` : ''}
@@ -249,11 +249,11 @@
               <h4 style="margin:0 0 .5rem;font-size:.9rem;font-weight:600;">Approve Membership</h4>
               <div style="margin-bottom:.5rem;">
                 <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Approved Credit Limit</label>
-                <input type="number" id="memberApproveAmount_${m.id}" min="0" step="1000" max="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" value="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;box-sizing:border-box;" />
+                <input type="number" id="memberApproveAmount_${m.id}" min="0" step="1000" max="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" value="${m.creditLimitRecommendation ? m.creditLimitRecommendation.limit : 0}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;box-sizing:border-box;" />
               </div>
               <div style="margin-bottom:.5rem;">
-                <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Monthly Credit Limit (Suggested: ₱${m.monthlyCreditLimitRecommendation.toLocaleString('en-PH', {maximumFractionDigits:0})})</label>
-                <input type="number" id="memberApproveMonthlyLimit_${m.id}" min="0" step="1" value="${m.monthlyCreditLimitRecommendation}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:.9rem;box-sizing:border-box;" />
+                <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Monthly Credit Limit (Suggested: ${fmtMoney(m.monthlyCreditLimitRecommendation)})</label>
+                <input type="number" id="memberApproveMonthlyLimit_${m.id}" min="0" step="1" value="${m.monthlyCreditLimitRecommendation}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;box-sizing:border-box;" />
               </div>
               <div style="display:flex;gap:.5rem;">
                 <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;box-sizing:border-box;" onclick="confirmApproveMember(${m.id})">Confirm Approve</button>

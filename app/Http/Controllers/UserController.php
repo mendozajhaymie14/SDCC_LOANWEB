@@ -234,31 +234,31 @@ class UserController extends Controller
         $declaredIncome  = (float) $data['monthly_income'];
         $termMonths      = (int) ($data['term_months'] ?? 12);
 
-        // ─── MONTHLY CAPACITY GATE (BEFORE ANY SIDE EFFECT) ──────────────────
-        // One shared rule (CoopMember::maxRequestablePrincipal) so this path
-        // agrees with staff encode, approve and evaluation.
+        // ─── MONTHLY ALLOWANCE GATE (BEFORE ANY SIDE EFFECT) ────────────────
+        // Requested principal must fit the member's Monthly Available
+        // (peso allowance of principal approved this calendar month).
         $coopMember = Auth::user()->coopMember;
         if ($coopMember) {
             $monthlyAvailable = $coopMember->monthlyAvailable();
             if ($monthlyAvailable === null) {
                 return back()->withInput()
-                    ->withErrors(['amount' => 'Your monthly credit capacity has not been assessed. Please contact the cooperative office.']);
+                    ->withErrors(['amount' => 'Monthly credit limit has not been assessed. Contact the cooperative office.']);
             }
             if ($monthlyAvailable <= 0) {
                 return back()->withInput()
                     ->withErrors(['amount' => sprintf(
-                        'No monthly capacity left: used ₱%s of ₱%s.',
+                        'No monthly credit limit left this month: used ₱%s of ₱%s.',
                         number_format($coopMember->monthlyUsed(), 2),
                         number_format((float) $coopMember->monthlyCapacity(), 2)
                     )]);
             }
-            $maxRequestable = $coopMember->maxRequestablePrincipal($termMonths);
-            if ($maxRequestable !== null && $requestedAmount > $maxRequestable) {
+            if ($requestedAmount > $monthlyAvailable) {
                 return back()->withInput()
                     ->withErrors(['amount' => sprintf(
-                        'Your amount exceeds the maximum your monthly capacity allows (₱%s for %d months).',
-                        number_format($maxRequestable, 2),
-                        $termMonths
+                        'Requested amount exceeds your monthly credit limit. Available this month: ₱%s (limit ₱%s, used ₱%s).',
+                        number_format($monthlyAvailable, 2),
+                        number_format((float) $coopMember->monthlyCapacity(), 2),
+                        number_format($coopMember->monthlyUsed(), 2)
                     )]);
             }
         }

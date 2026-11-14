@@ -82,9 +82,9 @@
                 $roleLabel = \App\Support\Permissions::label($roleKey);
               @endphp
               <tr data-id="{{ $admin->id }}">
-                <td class="td-mono">#{{ $admin->id }}</td>
+                <td class="td-num">#{{ $admin->id }}</td>
                 <td class="applicant-name">{{ $admin->name }}</td>
-                <td class="td-mono">{{ $admin->email }}</td>
+                <td class="td-num">{{ $admin->email }}</td>
                 <td>{{ $admin->phone ?? 'N/A' }}</td>
                 <td data-role="{{ $roleKey }}">{{ $roleLabel }}</td>
                 <td class="td-date">{{ $admin->created_at?->format('M d, Y') ?? '—' }}</td>

@@ -22,6 +22,9 @@ class StaffEncodeModalTest extends TestCase
             'share_capital' => 30000,
             'savings_balance' => 20000,
             'approved_credit_limit' => 80000,
+            // Monthly allowance ≥ 25,000 request so monthly gate passes
+            'approved_monthly_credit_limit' => 50000,
+            'monthly_credit_limit_source' => 'manual',
             'occupation' => 'Vendor',
         ]);
 

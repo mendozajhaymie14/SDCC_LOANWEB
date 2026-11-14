@@ -599,8 +599,8 @@
       "{{ $a->id }}": {
         name: @json($a->applicant),
         type: @json($a->loan_type),
-        amount: @json('₱' . number_format($a->amount, 2)),
-        remaining_balance: @json('₱' . number_format($a->remaining_balance, 2)),
+        amount: @json(\App\Support\Format::money($a->amount)),
+        remaining_balance: @json(\App\Support\Format::money($a->remaining_balance)),
         score: {{ $aiScore ?? 'null' }},
         status: @json(strtolower($a->status)),
         date: @json(optional($a->created_at)->format('M d, Y')),
@@ -620,7 +620,7 @@
             $rawIncome = $latestBorrower?->monthly_income;
         }
         $income = ($rawIncome !== null && $rawIncome !== '' && (float) $rawIncome > 0)
-            ? '₱' . number_format((float) $rawIncome, 2)
+            ? \App\Support\Format::money((float) $rawIncome)
             : '';
         $aiScore = $latestBorrower ? $latestBorrower->ai_credit_score : null;
         $rawScore = $aiScore !== null ? round((($aiScore - 300) * 100) / 550) : null;
@@ -810,12 +810,12 @@
         ${row('Member ID', m.member_id)}
         ${row('Full Name', m.name)}
         ${row('Email Address', m.email)}
-        ${row('Monthly Income', `<span style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</span>`)}
-        ${row('Credit Limit', (m.approved_credit_limit !== null && m.approved_credit_limit !== undefined && m.approved_credit_limit !== '') ? `<span style="font-family:monospace;">${fmtMoney(m.approved_credit_limit)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
-        ${row('Monthly Credit Limit', (m.monthly_credit_limit !== null && m.monthly_credit_limit !== undefined) ? `<span style="font-family:monospace;">${fmtMoney(m.monthly_credit_limit)}</span> <span style="font-size:.75rem;color:var(--muted);">(${m.monthly_credit_limit_source || 'auto'})</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
-        ${row('Available Monthly', (m.monthly_available !== null && m.monthly_available !== undefined) ? `<span style="font-family:monospace;color:var(--success);font-weight:700;">${fmtMoney(m.monthly_available)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${row('Monthly Income', `<span class="num">${m.income || '₱0.00'}</span>`)}
+        ${row('Credit Limit', (m.approved_credit_limit !== null && m.approved_credit_limit !== undefined && m.approved_credit_limit !== '') ? `<span class="num">${fmtMoney(m.approved_credit_limit)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${row('Monthly Credit Limit', (m.monthly_credit_limit !== null && m.monthly_credit_limit !== undefined) ? `<span class="num">${fmtMoney(m.monthly_credit_limit)}</span> <span style="font-size:.75rem;color:var(--muted);">(${m.monthly_credit_limit_source || 'auto'})</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${row('Monthly Available', (m.monthly_available !== null && m.monthly_available !== undefined) ? `<span class="num" style="color:var(--success);">${fmtMoney(m.monthly_available)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${row('Date Joined', m.date)}
-        ${row('Status', `<span class="status-pill ${m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
+        ${row('Status', `<span class="status-pill ${m.status === 'active' ? 'approved' : m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
 
         <!-- Member Financial Profile -->
         <div style="margin-top: 1rem; padding: 0.8rem; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -823,19 +823,19 @@
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; font-size: 0.85rem;">
             <div>
               <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Verified Monthly Income</div>
-              <div style="font-family:'DM Sans',sans-serif;">${m.income || '₱0.00'}</div>
+              <div class="num" style="font-weight:600;font-size:.88rem;">${m.income || '₱0.00'}</div>
             </div>
             <div>
               <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Total Active Loans</div>
-              <div style="font-family:'DM Sans',sans-serif;">${totalLoans} ${totalLoans === 1 ? 'loan' : 'loans'}</div>
+              <div class="num" style="font-weight:600;font-size:.88rem;">${totalLoans} ${totalLoans === 1 ? 'loan' : 'loans'}</div>
             </div>
             <div>
               <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Total Remaining Balance</div>
-              <div style="font-family:'DM Sans',sans-serif;">${totalBalance > 0 ? '₱' + Number(totalBalance).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '₱0.00'}</div>
+              <div class="num" style="font-weight:600;font-size:.88rem;">${totalBalance > 0 ? fmtMoney(totalBalance) : '₱0.00'}</div>
             </div>
             <div>
               <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.2rem;">Payment Reliability</div>
-              <div style="font-family:'DM Sans',sans-serif;">${totalLoans > 0 ? `${totalLoans} ${totalLoans === 1 ? 'repaid' : 'repayments'}` : 'No repayments recorded'}</div>
+              <div class="num" style="font-weight:600;font-size:.88rem;">${totalLoans > 0 ? `${totalLoans} ${totalLoans === 1 ? 'repaid' : 'repayments'}` : 'No repayments recorded'}</div>
             </div>
           </div>
         </div>
@@ -859,7 +859,7 @@
                 return `
                   <tr style="border-bottom: 1px solid var(--border);">
                     <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
-                      <span style="font-family:'DM Sans',sans-serif;color:${rowScoreC};">${app.score ?? 'N/A'}</span>
+                      <span class="num" style="color:${rowScoreC};">${app.score ?? 'N/A'}</span>
                     </td>
                     <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">${app.app_id || 'N/A'}</td>
                     <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">${app.name || app.applicant || 'N/A'}</td>
@@ -1119,7 +1119,7 @@
         // Update the "Total Approved Loans" KPI without waiting for reload
         if (data && data.total_approved != null) {
           const el = document.getElementById('totalApproved');
-          if (el) el.textContent = '₱' + Number(data.total_approved).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          if (el) el.textContent = fmtMoney(data.total_approved);
         }
         showToast(action === 'approve' ? 'success' : 'error', successMsg, action === 'approve' ? '<i class="fa-solid fa-check nav-icon"></i>' : '<i class="fa-solid fa-xmark nav-icon"></i>');
         closeAllModals();
@@ -1403,7 +1403,7 @@
     }
     const threshold = monthlyIncome * 0.70;
     if (amount > threshold) {
-      incomeWarningText.textContent = 'Requested amount (₱' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ') exceeds 70% of monthly income (₱' + monthlyIncome.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' = ₱' + threshold.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ').';
+      incomeWarningText.textContent = 'Requested amount (' + fmtMoney(amount) + ') exceeds 70% of monthly income (' + fmtMoney(monthlyIncome) + ' = ' + fmtMoney(threshold) + ').';
       incomeWarning.style.display = 'block';
     } else {
       incomeWarning.style.display = 'none';

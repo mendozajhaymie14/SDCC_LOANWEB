@@ -46,6 +46,9 @@ class StaffEncodingTest extends TestCase
             'existing_monthly_obligations' => 0,
             'savings_balance' => 20000,
             'approved_credit_limit' => 50000,
+            // Monthly allowance ≥ 20,000 encode amount so the monthly gate passes
+            'approved_monthly_credit_limit' => 50000,
+            'monthly_credit_limit_source' => 'manual',
             'address'      => '12 Rizal St, Brgy.centro',
             'occupation'   => 'Farmer',
         ], $overrides));

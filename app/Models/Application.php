@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 
 class Application extends Model
 {
@@ -34,6 +35,7 @@ class Application extends Model
         'risk_level',
         'risk_score',
         'risk_factors',
+        'evaluation_reasons',
         'document_check',
         'approved_amount',
         'admin_remarks',
@@ -111,5 +113,46 @@ class Application extends Model
     public function statusString(): string
     {
         return \App\Support\LoanStatus::write($this->status, 'applications');
+    }
+
+    /**
+     * Plain-language evaluation reasons.
+     *
+     * evaluation_reasons holds the readable list; risk_factors now stores the
+     * numeric details map, which yields nothing readable. Falls back through
+     * the linked LoanApplication, then to legacy risk_factors strings. Safe
+     * when the evaluation_reasons column does not exist yet: Eloquent returns
+     * null for attributes absent from the row, so the chain falls through.
+     */
+    public function getReasonsAttribute(): array
+    {
+        // evaluation_reasons arrives with its migration; on a database that
+        // has not run it yet, skip the column read instead of relying on
+        // Eloquent's null-for-missing-attribute behaviour.
+        $stored = Schema::hasColumn('applications', 'evaluation_reasons')
+            ? $this->evaluation_reasons
+            : null;
+
+        foreach ([$stored, $this->loanApplication?->evaluation_reasons] as $value) {
+            $decoded = is_string($value) ? json_decode($value, true) : $value;
+            if (is_array($decoded)) {
+                $strings = array_values(array_filter($decoded, fn ($r) => is_string($r) && $r !== ''));
+                if ($strings) {
+                    return $strings;
+                }
+            }
+        }
+
+        $factors = is_string($this->risk_factors) ? json_decode($this->risk_factors, true) : $this->risk_factors;
+        if (!is_array($factors)) {
+            return [];
+        }
+
+        return collect($factors)->map(function ($item) {
+            if (is_array($item)) {
+                return $item['reason'] ?? $item['message'] ?? null;
+            }
+            return is_string($item) ? $item : null;
+        })->filter()->values()->all();
     }
 }

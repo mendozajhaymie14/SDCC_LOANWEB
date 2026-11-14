@@ -226,27 +226,30 @@ class AdminController extends Controller
             }
         }
 
-        // ─── MONTHLY-AVAILABLE GATE ────────────────────────────────────────
-        // Reject if requested amount exceeds what monthly capacity allows for this term.
-        // Uses the shared maxRequestablePrincipal helper so every gate agrees.
+        // ─── MONTHLY ALLOWANCE GATE ────────────────────────────────────────
+        // Requested principal must fit the member's Monthly Available (peso
+        // allowance of principal approved this calendar month).
         $monthlyAvailable = $member->monthlyAvailable();
         if ($monthlyAvailable === null) {
             return back()->withInput()
-                ->with('error', 'Monthly capacity has not been assessed for this member. Contact the cooperative office.');
+                ->with('error', 'Monthly credit limit has not been assessed. Contact the cooperative office.');
         }
         if ($monthlyAvailable <= 0) {
             return back()->withInput()
                 ->with('error', sprintf(
-                    'No monthly capacity left: used ₱%s of ₱%s.',
+                    'No monthly credit limit left this month: used ₱%s of ₱%s.',
                     number_format($member->monthlyUsed(), 2),
                     number_format((float) $member->monthlyCapacity(), 2)
                 ));
         }
-        $term = (int) $validated['term_months'];
-        $maxRequestable = $member->maxRequestablePrincipal($term);
-        if ($maxRequestable !== null && (float) $validated['amount'] > $maxRequestable) {
+        if ((float) $validated['amount'] > $monthlyAvailable) {
             return back()->withInput()
-                ->with('error', 'Requested amount exceeds the maximum you can afford with your current monthly capacity (₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months).');
+                ->with('error', sprintf(
+                    'Requested amount exceeds your monthly credit limit. Available this month: ₱%s (limit ₱%s, used ₱%s).',
+                    number_format($monthlyAvailable, 2),
+                    number_format((float) $member->monthlyCapacity(), 2),
+                    number_format($member->monthlyUsed(), 2)
+                ));
         }
 
         // Consent validation: require document_consent when documents are uploaded
@@ -401,7 +404,24 @@ class AdminController extends Controller
         $effectiveAmount = $approvedAmount ?? $application->recommended_amount ?? 0.0;
 
         $loanApp = $application->loanApplication;
-        $member = $loanApp ? ($loanApp->user?->coopMember ?? null) : null;
+        $member = $loanApp ? CoopMember::forLoanApplication($loanApp) : null;
+
+        // If a limit-required product has no resolvable member, do not silently
+        // skip the credit gates. Block unless override-credit-limit + reason.
+        if (!$member && $loanApp && \App\Support\LoanProductHelper::requiresCreditLimit($application->loan_type)) {
+            $canOverride = \App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT) && $reason;
+            if (!$canOverride) {
+                $errorMsg = 'No member record could be resolved for this application, so credit limits cannot be checked. A reason is required with the override-credit-limit permission.';
+                return request()->expectsJson()
+                    ? response()->json(['success' => false, 'message' => $errorMsg], 400)
+                    : back()->with('error', $errorMsg);
+            }
+            AuditLog::log('Credit Limit Override', sprintf(
+                'Application %s: approved without a resolvable member record. Override permitted. Reason: %s',
+                $application->app_id,
+                $reason
+            ));
+        }
 
         if ($member && \App\Support\LoanProductHelper::requiresCreditLimit($application->loan_type)) {
             $availableCredit = $member->availableCredit();
@@ -428,20 +448,21 @@ class AdminController extends Controller
             }
         }
 
-        // ─── MONTHLY-AVAILABLE GATE ──────────────────────────────────────
-        // Reject approval above the member's monthly capacity for this term,
-        // unless the override-credit-limit permission + reason are provided.
+        // ─── MONTHLY ALLOWANCE RE-CHECK ──────────────────────────────────
+        // Re-check the CURRENT monthly used: approving this loan's principal
+        // must fit Monthly Available, unless the override-credit-limit
+        // permission + reason are provided.
         if ($member) {
             $monthlyAvailable = $member->monthlyAvailable();
             if ($monthlyAvailable === null) {
-                $errorMsg = 'Monthly capacity has not been assessed for this member. Contact the cooperative office.';
+                $errorMsg = 'Monthly credit limit has not been assessed. Contact the cooperative office.';
                 return request()->expectsJson()
                     ? response()->json(['success' => false, 'message' => $errorMsg], 400)
                     : back()->with('error', $errorMsg);
             }
             if ($monthlyAvailable <= 0) {
                 $errorMsg = sprintf(
-                    'No monthly capacity left: used ₱%s of ₱%s.',
+                    'No monthly credit limit left this month: used ₱%s of ₱%s.',
                     number_format($member->monthlyUsed(), 2),
                     number_format((float) $member->monthlyCapacity(), 2)
                 );
@@ -449,24 +470,26 @@ class AdminController extends Controller
                     ? response()->json(['success' => false, 'message' => $errorMsg], 400)
                     : back()->with('error', $errorMsg);
             }
-            $term = (int) ($loanApp?->term_months ?? 12);
-            $maxRequestable = $member->maxRequestablePrincipal($term);
-            if ($maxRequestable !== null && $effectiveAmount > $maxRequestable) {
+            if ($effectiveAmount > $monthlyAvailable) {
                 $canOverride = \App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT) && $reason;
 
                 if (!$canOverride) {
-                    $errorMsg = 'Approved amount exceeds monthly capacity of ₱' . number_format($maxRequestable, 2) . ' for ' . $term . ' months. A reason is required with the override-credit-limit permission.';
+                    $errorMsg = sprintf(
+                        'Approved amount exceeds the monthly credit limit. Available this month: ₱%s (limit ₱%s, used ₱%s). A reason is required with the override-credit-limit permission.',
+                        number_format($monthlyAvailable, 2),
+                        number_format((float) $member->monthlyCapacity(), 2),
+                        number_format($member->monthlyUsed(), 2)
+                    );
                     return request()->expectsJson()
                         ? response()->json(['success' => false, 'message' => $errorMsg], 400)
                         : back()->with('error', $errorMsg);
                 }
 
                 AuditLog::log('Monthly Capacity Override', sprintf(
-                    'Application %s: approved %.2f above monthly capacity %.2f for %d months. Override permitted. Reason: %s',
+                    'Application %s: approved %.2f above monthly available %.2f. Override permitted. Reason: %s',
                     $application->app_id,
                     $effectiveAmount,
-                    $maxRequestable,
-                    $term,
+                    $monthlyAvailable,
                     $reason
                 ));
             }
@@ -2898,7 +2921,7 @@ class AdminController extends Controller
         }
         $documents = array_values(array_filter($documents));
 
-        // Risk factors may be a JSON string or an array; always return plain-text reasons too
+        // Risk factors may be a JSON string or an array
         $riskFactors = $application->risk_factors;
         if (is_string($riskFactors)) {
             $riskFactors = json_decode($riskFactors, true);
@@ -2906,16 +2929,13 @@ class AdminController extends Controller
         if (!is_array($riskFactors)) {
             $riskFactors = [];
         }
-        $reasons = collect($riskFactors)->map(function ($item) {
-            if (is_array($item)) {
-                return $item['reason'] ?? $item['message'] ?? null;
-            }
-            return is_string($item) ? $item : null;
-        })->filter()->values()->all();
+        // Plain-language reasons come from evaluation_reasons (Application →
+        // linked LoanApplication → legacy risk_factors strings); risk_factors
+        // itself now stores the numeric details map. See Application::reasons.
+        $reasons = $application->reasons;
 
         $lastScanned = $application->last_scanned_at ?? null;
 
-        $termMonths = (int) ($application->term_months ?? 12);
         $monthlyRate = config('loan_matrix.interest.monthly_rate', 0.01);
 
         // Credit limit data for the member linked to this application
@@ -2924,7 +2944,8 @@ class AdminController extends Controller
         $monthlyCapacity = null;
         $monthlyUsed = 0.0;
         $monthlyAvailable = null;
-        $maxForTerm = null;
+        $pendingCount = 0;
+        $pendingAmountTotal = 0.0;
 
         if ($loanApp) {
             // Find coopMember via user relationship or email fallback
@@ -2941,7 +2962,10 @@ class AdminController extends Controller
                 $monthlyCapacity = $coopMember->monthlyCapacity();
                 $monthlyUsed = $coopMember->monthlyUsed();
                 $monthlyAvailable = $coopMember->monthlyAvailable();
-                $maxForTerm = $coopMember->maxRequestablePrincipal($termMonths);
+                // Informational only: other pending loans that would consume
+                // allowance if approved. Never blocks — the decision stays human.
+                [$pendingCount, $pendingAmountTotal] = $coopMember
+                    ->otherPendingLoans($loanApp->id);
             }
         }
 
@@ -2976,7 +3000,12 @@ class AdminController extends Controller
                 'monthly_capacity' => $monthlyCapacity,
                 'monthly_used' => $monthlyUsed,
                 'monthly_available' => $monthlyAvailable,
-                'max_for_term' => $maxForTerm,
+                'monthly_capacity_source' => $coopMember ? $coopMember->monthly_credit_limit_source : null,
+                // DISPLAY ONLY: the monthly allowance stretched over 12 months.
+                // Fixed at 12 — independent of this application's term.
+                'monthly_max_12' => $monthlyCapacity !== null ? $monthlyCapacity * 12 : null,
+                'pending_loans_count' => $pendingCount,
+                'pending_loans_total' => round($pendingAmountTotal, 2),
                 'total_credit_limit' => $approvedLimit,
                 'available_credit_total' => $approvedLimit ? (float) $approvedLimit - $outstanding : null,
             ],

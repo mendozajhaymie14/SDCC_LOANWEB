@@ -35,6 +35,11 @@ class EvaluationEngineTest extends TestCase
             'existing_monthly_obligations' => 0,
             'savings_balance'          => 0,
             'approved_credit_limit'    => 999999,
+            // Manual monthly allowance high enough that the monthly gate never
+            // binds for these engine-scoring samples; monthly cap tests live
+            // in MonthlyCreditLimitTest.
+            'approved_monthly_credit_limit' => 999999,
+            'monthly_credit_limit_source'   => 'manual',
         ], $overrides));
 
         $user->forceFill(['coop_member_id' => $member->id])->save();
@@ -99,16 +104,17 @@ class EvaluationEngineTest extends TestCase
             ],
 
             // 4. No payment history, no documents — neutral history score (18 pts), zero doc points.
-            //    Obligations eat the whole DTI budget, leaving only ₱500/month.
-            //    The monthly-capacity cap converts that ₱500 monthly payment to
-            //    principal via the annuity formula: 500 * (1-1.01^-12)/0.01 ≈ 5627
-            //    → floor to 5000. Score: DTI 40 + payment 18 + docs 0 + savings 0 = 58 → Medium.
+            //    Educational product caps at the credit limit (₱999,999), so the
+            //    full ₱20,000 request stands. DTI budget is only ₱500/month,
+            //    but educational does not apply DTI-based affordability — the
+            //    monthly gate is now the peso allowance (manual 999,999 here).
+            //    Score: DTI 40 + payment 18 + docs 0 + savings 0 = 58 → Medium.
             'no payment history (cannot afford)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
                  'savings_balance' => 0],
                 ['loan_type' => 'educational', 'amount' => 20000, 'term_months' => 12,
                  'documents' => []],
-                5000,
+                20000,
                 'Medium',
             ],
 

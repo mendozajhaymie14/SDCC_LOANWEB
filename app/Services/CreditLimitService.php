@@ -97,64 +97,6 @@ class CreditLimitService
     }
 
     /**
-     * Convert a monthly payment amount to the equivalent principal
-     * using the annuity formula (inverse of EMI).
-     *
-     * EMI = P * r / (1 - (1+r)^-n)
-     * P = EMI * (1 - (1+r)^-n) / r
-     *
-     * @param float $monthlyPayment  Monthly payment budget (EMI)
-     * @param int   $termMonths      Loan term in months
-     * @param float|null $monthlyRate Monthly interest rate (default: config or 0.01)
-     * @return float Principal amount rounded to 2dp (NOT floored to 1000)
-     */
-    public function principalForMonthlyPayment(
-        float $monthlyPayment,
-        int $termMonths,
-        ?float $monthlyRate = null,
-    ): float {
-        $monthlyRate = $monthlyRate ?? config('loan_matrix.interest.monthly_rate', self::DEFAULT_MONTHLY_RATE);
-
-        if ($monthlyPayment <= 0) {
-            return 0;
-        }
-
-        $annuityFactor = $monthlyRate > 0
-            ? $monthlyRate / (1 - pow(1 + $monthlyRate, -$termMonths))
-            : (1 / $termMonths);
-
-        if ($annuityFactor <= 0) {
-            return 0;
-        }
-
-        return round($monthlyPayment / $annuityFactor, self::PRINCIPAL_PRECISION);
-    }
-
-    /**
-     * Max principal affordable for a term, given the monthly available amount.
-     *
-     * THE single rounding rule: EMI→principal, then floor to ₱1,000. Every gate
-     * (member form, staff encode, approve, evaluation) routes through this so
-     * they can never disagree.
-     *
-     * @param float $monthlyAvailable Leftover monthly budget after used credit.
-     * @param int   $termMonths       Loan term in months.
-     * @return float Max principal, floored to ₱1,000. 0 when no capacity.
-     */
-    public function maxRequestablePrincipal(float $monthlyAvailable, int $termMonths): float
-    {
-        if ($monthlyAvailable <= 0) {
-            return 0.0;
-        }
-
-        $rate = (float) config('loan_matrix.interest.monthly_rate', self::DEFAULT_MONTHLY_RATE);
-
-        return $this->floorTo1000(
-            $this->principalForMonthlyPayment($monthlyAvailable, $termMonths, $rate)
-        );
-    }
-
-    /**
      * Compute the credit limit for a member.
      *
      * Returns ['limit' => float, 'cappedBy' => 'affordability'|'savings'|null].
@@ -209,9 +151,13 @@ class CreditLimitService
             return false;
         }
 
-        $income = (float) ($member->monthly_income ?? 0);
-        $obligations = (float) ($member->existing_monthly_obligations ?? 0);
-        $savings = (float) ($member->savings_balance ?? 0);
+        // Compare against the DB original, not the in-memory attributes: the
+        // controller assigns the new financials onto $member *before* calling
+        // this, so $member->monthly_income already holds the new value. Using
+        // getOriginal() makes the comparison old(DB) vs new(passed) again.
+        $income = (float) ($member->getOriginal('monthly_income') ?? 0);
+        $obligations = (float) ($member->getOriginal('existing_monthly_obligations') ?? 0);
+        $savings = (float) ($member->getOriginal('savings_balance') ?? 0);
 
         if (abs($newIncome - $income) > 0.01) return true;
         if (abs($newObligations - $obligations) > 0.01) return true;
