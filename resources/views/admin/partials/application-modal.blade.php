@@ -138,6 +138,35 @@ window.renderApplicationModal = function (app) {
     const bodyEl = document.getElementById('appDetailBody');
     if (!bodyEl) return;
 
+    /* Sparse table objects (window.apps on /applications, the dashboard
+       $formattedApp rows, search results) carry display fields only — no
+       monthly_available, available_credit_total or recommended_amount.
+       The override panel and the credit rows need the canonical payload,
+       so fetch it once and re-render. /data resolves both the numeric id
+       and the APP-xxxx id. */
+    if (app.monthly_available === undefined && (app.app_id || app.id)) {
+        var dataId = app.app_id || app.id;
+        var dataToken = String(Date.now());
+        window._modalDataToken = dataToken;
+        bodyEl.innerHTML = '<div style="padding:2rem 0;text-align:center;color:var(--muted);">Loading application details…</div>';
+        fetch('/admin/applications/' + encodeURIComponent(dataId) + '/data', {
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        })
+            .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function (data) {
+                if (window._modalDataToken !== dataToken) return;
+                if (!data || !data.success) throw new Error((data && data.message) || 'Application not found');
+                renderApplicationModal(data.application);
+            })
+            .catch(function (err) {
+                if (window._modalDataToken !== dataToken) return;
+                console.error('Load application failed:', err);
+                bodyEl.innerHTML = '<div style="padding:1.5rem 0;text-align:center;color:var(--red);">Could not load this application (' + (err && err.message ? err.message : 'error') + '). Close and try again.</div>';
+            });
+        return;
+    }
+
     /* Documents badges */
     let docsHtml = '';
     if (!docs || docs.length === 0) {
@@ -195,11 +224,8 @@ window.renderApplicationModal = function (app) {
     const isCapacitySuggested = monthlyCapacity !== null && app.monthly_capacity_source === 'auto';
 
     /* Prefill the approved amount with the recommendation (fall back to the
-       requested amount when the recommendation is 0), and surface the override
-       box only while that amount exceeds a live credit limit. */
+       requested amount when the recommendation is 0). */
     const prefillAmount = recommended > 0 ? recommended : amount;
-    const needsOverride = (monthlyAvailable !== null && prefillAmount > monthlyAvailable) ||
-                          (availableCreditTotal !== null && prefillAmount > availableCreditTotal);
 
     const rowHtml = (label, value, extra = '') => `
         <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
@@ -236,18 +262,19 @@ window.renderApplicationModal = function (app) {
             '<div id="modalAiNotes" style="font-size:0.85rem;color:#1e293b;line-height:1.5;">' + scanNoteDisplay + '</div>' +
         '</div>' +
         row('Last Scan', scanTimeDisplay) +
-        (showActions ? modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailable, availableCreditTotal) : '');
+        (showActions ? modalActionSection(appId, prefillAmount, monthlyAvailable, availableCreditTotal) : '');
 };
 
 /* Action buttons + Approve Amount / reject reason form */
-function modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailable, totalAvailable) {
+function modalActionSection(appId, prefillAmount, monthlyAvailable, totalAvailable) {
     /* Permission flags computed server-side (see window.__modalPermissions).
        A role without the permission never sees the button. */
-    const p = window.__modalPermissions || { approve: false, reject: false, scan: false, delete: false };
+    const p = window.__modalPermissions || { approve: false, reject: false, scan: false, delete: false, override: false };
     if (! p.approve && ! p.reject && ! p.scan && ! p.delete) return '';
 
     const ma = monthlyAvailable === null || monthlyAvailable === undefined ? '' : monthlyAvailable;
     const ta = totalAvailable === null || totalAvailable === undefined ? '' : totalAvailable;
+    const state = shouldShowOverride(prefillAmount, ma, ta, p.override);
 
     return '' +
         '<div style="display:flex;flex-direction:column;gap:0.5rem;width:100%;margin-top:1.2rem;">' +
@@ -270,7 +297,7 @@ function modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailabl
                 '<input type="number" id="approvedAmount" step="0.01" min="0" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;" value="' + prefillAmount + '" ' +
                     'data-monthly-available="' + ma + '" data-total-available="' + ta + '" oninput="toggleOverrideBox()" />' +
             '</div>' +
-            (p.override ? '<div id="overrideBox" style="display:' + (needsOverride ? 'block' : 'none') + ';margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
+            (p.override ? '<div id="overrideBox" style="display:' + (state === 'box' ? 'block' : 'none') + ';margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
                 '<label style="display:flex;align-items:flex-start;gap:.4rem;cursor:pointer;font-size:.82rem;color:#92400e;">' +
                     '<input type="checkbox" id="overrideCreditLimit" style="margin-top:0.15rem;" />' +
                     '<span><strong>Override credit limit</strong> — I authorize approving this application above the member\'s available credit. This action is audited.</span>' +
@@ -278,8 +305,9 @@ function modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailabl
                 '<label style="display:block;font-size:.78rem;color:#92400e;margin-top:.3rem;margin-bottom:.1rem;">Override Reason <span style="color:#ef4444;">(required when checked)</span></label>' +
                 '<textarea id="overrideReason" placeholder="e.g. Member has strong repayment history, co-signed by branch manager..." style="width:100%;padding:.35rem .5rem;border:1px solid #fde68a;border-radius:6px;font-size:.82rem;min-height:50px;"></textarea>' +
             '</div>' : '') +
+            (state === 'notice' ? '<div id="overrideNotice" style="margin-bottom:.5rem;padding:.5rem;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:.82rem;color:#991b1b;">This amount exceeds the member\'s available credit. Only a user with the override-credit-limit permission can approve it — ask a manager.</div>' : '') +
             '<div style="display:flex;gap:.5rem;">' +
-                '<button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="confirmApprove(\'' + appId + '\')">Confirm Approve</button>' +
+                '<button type="button" id="btn-confirmApprove" ' + (state === 'notice' ? 'disabled ' : '') + 'style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;' + (state === 'notice' ? 'opacity:.5;cursor:not-allowed;' : '') + '" onclick="confirmApprove(\'' + appId + '\')">Confirm Approve</button>' +
                 '<button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;" onclick="closeApproveModal()">Cancel</button>' +
             '</div>' +
         '</div>' +
@@ -297,16 +325,44 @@ function modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailabl
         '</div>';
 }
 
-/* Show the override box only while the approved amount exceeds a live limit. */
+/* The ONE place that decides the override UI. Pure: same inputs, same output,
+   so the initial render and every keystroke agree, and agree with the server
+   rule in AdminController::approve() — above Monthly Available OR above total
+   available credit ⇒ override required. Returns:
+     'box'    amount above an available limit and the user MAY override
+     'notice' amount above an available limit but the user may NOT (ask a
+              manager; Confirm stays disabled)
+     ''       amount fits — no override UI
+   Amounts arrive as either numbers or formatted strings ("₱10,000.00"),
+   so commas/currency symbols are stripped before comparing. */
+window.shouldShowOverride = function (amount, monthlyAvailable, totalAvailable, canOverride) {
+    var amt = parseFloat(String(amount).replace(/[^\d.\-]/g, '')) || 0;
+    var over = function (v) {
+        if (v === null || v === undefined || v === '') return false;
+        var n = parseFloat(v);
+        return !isNaN(n) && amt > n;
+    };
+    if (!(over(monthlyAvailable) || over(totalAvailable))) return '';
+    return canOverride ? 'box' : 'notice';
+};
+
+/* Keep the box, the ask-a-manager notice and the Confirm button in sync
+   with the approved-amount input. */
 window.toggleOverrideBox = function () {
     var box = document.getElementById('overrideBox');
+    var notice = document.getElementById('overrideNotice');
+    var btn = document.getElementById('btn-confirmApprove');
     var input = document.getElementById('approvedAmount');
-    if (!box || !input) return;
-    var amt = parseFloat(input.value) || 0;
-    var ma = input.dataset.monthlyAvailable === '' ? null : parseFloat(input.dataset.monthlyAvailable);
-    var ta = input.dataset.totalAvailable === '' ? null : parseFloat(input.dataset.totalAvailable);
-    var show = (ma !== null && !isNaN(ma) && amt > ma) || (ta !== null && !isNaN(ta) && amt > ta);
-    box.style.display = show ? 'block' : 'none';
+    if (!input) return;
+    var state = shouldShowOverride(
+        input.value,
+        input.dataset.monthlyAvailable,
+        input.dataset.totalAvailable,
+        (window.__modalPermissions || {}).override
+    );
+    if (box) box.style.display = state === 'box' ? 'block' : 'none';
+    if (notice) notice.style.display = state === 'notice' ? 'block' : 'none';
+    if (btn) btn.disabled = state === 'notice';
 };
 
 /* ── Modal openers ── */

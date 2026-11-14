@@ -444,16 +444,9 @@ class AdminController extends Controller
                     ? response()->json(['success' => false, 'message' => $errorMsg], 400)
                     : back()->with('error', $errorMsg);
             }
-            if ($monthlyAvailable <= 0) {
-                $errorMsg = sprintf(
-                    'No monthly credit limit left this month: used ₱%s of ₱%s.',
-                    number_format($member->monthlyUsed(), 2),
-                    number_format((float) $member->monthlyCapacity(), 2)
-                );
-                return request()->expectsJson()
-                    ? response()->json(['success' => false, 'message' => $errorMsg], 400)
-                    : back()->with('error', $errorMsg);
-            }
+            // No hard block at 0 available: the same override rule applies to
+            // every case — any amount above Monthly Available (including 0)
+            // needs OVERRIDE_CREDIT_LIMIT + reason. Amounts at or below need none.
             if ($effectiveAmount > $monthlyAvailable) {
                 $canOverride = \App\Support\Permissions::has(Auth::user(), \App\Support\Permissions::OVERRIDE_CREDIT_LIMIT) && $reason;
 
@@ -2987,7 +2980,7 @@ class AdminController extends Controller
                 'monthly_capacity_source' => $coopMember ? $coopMember->monthly_credit_limit_source : null,
                 // DISPLAY ONLY: the monthly allowance stretched over 12 months.
                 // Fixed at 12 — independent of this application's term.
-                'monthly_max_12' => $monthlyCapacity !== null ? $monthlyCapacity * 12 : null,
+                'monthly_max_12' => $coopMember ? $coopMember->maxForTwelveMonths() : null,
                 'pending_loans_count' => $pendingCount,
                 'pending_loans_total' => round($pendingAmountTotal, 2),
                 'total_credit_limit' => $approvedLimit,

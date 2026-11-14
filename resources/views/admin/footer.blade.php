@@ -593,15 +593,21 @@
     @foreach (\App\Models\Application::with('loanApplication')->latest()->get() as $a)
       @php
         $aiScore = $a->ai_score ?? ($a->loanApplication ? $a->loanApplication->ai_score : null);
+        // "Rule-Based Score" must come from the rule engine (risk_score),
+        // not the Gemini scan (ai_score) which is null until a document
+        // check is actually run.
+        $ruleScore = $a->risk_score ?? ($a->loanApplication ? $a->loanApplication->risk_score : null);
+        $score = $ruleScore ?? $aiScore;
         $docs = $a->loanApplication ? ($a->loanApplication->documents ?? []) : [];
         $aiNotes = $a->loanApplication ? ($a->loanApplication->ai_analysis_notes ?? null) : null;
       @endphp
       "{{ $a->id }}": {
         name: @json($a->applicant),
+        app_id: @json($a->app_id),
         type: @json($a->loan_type),
         amount: @json(\App\Support\Format::money($a->amount)),
         remaining_balance: @json(\App\Support\Format::money($a->remaining_balance)),
-        score: {{ $aiScore ?? 'null' }},
+        score: {{ $score ?? 'null' }},
         status: @json(strtolower($a->status)),
         date: @json(optional($a->created_at)->format('M d, Y')),
         documents: @json($docs),

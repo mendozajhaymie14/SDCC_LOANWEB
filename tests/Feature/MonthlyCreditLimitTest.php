@@ -820,7 +820,8 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertEquals(0.0, $member->monthlyAvailable());
 
         // A further request that month is now accepted as PENDING (request-time
-        // gate removed); approve() still hard-blocks it at decision time.
+        // gate removed); approve() applies the same override rule at decision
+        // time.
         $this->actingAs($member->user)
             ->post(route('user.loans.store'), [
                 'full_name'                    => $member->full_name,
@@ -841,7 +842,8 @@ class MonthlyCreditLimitTest extends TestCase
             LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->count()
         );
 
-        // The approve gate still blocks the over-limit decision.
+        // The approve gate blocks the over-limit decision unless the override
+        // permission + reason are provided.
         $pendingApp = LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->first();
         $this->assertNotNull($pendingApp);
         $mirror = Application::where('loan_application_id', $pendingApp->id)->first();
@@ -850,7 +852,7 @@ class MonthlyCreditLimitTest extends TestCase
             ->postJson(route('applications.approve', $mirror->id), ['approved_amount' => 1000]);
         $resp->assertJson(['success' => false]);
         $this->assertStringContainsString(
-            'No monthly credit limit left this month',
+            'exceeds the monthly credit limit',
             json_decode((string) $resp->getContent(), true)['message'] ?? ''
         );
     }
@@ -925,6 +927,7 @@ class MonthlyCreditLimitTest extends TestCase
                 ->getData(true)['application'];
 
             $this->assertEquals(186000.0, $payload['monthly_max_12']); // 15,500 x 12
+            $this->assertEquals($member->maxForTwelveMonths(), $payload['monthly_max_12'], 'Same source as the Active Members modal');
             $this->assertEquals(0.0, $payload['monthly_used']);
             $this->assertEquals(15500.0, $payload['monthly_available']);
             // Total credit limit line values still present.
@@ -1245,7 +1248,7 @@ class MonthlyCreditLimitTest extends TestCase
 
         $response->assertStatus(400)->assertJson(['success' => false]);
         $this->assertStringContainsString(
-            'No monthly credit limit left this month',
+            'exceeds the monthly credit limit',
             json_decode($response->getContent(), true)['message']
         );
     }
@@ -1574,6 +1577,180 @@ class MonthlyCreditLimitTest extends TestCase
         $coopMemberFromModal = $loanApp->user?->coopMember ?? CoopMember::where('email', $loanApp->email)->first();
         $this->assertNotNull($coopMemberFromModal);
         $this->assertEquals($member->id, $coopMemberFromModal->id);
+    }
+
+    // ── Override matrix at Monthly Available 0 (no hard block) ────────────
+
+    /** @test */
+    public function approve_override_matrix_at_zero_monthly_available()
+    {
+        $member = $this->makeMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 0,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+        $this->assertEquals(0.0, $member->monthlyAvailable(), 'Capacity 0 must mean available 0, not a hard block');
+
+        $app = LoanApplication::factory()->create([
+            'user_id' => $member->user_id, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 5000, 'term_months' => 12,
+            'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
+            'status' => 'pending',
+        ]);
+        $mirror = Application::create([
+            'loan_application_id' => $app->id, 'app_id' => 'APP-MATRIX',
+            'applicant' => $app->full_name, 'loan_type' => $app->loan_type,
+            'amount' => $app->amount, 'status' => 'Pending',
+            'recommended_amount' => 0, 'risk_level' => 'Low', 'risk_score' => 80,
+        ]);
+
+        $officer = User::factory()->create(['usertype' => 'loan_officer']);
+        $this->assertFalse(Permissions::has($officer, Permissions::OVERRIDE_CREDIT_LIMIT));
+
+        // 1. No permission, no reason → blocked.
+        $resp = $this->actingAs($officer)
+            ->postJson(route('applications.approve', $mirror->id), ['approved_amount' => 5000]);
+        $resp->assertStatus(400)->assertJson(['success' => false]);
+        $this->assertStringContainsString(
+            'exceeds the monthly credit limit',
+            json_decode($resp->getContent(), true)['message']
+        );
+
+        // 2. Reason but no permission → still blocked.
+        $this->actingAs($officer)
+            ->postJson(route('applications.approve', $mirror->id), [
+                'approved_amount' => 5000,
+                'reason' => 'Longstanding member',
+            ])
+            ->assertStatus(400)->assertJson(['success' => false]);
+
+        // 3. Permission + reason → approved, audited, Used +5,000, Available stays 0.
+        $this->actingAs(User::factory()->asBranchManager()->create())
+            ->postJson(route('applications.approve', $mirror->id), [
+                'approved_amount' => 5000,
+                'reason' => 'Verified extra income source; manager override at zero capacity',
+            ])
+            ->assertJson(['success' => true]);
+
+        $this->assertDatabaseHas('audit_logs', ['action' => 'Monthly Capacity Override']);
+        $member = $member->fresh();
+        $this->assertEquals(5000.0, $member->monthlyUsed());
+        $this->assertEquals(0.0, $member->monthlyAvailable(), 'Available must never go negative');
+        $this->assertEquals('approved', $app->fresh()->status);
+    }
+
+    /** @test */
+    public function approve_override_matrix_at_zero_monthly_available_portal_less_member()
+    {
+        $member = $this->makePortalLessMember([
+            'email'                        => 'portal-less-zero@example.com',
+            'monthly_income'               => 50000,
+            'existing_monthly_obligations' => 0,
+            'approved_credit_limit'        => 1000000,
+            'approved_monthly_credit_limit' => 0,
+            'monthly_credit_limit_source'  => 'manual',
+        ]);
+
+        $loanApp = LoanApplication::factory()->create([
+            'user_id' => null, 'email' => 'portal-less-zero@example.com',
+            'loan_type' => 'regular', 'amount' => 5000, 'term_months' => 12,
+            'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
+            'status' => 'pending',
+        ]);
+        $mirror = Application::create([
+            'loan_application_id' => $loanApp->id, 'app_id' => 'APP-PL0',
+            'applicant' => $loanApp->full_name, 'loan_type' => $loanApp->loan_type,
+            'amount' => $loanApp->amount, 'status' => 'Pending',
+            'recommended_amount' => 0, 'risk_level' => 'Low', 'risk_score' => 80,
+        ]);
+
+        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+            ->postJson(route('applications.approve', $mirror->id), ['approved_amount' => 5000])
+            ->assertStatus(400);
+
+        $this->actingAs(User::factory()->asBranchManager()->create())
+            ->postJson(route('applications.approve', $mirror->id), [
+                'approved_amount' => 5000,
+                'reason' => 'Portal-less member, staff-encoded; manager override at zero capacity',
+            ])
+            ->assertJson(['success' => true]);
+
+        $member = $member->fresh();
+        $this->assertEquals(5000.0, $member->monthlyUsed());
+        $this->assertEquals(0.0, $member->monthlyAvailable());
+    }
+
+    /** @test */
+    public function approve_amount_at_or_below_available_needs_no_override()
+    {
+        foreach ([5000, 5500] as $amount) { // below, then exactly at available
+            $member = $this->makeMember([
+                'monthly_income'                => 50000,
+                'existing_monthly_obligations'  => 0,
+                'approved_credit_limit'         => 1000000,
+                'approved_monthly_credit_limit' => 15500,
+                'monthly_credit_limit_source'   => 'manual',
+            ]);
+            $this->approvedThisMonth($member, 10000); // available 5,500
+
+            $app = LoanApplication::factory()->create([
+                'user_id' => $member->user_id, 'email' => $member->email,
+                'loan_type' => 'regular', 'amount' => $amount, 'term_months' => 12,
+                'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
+                'status' => 'pending',
+            ]);
+            $mirror = Application::create([
+                'loan_application_id' => $app->id, 'app_id' => 'APP-FIT' . $amount,
+                'applicant' => $app->full_name, 'loan_type' => $app->loan_type,
+                'amount' => $app->amount, 'status' => 'Pending',
+                'recommended_amount' => $amount, 'risk_level' => 'Low', 'risk_score' => 80,
+            ]);
+
+            $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+                ->postJson(route('applications.approve', $mirror->id), ['approved_amount' => $amount])
+                ->assertJson(['success' => true]);
+        }
+
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'Monthly Capacity Override']);
+    }
+
+    /** @test */
+    public function active_members_page_lists_max_for_12_months()
+    {
+        $member = $this->makeMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 15500,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+        $this->assertEquals(186000.0, $member->maxForTwelveMonths());
+
+        $html = $this->actingAs($this->adminUser())
+            ->get(route('active-members.index'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('monthly_max_12', $html);
+        $this->assertStringContainsString('186000', $html);
+    }
+
+    /** @test */
+    public function modal_override_wiring_is_present_in_blade()
+    {
+        $blade = file_get_contents(resource_path('views/admin/partials/application-modal.blade.php'));
+
+        $this->assertStringContainsString('id="approvedAmount"', $blade);
+        $this->assertStringContainsString('data-monthly-available=', $blade);
+        $this->assertStringContainsString('data-total-available=', $blade);
+        $this->assertStringContainsString('oninput="toggleOverrideBox()"', $blade);
+        $this->assertStringContainsString('window.shouldShowOverride = function', $blade);
+        $this->assertStringContainsString('shouldShowOverride(prefillAmount, ma, ta, p.override)', $blade);
+        $this->assertStringContainsString("state === 'notice'", $blade);
+        $this->assertStringContainsString("btn.disabled = state === 'notice'", $blade);
+        $this->assertStringContainsString("fetch('/admin/applications/'", $blade, 'Sparse payloads self-fetch the canonical data');
     }
 
     private function adminUser(): User
