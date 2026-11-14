@@ -624,6 +624,7 @@
             : '';
         $aiScore = $latestBorrower ? $latestBorrower->ai_credit_score : null;
         $rawScore = $aiScore !== null ? round((($aiScore - 300) * 100) / 550) : null;
+        $max12 = $m->maxForTwelveMonths();
       @endphp
       "{{ $m->id }}": {
         id: @json($m->id),
@@ -639,6 +640,7 @@
         monthly_credit_limit: @json($m->approved_monthly_credit_limit),
         monthly_credit_limit_source: @json($m->monthly_credit_limit_source),
         monthly_available: @json($m->monthlyAvailable() !== null ? (float) $m->monthlyAvailable() : null),
+        monthly_max_12: @json($max12 !== null ? (float) $max12 : null),
       },
     @endforeach
   };
@@ -811,9 +813,9 @@
         ${row('Full Name', m.name)}
         ${row('Email Address', m.email)}
         ${row('Monthly Income', `<span class="num">${m.income || '₱0.00'}</span>`)}
-        ${row('Credit Limit', (m.approved_credit_limit !== null && m.approved_credit_limit !== undefined && m.approved_credit_limit !== '') ? `<span class="num">${fmtMoney(m.approved_credit_limit)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${row('Monthly Credit Limit', (m.monthly_credit_limit !== null && m.monthly_credit_limit !== undefined) ? `<span class="num">${fmtMoney(m.monthly_credit_limit)}</span> <span style="font-size:.75rem;color:var(--muted);">(${m.monthly_credit_limit_source || 'auto'})</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${row('Monthly Available', (m.monthly_available !== null && m.monthly_available !== undefined) ? `<span class="num" style="color:var(--success);">${fmtMoney(m.monthly_available)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
+        ${row('Max for 12 months', (m.monthly_max_12 !== null && m.monthly_max_12 !== undefined) ? `<span class="num">${fmtMoney(m.monthly_max_12)}</span>` : '<span style="color:var(--muted);font-style:italic;">Not assessed</span>')}
         ${row('Date Joined', m.date)}
         ${row('Status', `<span class="status-pill ${m.status === 'active' ? 'approved' : m.status}"><span class="status-dot"></span>${statusLabel}</span>`)}
 
@@ -870,6 +872,7 @@
               }).join('') || '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--muted);">No loan applications found.</td></tr>'}
             </tbody>
           </table>
+          ${activeLoans.slice(0,5).some(a => a.score == null) ? '<div style="font-size:.75rem;color:var(--muted);margin-top:.3rem;font-style:italic;">N/A = rule-based score not available yet (evaluation pending).</div>' : ''}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">

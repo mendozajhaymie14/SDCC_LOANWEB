@@ -194,6 +194,13 @@ window.renderApplicationModal = function (app) {
     // Check if monthly_capacity is a fallback (suggested) vs truly assessed
     const isCapacitySuggested = monthlyCapacity !== null && app.monthly_capacity_source === 'auto';
 
+    /* Prefill the approved amount with the recommendation (fall back to the
+       requested amount when the recommendation is 0), and surface the override
+       box only while that amount exceeds a live credit limit. */
+    const prefillAmount = recommended > 0 ? recommended : amount;
+    const needsOverride = (monthlyAvailable !== null && prefillAmount > monthlyAvailable) ||
+                          (availableCreditTotal !== null && prefillAmount > availableCreditTotal);
+
     const rowHtml = (label, value, extra = '') => `
         <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
           <span style="color:var(--muted);">${label}</span>
@@ -229,22 +236,25 @@ window.renderApplicationModal = function (app) {
             '<div id="modalAiNotes" style="font-size:0.85rem;color:#1e293b;line-height:1.5;">' + scanNoteDisplay + '</div>' +
         '</div>' +
         row('Last Scan', scanTimeDisplay) +
-        (showActions ? modalActionSection(appId, recommended) : '');
+        (showActions ? modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailable, availableCreditTotal) : '');
 };
 
 /* Action buttons + Approve Amount / reject reason form */
-function modalActionSection(appId, recommendedAmount) {
+function modalActionSection(appId, prefillAmount, needsOverride, monthlyAvailable, totalAvailable) {
     /* Permission flags computed server-side (see window.__modalPermissions).
        A role without the permission never sees the button. */
     const p = window.__modalPermissions || { approve: false, reject: false, scan: false, delete: false };
     if (! p.approve && ! p.reject && ! p.scan && ! p.delete) return '';
 
+    const ma = monthlyAvailable === null || monthlyAvailable === undefined ? '' : monthlyAvailable;
+    const ta = totalAvailable === null || totalAvailable === undefined ? '' : totalAvailable;
+
     return '' +
         '<div style="display:flex;flex-direction:column;gap:0.5rem;width:100%;margin-top:1.2rem;">' +
             /* Row 1: Primary Decision */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
-                (p.reject ? '<button type="button" id="btn-reject" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:transparent;cursor:pointer;" onclick="openRejectModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')"><i class="fa-solid fa-xmark nav-icon"></i> Reject</button>' : '') +
-                (p.approve ? '<button type="button" id="btn-approve" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="openApproveModal(\'' + appId + '\', \'' + fmtMoney(recommendedAmount) + '\')"><i class="fa-solid fa-check nav-icon"></i> Approve</button>' : '') +
+                (p.reject ? '<button type="button" id="btn-reject" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:500;color:var(--red);border:1px solid var(--red);background:transparent;cursor:pointer;" onclick="openRejectModal(\'' + appId + '\', \'' + fmtMoney(prefillAmount) + '\')"><i class="fa-solid fa-xmark nav-icon"></i> Reject</button>' : '') +
+                (p.approve ? '<button type="button" id="btn-approve" style="flex:1;border-radius:8px;padding:.6rem 1rem;font-size:.875rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;" onclick="openApproveModal(\'' + appId + '\', \'' + fmtMoney(prefillAmount) + '\')"><i class="fa-solid fa-check nav-icon"></i> Approve</button>' : '') +
             '</div>' +
             /* Row 2: Tools & Cleanup */
             '<div style="display:flex;gap:0.5rem;width:100%;">' +
@@ -257,10 +267,10 @@ function modalActionSection(appId, recommendedAmount) {
             '<h4 style="margin:0 0 .5rem;font-size:.9rem;font-weight:600;">Approve Application</h4>' +
             '<div style="margin-bottom:.5rem;">' +
                 '<label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Approved Amount</label>' +
-                '<input type="number" id="approvedAmount" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;" value="' + (Number(String(recommendedAmount).replace(/[₱,]/g, '')) || 0) + '" />' +
+                '<input type="number" id="approvedAmount" step="0.01" min="0" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;" value="' + prefillAmount + '" ' +
+                    'data-monthly-available="' + ma + '" data-total-available="' + ta + '" oninput="toggleOverrideBox()" />' +
             '</div>' +
-            '<div style="margin-bottom:.5rem;">' +
-            (p.override ? '<div style="margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
+            (p.override ? '<div id="overrideBox" style="display:' + (needsOverride ? 'block' : 'none') + ';margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
                 '<label style="display:flex;align-items:flex-start;gap:.4rem;cursor:pointer;font-size:.82rem;color:#92400e;">' +
                     '<input type="checkbox" id="overrideCreditLimit" style="margin-top:0.15rem;" />' +
                     '<span><strong>Override credit limit</strong> — I authorize approving this application above the member\'s available credit. This action is audited.</span>' +
@@ -286,6 +296,18 @@ function modalActionSection(appId, recommendedAmount) {
             '</div>' +
         '</div>';
 }
+
+/* Show the override box only while the approved amount exceeds a live limit. */
+window.toggleOverrideBox = function () {
+    var box = document.getElementById('overrideBox');
+    var input = document.getElementById('approvedAmount');
+    if (!box || !input) return;
+    var amt = parseFloat(input.value) || 0;
+    var ma = input.dataset.monthlyAvailable === '' ? null : parseFloat(input.dataset.monthlyAvailable);
+    var ta = input.dataset.totalAvailable === '' ? null : parseFloat(input.dataset.totalAvailable);
+    var show = (ma !== null && !isNaN(ma) && amt > ma) || (ta !== null && !isNaN(ta) && amt > ta);
+    box.style.display = show ? 'block' : 'none';
+};
 
 /* ── Modal openers ── */
 

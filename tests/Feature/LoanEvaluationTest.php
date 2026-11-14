@@ -277,7 +277,7 @@ class LoanEvaluationTest extends TestCase
 
         // DTI limits but doesn't zero out:
         // income=30000, oblig=8000, budget=(30000*0.35)-8000=2500
-        // affordable = 2500 / 0.088858 ≈ 28136 → roundDown1000 = 28000
+        // affordable = 2500 / 0.0888487 ≈ 28137.69 (exact, no round-down)
         $loanApp = LoanApplication::factory()->create([
             'user_id' => $user->id,
             'loan_type' => 'regular',
@@ -294,7 +294,7 @@ class LoanEvaluationTest extends TestCase
         $this->assertTrue($result['eligible']);
         $this->assertLessThan(100000, $result['recommended_amount']);
         $this->assertLessThan(50000, $result['recommended_amount']);
-        $this->assertEquals(28000, $result['recommended_amount']);
+        $this->assertEquals(28137.69, $result['recommended_amount']);
     }
 
     /** @test */

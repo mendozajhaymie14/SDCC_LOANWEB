@@ -66,7 +66,7 @@
 
           <details data-category="loans">
             <summary>What is the minimum and maximum loan amount?</summary>
-            <p>The minimum loan amount we release is <strong>₱1,000</strong> and the maximum is <strong>₱2,000,000</strong>, depending on your membership standing, share capital, and repayment capacity. Your approved amount is based on our credit assessment which considers your income, existing obligations, and cooperative share capital.</p>
+            <p>The minimum loan amount we release is <strong>₱1</strong> and the maximum is <strong>₱2,000,000</strong>, depending on your membership standing, share capital, and repayment capacity. Your approved amount is based on our credit assessment which considers your income, existing obligations, and cooperative share capital.</p>
           </details>
 
           <details data-category="loans">

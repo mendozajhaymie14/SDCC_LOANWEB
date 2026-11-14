@@ -127,8 +127,8 @@
           </div>
 
           <div class="field">
-            <label for="amount">Amount * <span class="hint" id="amountHint">(₱1,000 – ₱2,000,000)</span></label>
-            <input type="number" id="amount" name="amount" min="1000" max="2000000" step="100" inputmode="numeric"
+            <label for="amount">Amount * <span class="hint" id="amountHint">(₱1 – ₱2,000,000)</span></label>
+            <input type="number" id="amount" name="amount" min="1" max="2000000" step="0.01" inputmode="decimal"
                    value="{{ old('amount') }}"
                    class="@error('amount') has-error @enderror" required autocomplete="off" data-validate="positive"/>
             @error('amount') <span class="error-text">{{ $message }}</span> @enderror

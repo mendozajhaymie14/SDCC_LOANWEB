@@ -9,7 +9,6 @@ use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
-use App\Rules\MultipleOfThousand;
 use App\Support\LoanStatus;
 use App\Services\AmortizationService;
 use App\Services\CreditLimitService;
@@ -164,7 +163,7 @@ class UserController extends Controller
         $maxAmount = self::maxAmountFor($loanType);
         $maxAmount = min($maxAmount ?? 2000000, 2000000);
         $maxAmountRule = ['max:' . $maxAmount];
-        $amountMinRule = $maxAmount < 1000 ? ['min:1'] : ['min:1000'];
+        $amountMinRule = ['min:1'];
 
         $termRule = ['required', 'integer', 'in:' . implode(',', $matrix['terms'])];
 
@@ -179,7 +178,7 @@ class UserController extends Controller
             'existing_monthly_obligations' => ['required', 'numeric', 'min:0'],
             'purpose_of_loan'            => ['required', 'in:Educational,Business,Personal,Emergency'],
             'loan_type'                  => ['required', 'in:' . implode(',', array_keys(Config::get('loan_matrix.loan_types')))],
-            'amount'                     => ['required', 'numeric', new MultipleOfThousand, ...$amountMinRule, ...$maxAmountRule],
+            'amount'                     => ['required', 'numeric', ...$amountMinRule, ...$maxAmountRule],
             'term_months'                => $termRule,
             'required_documents'         => ['nullable', 'array', 'max:10'],
             'required_documents.*'       => ['file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
@@ -188,7 +187,7 @@ class UserController extends Controller
 
         $messages = [
             'agree.accepted'      => 'Please confirm your details are true and correct.',
-            'amount.min'          => 'The smallest loan we release is ₱1,000.',
+            'amount.min'          => 'The smallest loan we release is ₱1.',
             'amount.max'          => 'Maximum amount for this product is ₱' . number_format($maxAmount ?? 2000000, 2),
             'term_months.in'      => 'This product only supports ' . implode(', ', $matrix['terms']) . '-month terms.',
         ];
@@ -235,31 +234,16 @@ class UserController extends Controller
         $termMonths      = (int) ($data['term_months'] ?? 12);
 
         // ─── MONTHLY ALLOWANCE GATE (BEFORE ANY SIDE EFFECT) ────────────────
-        // Requested principal must fit the member's Monthly Available
-        // (peso allowance of principal approved this calendar month).
+        // Only reject when the monthly limit has never been assessed (null).
+        // Over-limit and zero-available requests are accepted as PENDING;
+        // the evaluation service caps the recommendation and the approve
+        // gate (AdminController::approve) stays authoritative.
         $coopMember = Auth::user()->coopMember;
         if ($coopMember) {
             $monthlyAvailable = $coopMember->monthlyAvailable();
             if ($monthlyAvailable === null) {
                 return back()->withInput()
                     ->withErrors(['amount' => 'Monthly credit limit has not been assessed. Contact the cooperative office.']);
-            }
-            if ($monthlyAvailable <= 0) {
-                return back()->withInput()
-                    ->withErrors(['amount' => sprintf(
-                        'No monthly credit limit left this month: used ₱%s of ₱%s.',
-                        number_format($coopMember->monthlyUsed(), 2),
-                        number_format((float) $coopMember->monthlyCapacity(), 2)
-                    )]);
-            }
-            if ($requestedAmount > $monthlyAvailable) {
-                return back()->withInput()
-                    ->withErrors(['amount' => sprintf(
-                        'Requested amount exceeds your monthly credit limit. Available this month: ₱%s (limit ₱%s, used ₱%s).',
-                        number_format($monthlyAvailable, 2),
-                        number_format((float) $coopMember->monthlyCapacity(), 2),
-                        number_format($coopMember->monthlyUsed(), 2)
-                    )]);
             }
         }
 

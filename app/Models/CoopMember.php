@@ -386,6 +386,17 @@ class CoopMember extends Model
     }
 
     /**
+     * Max loan amount over 12 months at the current monthly limit
+     * (monthly limit × 12). Null when the limit has never been assessed.
+     */
+    public function maxForTwelveMonths(): ?float
+    {
+        $capacity = $this->monthlyCapacity();
+
+        return $capacity !== null ? $capacity * 12 : null;
+    }
+
+    /**
      * Resolve the CoopMember for a loan application.
      *
      * Order: users.coop_member_id relation → coop_members.user_id → email fallback.

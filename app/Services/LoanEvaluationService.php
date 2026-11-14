@@ -127,18 +127,18 @@ class LoanEvaluationService
         }
 
         $recommendedAmount = match ($loanType) {
-            'regular'    => $this->minAndRound($amount, $affordablePrincipal),
+            'regular'    => min($amount, $affordablePrincipal),
             'educational'=> $approvedCreditLimit !== null && $approvedCreditLimit != 0
-                ? $this->roundDown1000(min($amount, $approvedCreditLimit))
+                ? min($amount, $approvedCreditLimit)
                 : 0,
             'emergency'  => $approvedCreditLimit !== null && $approvedCreditLimit != 0
-                ? $this->roundDown1000(min($amount, $approvedCreditLimit * 0.20))
+                ? min($amount, $approvedCreditLimit * 0.20)
                 : 0,
-            'healthcare' => $this->roundDown1000(min($amount, $affordablePrincipal)),
-            'micro'      => $this->roundDown1000(min($amount, 100000)),
-            'utility'    => $this->roundDown1000(min($amount, 10000)),
+            'healthcare' => min($amount, $affordablePrincipal),
+            'micro'      => min($amount, 100000),
+            'utility'    => min($amount, 10000),
             'special'    => $this->specialAmount($amount, $memberSavings, $existingOblig, $monthlyIncome, $monthlyRate),
-            default      => $this->roundDown1000(min($amount, $affordablePrincipal)),
+            default      => min($amount, $affordablePrincipal),
         };
 
         // If limit check already rejected, enforce recommended_amount = 0
@@ -157,7 +157,7 @@ class LoanEvaluationService
                 : 0;
             $availableCredit = max(0, (float) $approvedCreditLimit - $outstanding);
             if ($availableCredit < $recommendedAmount) {
-                $recommendedAmount = $this->roundDown1000($availableCredit);
+                $recommendedAmount = $availableCredit;
                 $reasons[] = sprintf('Request exceeds available credit of ₱%s. Capped at ₱%s.',
                     number_format($availableCredit, 2),
                     number_format($recommendedAmount, 2)
@@ -344,11 +344,6 @@ class LoanEvaluationService
 
     // ── Product helpers ──────────────────────────────────────────────────
 
-    private function minAndRound(float $a, float $b): float
-{
-    return $this->roundDown1000(min($a, $b));
-}
-
     /**
      * Special Loan: savings_balance >= config('loan_evaluation.loan_constants.special_loan_minimum');
      * amount = min(requested, affordable principal for a 120-month term under the same DTI rule).
@@ -364,15 +359,7 @@ class LoanEvaluationService
         $term120 = 120;
         $affordable120 = $this->computeAffordablePrincipal($income, $obligations, $term120, $monthlyRate);
         // Cap by income-based DTI for 120 months
-        return $this->roundDown1000(min($requested, $affordable120));
-    }
-
-    private function roundDown1000(float $value): float
-    {
-        if ($value < 1000) {
-            return 0;
-        }
-        return (float) (floor($value / 1000) * 1000);
+        return min($requested, $affordable120);
     }
 
     private function computeAffordablePrincipal(float $income, float $obligations, int $termMonths, float $monthlyRate): float

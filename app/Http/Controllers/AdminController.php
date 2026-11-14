@@ -21,7 +21,6 @@ use App\Models\MemberApplication;
 use App\Models\Payment;
 use App\Models\Setting;
 use App\Models\User;
-use App\Rules\MultipleOfThousand;
 use App\Support\Format;
 use App\Support\LoanStatus;
 use App\Support\Permissions;
@@ -185,7 +184,7 @@ class AdminController extends Controller
         $validator = Validator::make($request->all(), [
             'member_id'                    => 'required|numeric|exists:coop_members,id',
             'loan_type'                    => 'required|in:' . implode(',', array_keys(config('loan_matrix.loan_types'))),
-            'amount'                       => ['required', 'numeric', 'min:1', new MultipleOfThousand],
+            'amount'                       => ['required', 'numeric', 'min:1'],
             'term_months'                  => 'required|integer|min:1',
             'purpose'                      => 'required|string|max:500',
             'monthly_income'               => 'required|numeric|min:0',
@@ -227,29 +226,14 @@ class AdminController extends Controller
         }
 
         // ─── MONTHLY ALLOWANCE GATE ────────────────────────────────────────
-        // Requested principal must fit the member's Monthly Available (peso
-        // allowance of principal approved this calendar month).
+        // Only reject when the monthly limit has never been assessed (null).
+        // Over-limit and zero-available requests are accepted; the
+        // evaluation service caps the recommendation and the approve
+        // gate (AdminController::approve) stays authoritative.
         $monthlyAvailable = $member->monthlyAvailable();
         if ($monthlyAvailable === null) {
             return back()->withInput()
                 ->with('error', 'Monthly credit limit has not been assessed. Contact the cooperative office.');
-        }
-        if ($monthlyAvailable <= 0) {
-            return back()->withInput()
-                ->with('error', sprintf(
-                    'No monthly credit limit left this month: used ₱%s of ₱%s.',
-                    number_format($member->monthlyUsed(), 2),
-                    number_format((float) $member->monthlyCapacity(), 2)
-                ));
-        }
-        if ((float) $validated['amount'] > $monthlyAvailable) {
-            return back()->withInput()
-                ->with('error', sprintf(
-                    'Requested amount exceeds your monthly credit limit. Available this month: ₱%s (limit ₱%s, used ₱%s).',
-                    number_format($monthlyAvailable, 2),
-                    number_format((float) $member->monthlyCapacity(), 2),
-                    number_format($member->monthlyUsed(), 2)
-                ));
         }
 
         // Consent validation: require document_consent when documents are uploaded
@@ -272,13 +256,13 @@ class AdminController extends Controller
         $maxAmount = UserController::maxAmountFor($validated['loan_type']);
         $maxAmount = min($maxAmount ?? 2000000, 2000000);
         $maxAmountRule = ['max:' . $maxAmount];
-        $amountMinRule = $maxAmount < 1000 ? ['min:1'] : ['min:1000'];
+        $amountMinRule = ['min:1'];
 
         // Validate term is offered by this product
         $termRule = ['required', 'integer', 'in:' . implode(',', $loanTypeConfig['terms'])];
 
         $rules = [
-            'amount'      => ['required', 'numeric', ...$amountMinRule, ...$maxAmountRule, new MultipleOfThousand],
+            'amount'      => ['required', 'numeric', ...$amountMinRule, ...$maxAmountRule],
             'term_months' => $termRule,
         ];
 

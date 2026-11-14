@@ -94,12 +94,13 @@ class EvaluationEngineTest extends TestCase
 
             // 3. High risk — over-obligated: obligations eat the whole DTI budget.
             //    Score: DTI 9 + payment 18 + docs 0 + savings 0 = 27 → High.
+            //    affordable = 500 / 0.0888487 ≈ 5627.54 (exact, no round-down).
             'high risk (over-obligated)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
                  'savings_balance' => 0],
                 ['loan_type' => 'regular', 'amount' => 100000, 'term_months' => 12,
                  'documents' => []],
-                5000,
+                5627.54,
                 'High',
             ],
 
@@ -130,12 +131,13 @@ class EvaluationEngineTest extends TestCase
 
             // 6. Request above capacity — affordable principal caps the recommendation.
             //    No documents so docScore=0. Score: DTI 33 + payment 18 + docs 0 + savings 0 = 51 → Medium.
+            //    affordable = 7000 / 0.0888487 ≈ 78785.54 (exact, no round-down).
             'request above capacity' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 0,
                  'savings_balance' => 0],
                 ['loan_type' => 'regular', 'amount' => 100000, 'term_months' => 12,
                  'documents' => []],
-                78000,
+                78785.54,
                 'Medium',
             ],
 

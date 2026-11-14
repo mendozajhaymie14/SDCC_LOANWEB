@@ -582,28 +582,27 @@ class MonthlyCreditLimitTest extends TestCase
             'agree'                        => 'yes',
         ];
 
-        // Over the limit
+        // Over the limit — now accepted as PENDING (request-time gate removed);
+        // the evaluation service caps the recommendation instead.
         $this->actingAs($member->user)
             ->post(route('user.loans.store'), array_merge($base, ['amount' => 6000]))
-            ->assertSessionHasErrors('amount');
-        $msg = session('errors')->first('amount');
-        $this->assertStringContainsString(
-            'Requested amount exceeds your monthly credit limit. Available this month: ₱5,500.00 (limit ₱15,500.00, used ₱10,000.00).',
-            $msg
-        );
-        $this->assertEquals(0, LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->count());
+            ->assertRedirect();
+        $this->assertEquals(1, LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->count());
 
-        // Zero available
+        // Zero available — also accepted as PENDING. (The one-pending-at-a-time
+        // rule now blocks the second submission before the monthly gate, so
+        // assert that rule's message instead of a second row.)
         $this->approvedThisMonth($member, 5500);
         $this->actingAs($member->user)
             ->post(route('user.loans.store'), array_merge($base, ['amount' => 1000]))
-            ->assertSessionHasErrors('amount');
+            ->assertRedirect();
         $this->assertStringContainsString(
-            'No monthly credit limit left this month: used ₱15,500.00 of ₱15,500.00.',
-            session('errors')->first('amount')
+            'You already have an application under review.',
+            session('error') ?? ''
         );
+        $this->assertEquals(1, LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->count());
 
-        // Not assessed
+        // Not assessed — still blocked.
         $unassessed = $this->makeMember([
             'monthly_income' => null,
             'existing_monthly_obligations' => 0,
@@ -620,7 +619,8 @@ class MonthlyCreditLimitTest extends TestCase
             session('errors')->first('amount')
         );
         $this->assertEquals(0, LoanApplication::where('user_id', $unassessed->user_id)->count());
-        $this->assertEquals(0, Application::count());
+        // One pending app + its admin mirror from the over-limit POST above.
+        $this->assertEquals(1, Application::count());
     }
 
     /** @test */
@@ -645,20 +645,25 @@ class MonthlyCreditLimitTest extends TestCase
             'source_of_income'             => 'Salary',
         ];
 
+        // Over the limit — now accepted as PENDING (request-time gate removed).
         $this->actingAs($this->adminUser())
             ->post(route('applications.encode.store'), array_merge($base, ['amount' => 6000]))
-            ->assertSessionHas('error');
-        $this->assertStringContainsString(
-            'Requested amount exceeds your monthly credit limit. Available this month: ₱5,500.00 (limit ₱15,500.00, used ₱10,000.00).',
-            session('error')
-        );
-        $this->assertEquals(0, LoanApplication::where('status', 'pending')->count());
-        $this->assertEquals(0, Application::count());
+            ->assertSessionDoesntHaveErrors();
+        $this->assertEquals(1, LoanApplication::where('status', 'pending')->count());
+        $this->assertEquals(1, Application::count());
 
+        // Zero available — also accepted as PENDING. (The one-pending-at-a-time
+        // rule blocks the second submission before the monthly gate.)
         $this->approvedThisMonth($member, 5500);
         $this->actingAs($this->adminUser())
             ->post(route('applications.encode.store'), array_merge($base, ['amount' => 1000]))
-            ->assertSessionHas('error', fn ($m) => str_contains($m, 'No monthly credit limit left this month: used ₱15,500.00 of ₱15,500.00.'));
+            ->assertRedirect();
+        $this->assertStringContainsString(
+            'This member already has an application under review.',
+            session('error') ?? ''
+        );
+        $this->assertEquals(1, LoanApplication::where('status', 'pending')->count());
+        $this->assertEquals(1, Application::count());
 
         $unassessed = $this->makeMember([
             'monthly_income' => null,
@@ -671,9 +676,10 @@ class MonthlyCreditLimitTest extends TestCase
                 'amount'    => 1000,
             ]))
             ->assertSessionHas('error', fn ($m) => str_contains($m, 'Monthly credit limit has not been assessed. Contact the cooperative office.'));
-        // Only the two approved fixture loans exist — nothing was ever created.
-        $this->assertEquals(2, LoanApplication::count());
-        $this->assertEquals(0, Application::count());
+        // Two approved fixture loans + the one pending app created above,
+        // plus its admin mirror. The unassessed member created nothing.
+        $this->assertEquals(3, LoanApplication::count());
+        $this->assertEquals(1, Application::count());
     }
 
     /** @test */
@@ -813,7 +819,8 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertEquals(15500.0, $member->monthlyUsed());
         $this->assertEquals(0.0, $member->monthlyAvailable());
 
-        // A further request that month is rejected at request time.
+        // A further request that month is now accepted as PENDING (request-time
+        // gate removed); approve() still hard-blocks it at decision time.
         $this->actingAs($member->user)
             ->post(route('user.loans.store'), [
                 'full_name'                    => $member->full_name,
@@ -828,10 +835,23 @@ class MonthlyCreditLimitTest extends TestCase
                 'term_months'                  => 36,
                 'agree'                        => 'yes',
             ])
-            ->assertSessionHasErrors('amount');
+            ->assertRedirect();
+        $this->assertEquals(
+            1,
+            LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->count()
+        );
+
+        // The approve gate still blocks the over-limit decision.
+        $pendingApp = LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->first();
+        $this->assertNotNull($pendingApp);
+        $mirror = Application::where('loan_application_id', $pendingApp->id)->first();
+        $this->assertNotNull($mirror);
+        $resp = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+            ->postJson(route('applications.approve', $mirror->id), ['approved_amount' => 1000]);
+        $resp->assertJson(['success' => false]);
         $this->assertStringContainsString(
-            'No monthly credit limit left this month: used ₱15,500.00 of ₱15,500.00.',
-            session('errors')->first('amount')
+            'No monthly credit limit left this month',
+            json_decode((string) $resp->getContent(), true)['message'] ?? ''
         );
     }
 
@@ -1047,7 +1067,8 @@ class MonthlyCreditLimitTest extends TestCase
         $result = app(LoanEvaluationService::class)->evaluate($loanApp);
         $this->assertEquals(15500.0, $result['recommended_amount']);
 
-        // (2) member form: 16,000 blocked, 15,000 passes
+        // (2) member form: over-limit 16,000 accepted as PENDING (request-time
+        // gate removed); the approve gate below stays authoritative.
         $formBase = [
             'full_name'                    => $member->full_name,
             'email'                        => $member->email,
@@ -1062,14 +1083,11 @@ class MonthlyCreditLimitTest extends TestCase
         ];
         $this->actingAs($member->user)
             ->post(route('user.loans.store'), array_merge($formBase, ['amount' => 16000]))
-            ->assertSessionHasErrors('amount');
-
-        $this->actingAs($member->user)
-            ->post(route('user.loans.store'), array_merge($formBase, ['amount' => 15000]))
             ->assertRedirect();
         $this->assertNull(session('error'));
 
-        // (3) staff encode: 16,000 blocked
+        // (3) staff encode: the monthly gate no longer blocks the request —
+        // the one-pending-at-a-time rule (created by (2) above) stops it instead.
         $admin = $this->adminUser();
         $encodeBase = [
             'member_id'                    => $member->id,
@@ -1082,7 +1100,11 @@ class MonthlyCreditLimitTest extends TestCase
         ];
         $this->actingAs($admin)
             ->post(route('applications.encode.store'), array_merge($encodeBase, ['amount' => 16000]))
-            ->assertSessionHas('error', fn ($m) => str_contains($m, 'exceeds your monthly credit limit'));
+            ->assertRedirect();
+        $this->assertStringContainsString(
+            'This member already has an application under review.',
+            session('error') ?? ''
+        );
 
         // (4) approve: 16,000 blocked without override, 15,000 passes
         $loanOfficer = User::factory()->create(['usertype' => 'loan_officer']);
@@ -1156,7 +1178,8 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertStringContainsString('No monthly credit limit left this month: used ₱0.00 of ₱0.00.', $result['rejection_reason']);
         $this->assertSame('High', $result['risk_level']);
 
-        // member form: blocked
+        // member form: accepted as PENDING (request-time gate removed); the
+        // evaluation caps the recommendation to 0 and approve() blocks below.
         $this->actingAs($member->user)
             ->post(route('user.loans.store'), [
                 'full_name'                    => $member->full_name,
@@ -1171,9 +1194,10 @@ class MonthlyCreditLimitTest extends TestCase
                 'term_months'                  => 36,
                 'agree'                        => 'yes',
             ])
-            ->assertSessionHasErrors('amount');
+            ->assertRedirect();
 
-        // staff encode: blocked
+        // staff encode: the monthly gate no longer blocks it — the
+        // one-pending-at-a-time rule (from the member-form POST above) does.
         $this->actingAs($this->adminUser())
             ->post(route('applications.encode.store'), [
                 'member_id'                    => $member->id,
@@ -1185,7 +1209,11 @@ class MonthlyCreditLimitTest extends TestCase
                 'existing_monthly_obligations' => 10500,
                 'source_of_income'             => 'Salary',
             ])
-            ->assertSessionHas('error', fn ($m) => str_contains($m, 'No monthly credit limit left this month'));
+            ->assertRedirect();
+        $this->assertStringContainsString(
+            'This member already has an application under review.',
+            session('error') ?? ''
+        );
 
         // approve: blocked
         $app = LoanApplication::factory()->create([
@@ -1246,7 +1274,8 @@ class MonthlyCreditLimitTest extends TestCase
         ]);
         $result = app(LoanEvaluationService::class)->evaluate($loanApp);
         $this->assertTrue($result['eligible']);
-        $this->assertEquals(196000, $result['recommended_amount']);
+        // affordable = 17500 / 0.0888487 ≈ 196963.86 (exact, no round-down)
+        $this->assertEquals(196963.86, $result['recommended_amount'], '', 0.01);
         $this->assertStringNotContainsString(
             'No monthly credit limit',
             implode(' ', $result['evaluation_reasons'])
