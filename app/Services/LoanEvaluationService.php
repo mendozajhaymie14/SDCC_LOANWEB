@@ -15,10 +15,11 @@ use Illuminate\Support\Facades\DB;
  * and risk level. Called synchronously at application submit time.
  *
  * Scoring (sum to 100):
- *   - DTI affordability ........... 45 pts
+ *   - DTI affordability ........... 30 pts
  *   - Payment history ............. 35 pts
  *   - Document verification ....... 0 pts (advisory only)
  *   - Savings coverage ............ 20 pts
+ *   - Monthly limit headroom ...... 15 pts
  *
  * Risk levels:  >=70 Low | 50–69 Medium | <50 High
  * ai_score < 50 is treated as a risk flag (syncs with the admin side).
@@ -71,6 +72,7 @@ class LoanEvaluationService
         $approvedCreditLimit = $coopMember?->approved_credit_limit !== null ? (float) $coopMember->approved_credit_limit : null;
         $isMigs              = (bool)  ($coopMember?->is_migs ?? false);
         $monthlyUsed         = $coopMember?->monthlyPaymentsActive() ?? 0.0;
+        $monthlyAvailable    = $coopMember?->monthlyAvailable();
 
         $monthlyRate = (float) config('loan_matrix.interest.monthly_rate', 0.01);
         $dtiLimit = (float) config('loan_evaluation.thresholds.dti_limit', 0.35);
@@ -227,7 +229,7 @@ class LoanEvaluationService
         }
 
         // ── Step 3: risk scoring ─────────────────────────────────────────
-        // 3a. DTI affordability  (0–40 pts) — computed on the REQUESTED amount
+        // 3a. DTI affordability  (0–30 pts) — computed on the REQUESTED amount
         // so a request far above what is affordable pulls the score down.
         // Graded: full points at or below the DTI limit, falling linearly
         // to 0 when the ratio reaches 2 x the limit.
@@ -235,7 +237,7 @@ class LoanEvaluationService
         $dtiRatio = $monthlyIncome > 0
             ? ($existingOblig + $monthlyUsed + $emi) / $monthlyIncome
             : 1.0;
-        $dtiWeight = (int) config('loan_evaluation.weights.dti', 40);
+        $dtiWeight = (int) config('loan_evaluation.weights.dti', 30);
         if ($dtiRatio <= $dtiLimit) {
             $dtiScore = $dtiWeight;
         } else {
@@ -249,10 +251,26 @@ class LoanEvaluationService
         $hasDocs = $loanApp->documents && count((array) $loanApp->documents) > 0;
         $docScore = $hasDocs ? (int) config('loan_evaluation.weights.documents', 0) : 0;
 
-        // 3d. Savings coverage  (0–15 pts) — replaces share-capital coverage.
+        // 3d. Savings coverage  (0–20 pts) — replaces share-capital coverage.
         $savingsScore = $this->savingsScore($memberSavings, $amount);
 
-        $riskScore = $dtiScore + $paymentScore + $docScore + $savingsScore;
+        // 3e. Monthly credit limit headroom  (0–15 pts)
+        // Proportional score based on monthlyAvailable vs. requested amount.
+        // Null monthly limit (unassessed) → full 15, no risk floor applied.
+        // Available 0 → 0 points. Request fits → 15 points.
+        $monthlyLimitWeight = (int) config('loan_evaluation.weights.monthly_limit', 15);
+        if ($monthlyAvailable === null) {
+            // Not assessed — unassessed is not a risk signal; controllers block it.
+            $monthlyLimitScore = $monthlyLimitWeight;
+        } elseif ($amount <= $monthlyAvailable) {
+            $monthlyLimitScore = $monthlyLimitWeight;
+        } elseif ($monthlyAvailable > 0) {
+            $monthlyLimitScore = (int) round($monthlyLimitWeight * min(1, $monthlyAvailable / $amount));
+        } else {
+            $monthlyLimitScore = 0;
+        }
+
+        $riskScore = $dtiScore + $paymentScore + $docScore + $savingsScore + $monthlyLimitScore;
 
         $riskLow = (int) config('loan_evaluation.thresholds.risk_low', 70);
         $riskMedium = (int) config('loan_evaluation.thresholds.risk_medium', 50);
@@ -298,6 +316,34 @@ class LoanEvaluationService
             $reasons[] = 'Requested amount exceeds recommended by more than 2x; risk elevated to Medium.';
         }
 
+        // Monthly-limit risk floor (applied after the score band and the
+        // overrides above). Never lowers a level — only raises it.
+        //  - available == 0 was already forced High by the hard override above.
+        //  - requested > available and available > 0: at least Medium when
+        //    requested <= 2 x available, High when requested > 2 x available.
+        //  - requested <= available: no monthly-limit rule.
+        // Unassessed (null) monthly limit applies no floor.
+        if ($monthlyAvailable !== null && $monthlyAvailable > 0 && $amount > $monthlyAvailable) {
+            $monthlyMultiple = (float) config('loan_evaluation.thresholds.monthly_limit_medium_multiple', 2);
+            if ($amount > $monthlyMultiple * $monthlyAvailable) {
+                if ($riskLevel !== 'High') {
+                    $riskLevel = 'High';
+                    $reasons[] = sprintf(
+                        'Requested amount (₱%.0f) is more than twice this month\'s available credit (₱%.0f); risk raised to High.',
+                        $amount,
+                        $monthlyAvailable
+                    );
+                }
+            } elseif ($riskLevel === 'Low') {
+                $riskLevel = 'Medium';
+                $reasons[] = sprintf(
+                    'Requested amount (₱%.0f) is above this month\'s available credit (₱%.0f); risk raised to Medium.',
+                    $amount,
+                    $monthlyAvailable
+                );
+            }
+        }
+
         // ── Build plain-language reasons ─────────────────────────────────
         if (!$hasDocs) {
             $reasons[] = 'No supporting documents uploaded.';
@@ -336,6 +382,7 @@ class LoanEvaluationService
                 'payment_score'    => $paymentScore,
                 'doc_score'        => $docScore,
                 'savings_score'    => $savingsScore,
+                'monthly_limit_score' => $monthlyLimitScore,
                 'is_migs'          => $isMigs,
             ]),
             'evaluation_reasons'   => $reasons,

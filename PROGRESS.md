@@ -22,3 +22,13 @@ Branch: credit-limit-wip
 - Playwright browser spec: NOT added — login fixture user blocked per user instruction (no new fixture user, no scratch-DB changes without approval); node logic test covers the decision table instead.
 - Scratch DB leftover rows from the earlier deleted fixture (mirror APP-9902, member SDCC-OVERRIDE-TEST-0001, users override.manager@ / override.officer@sdcc.coop, loan apps 5-6) — ask before deleting (CLAUDE.md rule 4).
 
+## Monthly-limit scoring & risk floors (rule engine reacts to monthly limit)
+
+- Config: weights dti 45→30, payment_history 35, documents 0, savings 20, NEW monthly_limit 15 (total 100); new threshold `monthly_limit_medium_multiple = 2`; comments updated.
+- Engine (`LoanEvaluationService`): new `monthly_limit_score` component (round half-up, `weight * min(1, available/requested)`, full 15 when fits or unassessed, 0 at available 0) added to risk_score + `details.monthly_limit_score`; risk floor AFTER band+overrides: available>0 && requested>available → ≥Medium (≤2×) / High (>2×); unassessed → no floor; existing overrides untouched; one reason sentence per raise, never repeated, none when already High.
+- New tests: `tests/Feature/MonthlyLimitScoringTest.php` — 7 scenarios + weights-total-100 (all pass).
+- Existing tests updated deliberately (old → new): EvaluationEngineTest sum assertion adds monthly_limit_score; breakdown dti 45→30 + monthly_limit_score 15 (score 68 unchanged); config-drives test 43→58, High→Medium (band 50–69); provider comments recomputed. MonthlyCreditLimitTest exact-cap 83→76, Low→Medium, reasons array gains floor line (₱10000/₱5500, %.0f format); forces-high 83→68; dti_score 45→30; not-forced-high fixture 440000→20000 (20000 ≤ 2×14279.37 keeps the "capped but not forced High" intent).
+- Docs: `docs/scoring-weights.md` — weights table, monthly-limit formula, risk floors, the four examples, band-vs-level divergence, stale-score note.
+- UI: none — modal shows only the total score, no per-component breakdown (verified in application-modal.blade.php).
+- Scoped runs: MonthlyLimitScoringTest 7/7 + EvaluationEngineTest + MonthlyCreditLimitTest + LoanEvaluationTest + CreditLimitEnforcementTest → 94 tests green after the two expectation fixes above. Full suite + final count pending.
+

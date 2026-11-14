@@ -407,13 +407,14 @@ class MonthlyCreditLimitTest extends TestCase
 
         $this->assertEquals(5500.0, $result['recommended_amount']);
         $this->assertTrue($result['eligible']);
-        $this->assertSame('Low', $result['risk_level']);
-        $this->assertSame(83, $result['risk_score']); // 45 DTI + 18 no-history + 0 docs + 20 savings
+        $this->assertSame('Medium', $result['risk_level']); // floor: 10,000 > 5,500 available, ≤ 2x
+        $this->assertSame(76, $result['risk_score']); // 30 DTI + 18 no-history + 0 docs + 20 savings + 8 monthly limit
         $this->assertSame([
             'Requested amount exceeds this month\'s available credit of ₱5,500.00. Capped at ₱5,500.00.',
+            'Requested amount (₱10000) is above this month\'s available credit (₱5500); risk raised to Medium.',
             'No supporting documents uploaded.',
         ], $result['evaluation_reasons']);
-        $this->assertEquals(45, $result['details']['dti_score']);
+        $this->assertEquals(30, $result['details']['dti_score']);
     }
 
     /** @test */
@@ -450,7 +451,7 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertEquals(0.0, $result['recommended_amount']);
         $this->assertFalse($result['eligible']);
         $this->assertSame('High', $result['risk_level']);
-        $this->assertSame(83, $result['risk_score']); // score NOT changed, only the level
+        $this->assertSame(68, $result['risk_score']); // 30 DTI + 18 no-history + 0 docs + 20 savings + 0 monthly limit; level forced High by the 0-available rule
         $this->assertSame([
             'No monthly credit limit left this month: used ₱15,500.00 of ₱15,500.00.',
             'Risk forced to High: no monthly credit limit left this month.',
@@ -497,11 +498,13 @@ class MonthlyCreditLimitTest extends TestCase
     public function evaluation_capped_above_zero_available_is_not_forced_high()
     {
         $member = $this->memberWith14kAvailable();
+        // 20,000 > 14,279.37 available (capped) but ≤ 2x available, so the
+        // monthly-limit floor can raise Low→Medium at most, never High.
         $loanApp = LoanApplication::factory()->create([
             'user_id'                      => $member->user_id,
             'email'                        => $member->email,
             'loan_type'                    => 'regular',
-            'amount'                       => 440000,
+            'amount'                       => 20000,
             'term_months'                  => 36,
             'monthly_income'               => 50000,
             'existing_monthly_obligations' => 0,
@@ -552,7 +555,7 @@ class MonthlyCreditLimitTest extends TestCase
         $expectedRatio = round((0 + $activeEmi + (float) $loanApp->monthly_payment) / 100000, 4);
 
         $this->assertEquals($expectedRatio, $result['details']['dti_ratio']);
-        $this->assertEquals(45, $result['details']['dti_score']);
+        $this->assertEquals(30, $result['details']['dti_score']); // weight 30, ratio well under limit
     }
 
     // ── Request-time gates (member form + staff encode) ─────────────────

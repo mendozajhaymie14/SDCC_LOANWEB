@@ -72,7 +72,7 @@ class EvaluationEngineTest extends TestCase
         return [
             // 1. Medium risk — comfortable income, savings, documents.
             //    EMI 50000 @ 12m = 4442; DTI = (5000+4442)/30000 = 0.315.
-            //    Score: DTI 45 + payment 18 (no_history=18) + docs 0 + savings 5 (20%) = 68 → Medium.
+            //    Score: DTI 30 + payment 18 (no_history=18) + docs 0 + savings 5 (20%) + monthly limit 15 = 68 → Medium.
             'medium risk' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 5000,
                  'savings_balance' => 10000],
@@ -83,7 +83,7 @@ class EvaluationEngineTest extends TestCase
 
             // 2. Medium risk — the request is more than twice the recommendation.
             //    Utility loan capped at 10000; DTI within limit.
-            //    Score: DTI 45 + payment 18 + docs 0 + savings 0 = 63 → Medium.
+            //    Score: DTI 30 + payment 18 + docs 0 + savings 0 + monthly limit 15 = 63 → Medium.
             'medium risk (request above 2x recommended)' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 2000,
                  'savings_balance' => 0],
@@ -93,7 +93,7 @@ class EvaluationEngineTest extends TestCase
             ],
 
             // 3. High risk — over-obligated: obligations eat the whole DTI budget.
-            //    Score: DTI 9 + payment 18 + docs 0 + savings 0 = 27 → High.
+            //    Score: DTI 6 + payment 18 + docs 0 + savings 0 + monthly limit 15 = 39 → High.
             //    affordable = 500 / 0.0888487 ≈ 5627.54 (exact, no round-down).
             'high risk (over-obligated)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
@@ -109,7 +109,7 @@ class EvaluationEngineTest extends TestCase
             //    full ₱20,000 request stands. DTI budget is only ₱500/month,
             //    but educational does not apply DTI-based affordability — the
             //    monthly gate is now the peso allowance (manual 999,999 here).
-            //    Score: DTI 40 + payment 18 + docs 0 + savings 0 = 58 → Medium.
+            //    Score: DTI 26 + payment 18 + docs 0 + savings 0 + monthly limit 15 = 59 → Medium.
             'no payment history (cannot afford)' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 10000,
                  'savings_balance' => 0],
@@ -120,7 +120,7 @@ class EvaluationEngineTest extends TestCase
             ],
 
             // 5. Zero savings — no equity behind the loan, documents on file.
-            //    Score: DTI 45 + payment 18 + docs 0 + savings 0 = 63 → Medium.
+            //    Score: DTI 30 + payment 18 + docs 0 + savings 0 + monthly limit 15 = 63 → Medium.
             'zero savings' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 0,
                  'savings_balance' => 0],
@@ -130,7 +130,7 @@ class EvaluationEngineTest extends TestCase
             ],
 
             // 6. Request above capacity — affordable principal caps the recommendation.
-            //    No documents so docScore=0. Score: DTI 33 + payment 18 + docs 0 + savings 0 = 51 → Medium.
+            //    No documents so docScore=0. Score: DTI 22 + payment 18 + docs 0 + savings 0 + monthly limit 15 = 55 → Medium.
             //    affordable = 7000 / 0.0888487 ≈ 78785.54 (exact, no round-down).
             'request above capacity' => [
                 ['monthly_income' => 20000, 'existing_monthly_obligations' => 0,
@@ -142,7 +142,7 @@ class EvaluationEngineTest extends TestCase
             ],
 
             // 7. Missing documents — no doc points, everything else healthy.
-            //    Score: DTI 45 + payment 18 + docs 0 + savings 5 (20%) = 68 → Medium.
+            //    Score: DTI 30 + payment 18 + docs 0 + savings 5 (20%) + monthly limit 15 = 68 → Medium.
             'missing documents' => [
                 ['monthly_income' => 30000, 'existing_monthly_obligations' => 5000,
                  'savings_balance' => 10000],
@@ -188,10 +188,10 @@ class EvaluationEngineTest extends TestCase
             "[{$label}] recommended amount exceeded the requested amount"
         );
 
-        // The score is the sum of the four configured factors.
+        // The score is the sum of the five configured factors.
         $details = $result['details'];
         $this->assertSame(
-            $details['dti_score'] + $details['payment_score'] + $details['doc_score'] + $details['savings_score'],
+            $details['dti_score'] + $details['payment_score'] + $details['doc_score'] + $details['savings_score'] + $details['monthly_limit_score'],
             $result['risk_score'],
             "[{$label}] score is not the sum of the per-factor points"
         );
@@ -210,11 +210,12 @@ class EvaluationEngineTest extends TestCase
         $result = app(LoanEvaluationService::class)->evaluate($loanApp);
         $details = $result['details'];
 
-        // 45 (DTI) + 18 (no history) + 0 (docs weight 0) + 5 (savings minimal 20% of 50k) = 68 → Medium
-        $this->assertSame(45, $details['dti_score']);
+        // 30 (DTI) + 18 (no history) + 0 (docs weight 0) + 5 (savings minimal 20% of 50k) + 15 (request fits manual monthly limit) = 68 → Medium
+        $this->assertSame(30, $details['dti_score']);
         $this->assertSame(18, $details['payment_score']);
         $this->assertSame(0, $details['doc_score']);
         $this->assertSame(5, $details['savings_score']);
+        $this->assertSame(15, $details['monthly_limit_score']);
         $this->assertSame(68, $result['risk_score']);
         $this->assertSame('Medium', $result['risk_level']);
     }
@@ -239,9 +240,9 @@ class EvaluationEngineTest extends TestCase
 
             $result = app(LoanEvaluationService::class)->evaluate($loanApp);
 
-            // 20 (DTI) + 18 (history) + 0 (docs weight 0) + 5 (savings) = 43 → High at threshold 60
-            $this->assertSame(43, $result['risk_score']);
-            $this->assertSame('High', $result['risk_level']);
+            // 20 (DTI) + 18 (history) + 0 (docs weight 0) + 5 (savings) + 15 (monthly limit) = 58 → Medium band (50–69)
+            $this->assertSame(58, $result['risk_score']);
+            $this->assertSame('Medium', $result['risk_level']);
         } finally {
             config()->set('loan_evaluation.weights.dti', $originalDti);
             config()->set('loan_evaluation.thresholds.risk_low', $originalLow);

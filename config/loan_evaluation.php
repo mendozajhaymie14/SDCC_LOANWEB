@@ -11,17 +11,18 @@ return [
 | App\Services\LoanEvaluationService. Everything the rule engine decides
 | lives here, so a weight can be changed without a code deploy.
 |
-| The four weights must add up to 100 — that is the total risk score.
+| The five weights must add up to 100 — that is the total risk score.
 */
 
 /*
 | Risk score weights (must total 100).
 */
 'weights' => [
-    'dti'             => 45, // affordability: (existing obligations + EMI) / income
+    'dti'             => 30, // affordability: (existing obligations + EMI) / income
     'payment_history' => 35, // repayment behaviour on the applicant's loans
-    'documents'       => 0,  // supporting documents on file
+    'documents'       => 0,  // supporting documents on file (advisory only)
     'savings'         => 20, // savings balance covers the requested amount
+    'monthly_limit'   => 15, // monthly credit limit headroom vs. requested amount
 ],
 
 /*
@@ -54,6 +55,10 @@ return [
 
     // DTI override multiplier: DTI > 1.5 x limit forces High.
     'dti_override_multiplier' => 1.5,
+
+    // Monthly-limit floor: a request this many times the available monthly
+    // credit forces at least Medium (request > 2x available forces High).
+    'monthly_limit_medium_multiple' => 2,
 
     // Days after which a recorded payment counts as late — compared to the
     // loan's due date, not a fixed 30-day window.
