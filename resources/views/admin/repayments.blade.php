@@ -8,6 +8,36 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
   @include('admin.css')
+<style>
+  /* ===== Repayments page scoped styles (.rep-*) ===== */
+  .rep-filter-row {
+    display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;
+  }
+  .rep-filter-group {
+    display: flex; flex-direction: column; gap: 0.4rem; min-width: 140px; flex: 1;
+  }
+  .rep-filter-label {
+    font-size: 0.7rem; font-weight: 600; color: var(--muted2);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .rep-filter-control {
+    width: 100%; background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.65rem 1rem; color: var(--text);
+    font-size: 0.88rem; font-family: 'DM Sans', sans-serif;
+  }
+  .rep-filter-actions {
+    display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.25rem;
+  }
+  .rep-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    font-size: 0.85rem; font-weight: 600; font-family: 'DM Sans', sans-serif;
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 1rem;
+    cursor: pointer; background: var(--surface); color: var(--text);
+  }
+  .rep-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .rep-btn-danger { border-color: var(--red); color: var(--red); }
+  .rep-btn-danger:hover { background: var(--red); color: #fff; }
+</style>
 </head>
 
 <body>
@@ -40,39 +70,62 @@
       <div class="page-header">
         <div>
           <h2 class="panel-title">Repayments</h2>
-          <div style="font-size:0.875rem;color:#64748b;margin-top:0.25rem;">Total Payment Records: {{ $repayments->count() }}</div>
         </div>
-        <button class="btn btn-new" onclick="recordNewRepayment()">+ Record Payment</button>
+        <button class="btn-new" onclick="recordNewRepayment()">+ Record Payment</button>
       </div>
 
       <!-- Summary Panel -->
       <div class="panel" style="margin-bottom: 1.5rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
           <div>
-            <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:1.05rem;">Total Repayments Collected</div>
-            <div style="font-size: 2rem; font-weight: 700; color: #1e293b;">{{ \App\Support\Format::money($totalRepayments) }}</div>
+            <div class="records-count" style="font-weight:700;">Total Repayments Collected</div>
+            <div class="kpi-val" style="font-size: 2rem;">{{ \App\Support\Format::money($totalRepayments) }}</div>
           </div>
-          <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 0.75rem 1.25rem;">
-            <div style="font-size: 0.875rem; color: #64748b;">Total Payment Records</div>
-            <div style="font-weight: 700; color: #1e293b;">{{ $repayments->count() }}</div>
+          <div class="kpi-card" style="min-width: 160px;">
+            <div class="records-count">Collected this month</div>
+            <div class="kpi-val" style="font-size: 1.2rem;">{{ \App\Support\Format::money($monthlyCollected ?? 0) }}</div>
           </div>
         </div>
       </div>
 
+      <!-- Search & Filters -->
+      <div class="panel" style="margin-bottom: 1.5rem;">
+        <form method="GET" action="{{ route('repayments.index') }}" class="rep-filter-row">
+          <div class="rep-filter-group">
+            <label class="rep-filter-label">Search</label>
+            <input type="text" name="search" class="rep-filter-control"
+                   placeholder="Name, member ID, REP ref, or APP id"
+                   value="{{ request('search') }}"/>
+          </div>
+          <div class="rep-filter-group">
+            <label class="rep-filter-label">Start Date</label>
+            <input type="date" name="start_date" class="rep-filter-control" value="{{ request('start_date') }}"/>
+          </div>
+          <div class="rep-filter-group">
+            <label class="rep-filter-label">End Date</label>
+            <input type="date" name="end_date" class="rep-filter-control" value="{{ request('end_date') }}"/>
+          </div>
+          <div class="rep-filter-actions">
+            <button type="submit" class="rep-btn">Filter</button>
+            <a href="{{ route('repayments.index') }}" class="rep-btn rep-btn-danger">Reset</a>
+          </div>
+        </form>
+      </div>
+
       <!-- Repayments Data Table -->
       <div class="table-wrap">
-        <table>
+        <table class="app-table">
           <thead>
             <tr>
-              <th>Payment Ref</th>
-              <th>Borrower Name</th>
+              <th>Member ID</th>
+              <th>NAME</th>
               <th>Loan Application ID</th>
               <th>Amount Paid</th>
               <th>Payment Method</th>
               <th>Date Paid</th>
               <th>Balance After</th>
               <th>Recorded By</th>
-              <th>ACTION</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -90,18 +143,19 @@
                 $nextDue = $repayment->loanApplication?->next_due_date ?? null;
                 $recordedBy = $repayment->encoder?->name ?? '—';
                 $paymentDateDisplay = $repayment->payment_date ? \Carbon\Carbon::parse($repayment->payment_date)->format('M d, Y') : '';
+                $memberId = $repayment->loanApplication?->user?->coopMember?->member_id;
               @endphp
               <tr>
-                <td class="font-semibold text-gray-700">{{ $refLabel }}</td>
+                <td class="applicant-name">{{ $memberId ?? '—' }}</td>
                 <td>{{ $borrowerName }}</td>
                 <td><span class="loan-type-tag">#{{ $appId }}</span></td>
-                <td>{{ \App\Support\Format::money($amount) }}</td>
+                <td class="num">{{ \App\Support\Format::money($amount) }}</td>
                 <td><span class="status-pill {{ strtolower($method) }}">{{ ucfirst($method) }}</span></td>
-                <td>{{ $paymentDateDisplay }}</td>
-                <td>{{ \App\Support\Format::money($balanceAfter) }}</td>
+                <td class="td-date">{{ $paymentDateDisplay }}</td>
+                <td class="num">{{ \App\Support\Format::money($balanceAfter) }}</td>
                 <td>{{ $recordedBy }}</td>
                 <td>
-                  <button type="button" class="btn btn-sm btn-review btn-view-repayment"
+                  <button type="button" class="btn-review btn-view-repayment"
                           data-repayment-id="{{ $repayment->id }}"
                           data-ref-label="{{ $refLabel }}"
                           data-borrower="{{ $borrowerName }}"
@@ -114,10 +168,11 @@
                           data-remain-balance="{{ $balanceAfter }}"
                           data-loan-balance="{{ $loanBalance }}"
                           data-next-due="{{ $nextDue ?? '' }}"
-                          data-recorded-by="{{ $recordedBy }}">
-                    <i class="fa-solid fa-eye" style="margin-right:4px;"></i>View
+                          data-recorded-by="{{ $recordedBy }}"
+                          data-proof-url="{{ $repayment->proof_path ? route('repayments.proof', $repayment->id) : '' }}">
+                    <i class="fa-solid fa-eye nav-icon"></i>View
                   </button>
-                  <button type="button" class="btn btn-sm btn-review btn-edit-repayment"
+                  <button type="button" class="btn-review btn-edit-repayment"
                           data-repayment-id="{{ $repayment->id }}"
                           data-app-id="{{ $appId }}"
                           data-borrower="{{ $borrowerName }}"
@@ -129,14 +184,15 @@
                           data-remain-balance="{{ $balanceAfter }}"
                           data-loan-balance="{{ $loanBalance }}"
                           data-next-due="{{ $nextDue ?? '' }}"
-                          data-recorded-by="{{ $recordedBy }}">
-                    <i class="fa-solid fa-pen" style="margin-right:4px;"></i>Edit
+                          data-recorded-by="{{ $recordedBy }}"
+                          data-proof-url="{{ $repayment->proof_path ? route('repayments.proof', $repayment->id) : '' }}">
+                    <i class="fa-solid fa-pen nav-icon"></i>Edit
                   </button>
                 </td>
               </tr>
               @empty
               <tr>
-                <td colspan="9" style="text-align:center;color:var(--muted);padding:2rem;">No repayment records found.</td>
+                <td colspan="9" class="empty-table-msg">No repayment records found.</td>
               </tr>
             @endforelse
           </tbody>
@@ -151,16 +207,16 @@
        onclick="event.stopPropagation()"
        style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important;">
     <div class="modal-header">
-      <div class="modal-title" id="recordModalTitle">💰 Record New Repayment</div>
-      <div class="modal-close" type="button" onclick="closeRepaymentModal()">✕</div>
+      <div class="modal-title" id="recordModalTitle"><i class="fa-solid fa-money-bill nav-icon"></i> Record New Repayment</div>
+      <div class="modal-close" type="button" onclick="closeRepaymentModal()"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
-    <form id="recordRepaymentForm" action="{{ route('repayments.store') }}" method="POST" novalidate>
+    <form id="recordRepaymentForm" action="{{ route('repayments.store') }}" method="POST" enctype="multipart/form-data" novalidate>
       @csrf
 
       <input type="hidden" name="application_id" id="repayAppId" value="">
 
       <div style="margin-top: 1rem;">
-        <label class="form-label">Select Loan</label>
+        <label class="form-label">Select Loan <span class="req-mark">*</span></label>
         <select name="loan_select" id="loanSelect" class="form-select" onchange="populateLoanFields(this)">
           <option value="">-- Select a loan --</option>
           @foreach($approvedLoans as $loan)
@@ -168,15 +224,41 @@
               $borrowerName = $loan->loanApplication?->fullName() ?? $loan->applicant ?? 'Unknown';
               $appId = $loan->app_id ?? $loan->id;
               $remainingBalance = (float)($loan->remaining_balance ?? 0);
+              $memberId = $loan->loanApplication?->user?->coopMember?->member_id;
+              $nextDue = $loan->loanApplication?->next_due_date?->format('Y-m-d') ?? '';
+              $monthlyPayment = (float)($loan->loanApplication?->monthly_payment ?? 0);
             @endphp
             <option value="{{ $loan->id }}"
                     data-app-id="{{ $appId }}"
                     data-borrower="{{ $borrowerName }}"
-                    data-balance="{{ $remainingBalance }}">
+                    data-balance="{{ $remainingBalance }}"
+                    data-member-id="{{ $memberId }}"
+                    data-next-due="{{ $nextDue }}"
+                    data-monthly-payment="{{ $monthlyPayment }}">
               #{{ $appId }} — {{ $borrowerName }} ({{\App\Support\Format::money($remainingBalance)}} remaining)
             </option>
           @endforeach
         </select>
+      </div>
+
+      <!-- Read-only summary card (populated after loan is picked) -->
+      <div id="loanSummaryCard" style="margin-top:1rem;padding:1rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;display:none;">
+        <div style="font-size:0.8rem;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">Loan Summary</div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Application ID</label><div id="sumAppId" class="num" style="font-weight:600;color:#1e293b;">—</div></div>
+          <div class="form-group"><label class="form-label">Name</label><div id="sumName" style="font-weight:600;color:#1e293b;">—</div></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Member ID</label><div id="sumMemberId" class="num" style="font-weight:600;color:#1e293b;">—</div></div>
+          <div class="form-group"><label class="form-label">Outstanding balance</label><div id="sumBalance" class="num" style="font-weight:600;color:#1e293b;">—</div></div>
+        </div>
+        <div class="form-group"><label class="form-label">Next due date</label><div id="sumNextDue" style="font-weight:600;color:#1e293b;">—</div></div>
+      </div>
+
+      <!-- Quick pay buttons -->
+      <div class="form-row" style="margin-top:1rem;gap:0.75rem;">
+        <button type="button" class="rep-btn" onclick="quickPay('installment')">Pay monthly installment</button>
+        <button type="button" class="rep-btn" onclick="quickPay('full')">Pay full balance</button>
       </div>
 
       <div class="form-row" style="margin-top: 1rem;">
@@ -192,7 +274,7 @@
 
       <div class="form-row" style="margin-top: 1rem;">
         <div class="form-group">
-          <label class="form-label">Amount Paid (₱)</label>
+          <label class="form-label">Amount Paid (₱) <span class="req-mark">*</span></label>
           <input type="number" step="0.01" name="amount" id="repayAmount" class="form-input" placeholder="0.00" required min="0.01"/>
         </div>
         <div class="form-group">
@@ -215,9 +297,21 @@
           <input type="text" name="reference_no" id="repayReference" class="form-input" placeholder="Optional reference"/>
         </div>
         <div class="form-group">
-          <label class="form-label">Payment Date</label>
+          <label class="form-label">Payment Date <span class="req-mark">*</span></label>
           <input type="date" name="payment_date" id="repayDate" class="form-input" required/>
         </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label" for="repayProof">Proof of Payment <span class="req-mark">*</span></label>
+        <input type="file" name="proof" id="repayProof" class="form-input" accept="image/jpeg,image/png,image/webp" required
+               onchange="previewProof(this, 'proofPreview', 'proofPreviewWrap', 'proofError')"/>
+        <small style="font-size:0.75rem;color:var(--muted);">JPG, JPEG, PNG or WEBP only, max 5 MB.</small>
+        <div id="proofPreviewWrap" style="margin-top:0.5rem;display:none;">
+          <img id="proofPreview" class="proof-thumb" alt="Proof of payment preview"/>
+          <button type="button" class="btn-cancel" id="removeProofBtn" style="margin-top:0.5rem;" onclick="removeProof('repayProof', 'proofPreviewWrap', 'proofError')">Remove</button>
+        </div>
+        <small id="proofError" style="color:#ef4444;font-size:0.75rem;display:none;"></small>
       </div>
 
       <div class="form-group" style="margin-top: 1rem;">
@@ -241,7 +335,7 @@
       <!-- Server error display (inline) -->
       <div id="recordError" style="color:#ef4444;font-size:0.875rem;margin-top:0.75rem;display:none;"></div>
 
-      <div style="margin-top: 1.5rem; display:flex; gap:0.75rem;">
+      <div class="modal-footer">
         <button type="submit" class="btn-submit" id="recordSubmitBtn">
           <span id="recordModalBtnText">Record Repayment</span>
         </button>
@@ -256,20 +350,21 @@
        onclick="event.stopPropagation()"
        style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important;">
     <div class="modal-header">
-      <div class="modal-title">✏️ Edit Payment</div>
-      <div class="modal-close" type="button" onclick="closeEditRepaymentModal()">✕</div>
+      <div class="modal-title"><i class="fa-solid fa-pen nav-icon"></i> Edit Payment</div>
+      <div class="modal-close" type="button" onclick="closeEditRepaymentModal()"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div id="editLoanSummary" class="loan-summary" style="padding: 1.5rem;">
       <!-- Loan summary block will be populated by JS -->
     </div>
-    <form id="editRepaymentForm" action="" method="POST" novalidate>
+    <form id="editRepaymentForm" action="" method="POST" enctype="multipart/form-data" novalidate>
       @csrf
       <input type="hidden" name="_method" value="PUT">
       <input type="hidden" name="repayment_id" id="editRepaymentId" value="">
 
       <div class="form-group" style="padding: 0 1.5rem;">
-        <label class="form-label">Amount Paid (₱)</label>
-        <input type="number" step="0.01" name="amount" id="editAmount" class="form-input" placeholder="0.00" required/>
+        <label class="form-label">Amount Paid (₱) <span class="req-mark">*</span></label>
+        <input type="text" name="amount" id="editAmount" class="form-input num" placeholder="0.00" required/>
+        <small style="font-size:0.75rem;color:var(--muted);">Plain number, e.g. 10000.00</small>
       </div>
 
       <div class="form-row" style="padding: 0 1.5rem;">
@@ -293,7 +388,7 @@
 
       <div class="form-row" style="padding: 0 1.5rem;">
         <div class="form-group">
-          <label class="form-label">Payment Date</label>
+          <label class="form-label">Payment Date <span class="req-mark">*</span></label>
           <input type="date" name="payment_date" id="editDate" class="form-input" required/>
         </div>
         <div class="form-group">
@@ -302,21 +397,40 @@
         </div>
       </div>
 
+      <div class="form-group" style="padding: 0 1.5rem;">
+        <label class="form-label">Reason for change</label>
+        <input type="text" name="reason" id="editReason" class="form-input" placeholder="Optional — saved to audit log"/>
+      </div>
+
+      <div class="form-group" style="padding: 0 1.5rem; margin-top: 1rem;">
+        <label class="form-label" for="editProof">Proof of Payment</label>
+        <div id="editProofCurrent" style="margin-bottom:0.5rem;font-weight:600;color:#1e293b;">—</div>
+        <input type="file" name="proof" id="editProof" class="form-input" accept="image/jpeg,image/png,image/webp"
+               onchange="previewProof(this, 'editProofPreview', 'editProofPreviewWrap', 'editProofError')"/>
+        <small style="font-size:0.75rem;color:var(--muted);">Leave empty to keep the current proof.</small>
+        <div id="editProofPreviewWrap" style="margin-top:0.5rem;display:none;">
+          <img id="editProofPreview" class="proof-thumb" alt="Proof of payment preview"/>
+          <button type="button" class="btn-cancel" id="removeEditProofBtn" style="margin-top:0.5rem;" onclick="removeProof('editProof', 'editProofPreviewWrap', 'editProofError')">Remove</button>
+        </div>
+        <small id="editProofError" style="color:#ef4444;font-size:0.75rem;display:none;"></small>
+      </div>
+
       <div style="padding: 0 1.5rem;">
         <label class="form-label">Recorded By</label>
         <div id="editRecordedBy" style="font-weight:600;color:#1e293b;">—</div>
       </div>
 
       <div class="form-group" style="margin-top: 1rem; padding: 0 1.5rem;">
-        <div style="font-size:0.85rem;color:#64748b;">Balance after this edit</div>
+        <div style="font-size:0.85rem;color:#64748b;">Balance after this change</div>
         <div style="font-weight:700;color:#1e293b;font-size:1.1rem;"><span id="editBalancePreview">0.00</span></div>
         <small style="color:#64748b;">calculated as: balance - new amount + old amount</small>
+        <small style="color:var(--gold);display:block;">Editing changes the loan balance.</small>
       </div>
 
       <!-- Server error display (inline) -->
       <div id="editError" style="color:#ef4444;font-size:0.875rem;margin:0.75rem 1.5rem 0;display:none;"></div>
 
-      <div style="margin-top: 1.5rem; display:flex; gap:0.75rem; padding: 0 1.5rem;">
+      <div class="modal-footer">
         <button type="submit" class="btn-submit" id="editSubmitBtn">
           <span id="editModalBtnText">Save Changes</span>
         </button>
@@ -331,8 +445,8 @@
        onclick="event.stopPropagation()"
        style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important;">
     <div class="modal-header">
-      <div class="modal-title" id="viewModalTitle">💰 Payment Details</div>
-      <div class="modal-close" type="button" onclick="closeViewRepaymentModal()">✕</div>
+      <div class="modal-title" id="viewModalTitle"><i class="fa-solid fa-eye nav-icon"></i> Payment Details</div>
+      <div class="modal-close" type="button" onclick="closeViewRepaymentModal()"><i class="fa-solid fa-xmark nav-icon"></i></div>
     </div>
     <div style="padding: 1.5rem;">
       <!-- Header: ref display with "Payment REP-" prefix -->
@@ -340,6 +454,16 @@
         <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.8rem;color:#1e293b;font-weight:700;font-size:1rem;">
           <span id="viewRepaymentTitle">Payment REP-</span>
         </div>
+      </div>
+
+      <!-- Big amount at top -->
+      <div style="margin-bottom:1rem;">
+        <div id="viewRepaymentAmountBig" style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:2rem;color:var(--text);">₱0.00</div>
+      </div>
+
+      <!-- Loan status after this payment -->
+      <div style="margin-bottom:1rem;">
+        <span id="viewLoanStatusAfter" class="status-pill approved">—</span>
       </div>
 
       <!-- Grouped label/value rows (not input-looking boxes) -->
@@ -371,7 +495,7 @@
           <div id="viewRepaymentReference" style="font-weight:600;color:#1e293b;">—</div>
         </div>
         <div class="form-group" style="flex:1;">
-          <label class="form-label">Payment Date</label>
+          <label class="form-label">Payment Date <span class="req-mark">*</span></label>
           <div id="viewRepaymentDate" style="font-weight:600;color:#1e293b;">—</div>
         </div>
       </div>
@@ -392,7 +516,16 @@
         <div id="viewRepaymentNotes" style="font-weight:600;color:#1e293b;">—</div>
       </div>
 
-      <div style="margin-top: 1.5rem; display:flex;gap:0.75rem;justify-content:flex-end;">
+      <div class="form-group" style="margin-bottom:1rem;">
+        <label class="form-label">Proof of Payment</label>
+        <div id="viewRepaymentProof">—</div>
+        <div id="viewProofDownload" style="margin-top:0.5rem;display:none;">
+          <a id="viewProofDownloadLink" href="#" target="_blank" class="nl-loan-link">Download proof</a>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn-submit" id="viewEditBtn" onclick="editFromView()">Edit</button>
         <button type="button" class="btn-cancel" onclick="closeViewRepaymentModal()">Close</button>
       </div>
     </div>
@@ -437,6 +570,47 @@
       return n.toLocaleString('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // Proof-of-payment file validation (mirrors server rules: jpg/jpeg/png/webp, 5 MB max)
+    function proofFileOk(file) {
+      const okTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!okTypes.includes(file.type)) {
+        return 'Only JPG, JPEG, PNG or WEBP images are allowed.';
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        return 'The proof of payment must be 5 MB or smaller.';
+      }
+      return null;
+    }
+
+    function previewProof(input, imgId, wrapId, errorId) {
+      const img = document.getElementById(imgId);
+      const wrap = document.getElementById(wrapId);
+      const errorEl = document.getElementById(errorId);
+      if (!input || !img || !wrap || !errorEl) return;
+      errorEl.style.display = 'none';
+      if (!input.files || !input.files.length) { wrap.style.display = 'none'; return; }
+      const problem = proofFileOk(input.files[0]);
+      if (problem) {
+        input.value = '';
+        wrap.style.display = 'none';
+        errorEl.textContent = problem;
+        errorEl.style.display = 'block';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function (e) { img.src = e.target.result; wrap.style.display = 'block'; };
+      reader.readAsDataURL(input.files[0]);
+    }
+
+    function removeProof(inputId, wrapId, errorId) {
+      const input = document.getElementById(inputId);
+      const wrap = document.getElementById(wrapId);
+      const errorEl = document.getElementById(errorId);
+      if (input) input.value = '';
+      if (wrap) wrap.style.display = 'none';
+      if (errorEl) errorEl.style.display = 'none';
+    }
+
     // Record a NEW repayment
     function recordNewRepayment() {
       const modal   = document.getElementById('modal-recordRepaymentModal');
@@ -445,7 +619,7 @@
 
       if (!modal || !title || !form) return;
 
-      title.textContent = '💰 Record New Repayment';
+      title.textContent = 'Record New Repayment';
       form.action = '{{ route("repayments.store") }}';
       form.method = 'POST';
 
@@ -464,6 +638,7 @@
       const notes   = document.getElementById('repayNotes');
       const btnText = document.getElementById('recordModalBtnText');
       const appIdInput = document.getElementById('repayAppIdInput');
+      const proof   = document.getElementById('repayProof');
 
       if (appId)   appId.value   = '';
       if (appIdInput) appIdInput.value = '';
@@ -475,6 +650,9 @@
       if (date)    date.value    = '';
       if (notes)   notes.value   = '';
       if (btnText) btnText.textContent = 'Record Repayment';
+
+      // Reset proof upload state
+      removeProof('repayProof', 'proofPreviewWrap', 'proofError');
 
       // Reset loan balance data attribute
       if (amount) amount.dataset.loanBalance = '';
@@ -510,6 +688,7 @@
       const recorded   = data.recordedBy || '—';
       const nextDue    = data.nextDue || '';
       const repaymentId = data.repaymentId || '';
+      const proofUrl   = data.proofUrl || '';
 
       // Extract repayment number for title (remove # prefix if present)
       const repNum = ref.startsWith('#') ? ref.substring(1) : ref || '—';
@@ -526,6 +705,42 @@
       document.getElementById('viewRepaymentRecorded').textContent   = recorded;
       document.getElementById('viewRepaymentNotes').textContent      = notes;
 
+      // Big amount at top
+      const amountBig = document.getElementById('viewRepaymentAmountBig');
+      if (amountBig) amountBig.textContent = formatMoney(amount);
+
+      // Loan status after this payment
+      const statusEl = document.getElementById('viewLoanStatusAfter');
+      if (statusEl) {
+        if (balance <= 0) {
+          statusEl.textContent = 'Loan fully paid';
+          statusEl.className = 'status-pill approved';
+        } else {
+          statusEl.textContent = formatMoney(balance) + ' left';
+          statusEl.className = 'status-pill pending';
+        }
+      }
+
+      // Proof download link
+      const dlWrap = document.getElementById('viewProofDownload');
+      const dlLink = document.getElementById('viewProofDownloadLink');
+      if (dlWrap && dlLink) {
+        if (proofUrl) {
+          dlWrap.style.display = 'block';
+          dlLink.href = proofUrl;
+        } else {
+          dlWrap.style.display = 'none';
+        }
+      }
+
+      // Proof of payment: thumbnail that opens the full file, or a plain note
+      const viewProof = document.getElementById('viewRepaymentProof');
+      if (viewProof) {
+        viewProof.innerHTML = proofUrl
+          ? '<img class="proof-thumb" src="' + proofUrl + '" alt="Proof of payment" title="Click to view full size" onclick="window.open(\'' + proofUrl + '\', \'_blank\');"/>'
+          : 'No proof on file';
+      }
+
       // Store the actual payment ID so openEditFromView can find the Edit button
       currentViewData = {
         repaymentId: repaymentId,
@@ -539,11 +754,21 @@
         remainBalance: balance.toFixed(2),
         loanBalance: loanBalance.toFixed(2),
         nextDue: nextDue,
-        recordedBy: recorded
+        recordedBy: recorded,
+        proofUrl: proofUrl
       };
 
       const modal = document.getElementById('modal-viewRepaymentModal');
       if (modal) modal.classList.add('open');
+    }
+
+    // Edit from the View modal: close View, open Edit with the same data
+    function editFromView() {
+      closeViewRepaymentModal();
+      if (typeof currentViewData !== 'undefined' && currentViewData) {
+        currentViewData.repaymentId = currentViewData.repaymentId || '';
+        editRepayment(currentViewData);
+      }
     }
 
     // Edit existing repayment - opens dedicated Edit modal
@@ -597,19 +822,35 @@
       const date = document.getElementById('editDate');
       const notes = document.getElementById('editNotes');
       const recordedBy = document.getElementById('editRecordedBy');
+      const editProofCurrent = document.getElementById('editProofCurrent');
+      const editProofInput = document.getElementById('editProof');
+      const editProofWrap = document.getElementById('editProofPreviewWrap');
+      const editProofError = document.getElementById('editProofError');
 
       if (!form) return;
 
       form.action = '/repayments/' + data.repaymentId;
 
       // Preload all fields from data attributes
-      if (amount)  amount.value = data.amount || '';
+      if (amount)  amount.value = data.amount ? parseFloat(data.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
       if (method)  method.value = data.method || '';
       if (ref)     ref.value = data.reference || '';
       if (date)    date.value = data.date || '';
       if (notes)   notes.value = data.notes || '';
+      const reason = document.getElementById('editReason');
+      if (reason) reason.value = '';
       if (repayId) repayId.value = data.repaymentId || '';
       if (recordedBy) recordedBy.textContent = data.recordedBy || '—';
+
+      // Proof of payment: show current file (if any); replacement is optional
+      if (editProofCurrent) {
+        editProofCurrent.innerHTML = data.proofUrl
+          ? '<img class="proof-thumb" src="' + data.proofUrl + '" alt="Current proof of payment"/>'
+          : 'No proof on file';
+      }
+      if (editProofInput) editProofInput.value = '';
+      if (editProofWrap) editProofWrap.style.display = 'none';
+      if (editProofError) editProofError.style.display = 'none';
 
       // Set date constraints - today, not future
       const today = new Date().toISOString().split('T')[0];
@@ -644,7 +885,11 @@
     // Populate loan fields when loan is selected (Record modal only)
     function populateLoanFields(select) {
       const opt       = select.options[select.selectedIndex];
-      if (!opt || !opt.value) return;
+      const summary   = document.getElementById('loanSummaryCard');
+      if (!opt || !opt.value) {
+        if (summary) summary.style.display = 'none';
+        return;
+      }
 
       const appIdInput = document.getElementById('repayAppIdInput');
       const borrowerInput = document.getElementById('borrower_name');
@@ -665,6 +910,18 @@
         currentBalanceDisplay.textContent = formatMoney(balance);
       }
 
+      // Populate summary card
+      if (summary) {
+        document.getElementById('sumAppId').textContent     = '#' + (opt.dataset.appId || '—');
+        document.getElementById('sumName').textContent      = opt.dataset.borrower || '—';
+        document.getElementById('sumMemberId').textContent  = opt.dataset.memberId || '—';
+        document.getElementById('sumBalance').textContent   = formatMoney(balance);
+        document.getElementById('sumNextDue').textContent   = opt.dataset.nextDue
+            ? new Date(opt.dataset.nextDue).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : '—';
+        summary.style.display = 'block';
+      }
+
       // Recalculate remaining balance preview
       updateRecordBalancePreview();
 
@@ -674,6 +931,19 @@
         const today = new Date().toISOString().split('T')[0];
         dateInput.value = today;
       }
+    }
+
+    // Quick pay: fill amount with monthly installment or full balance
+    function quickPay(kind) {
+      const select = document.getElementById('loanSelect');
+      const opt = select.options[select.selectedIndex];
+      if (!opt || !opt.value) return;
+      const amount = document.getElementById('repayAmount');
+      if (!amount) return;
+      amount.value = kind === 'full'
+          ? parseFloat(opt.dataset.balance || 0).toFixed(2)
+          : parseFloat(opt.dataset.monthlyPayment || 0).toFixed(2);
+      amount.dispatchEvent(new Event('input'));
     }
 
     // Recalculate remaining balance preview for Record modal
@@ -722,6 +992,8 @@
     });
 
     document.getElementById('editRepaymentForm')?.addEventListener('submit', function (e) {
+      const amt = document.getElementById('editAmount');
+      if (amt) amt.value = String(amt.value).replace(/,/g, '');
       const btn = document.getElementById('editSubmitBtn');
       if (btn) {
         btn.disabled = true;

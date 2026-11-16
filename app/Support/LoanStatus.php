@@ -42,6 +42,9 @@ class LoanStatus
     public static function isPaid($v): bool      { return self::is($v) && strtolower($v) === self::PAID; }
     public static function isFlagged($v): bool   { return self::is($v) && strtolower($v) === self::FLAGGED; }
 
+    /** Granted loans: approved or fully paid (a paid loan was granted too). */
+    public static function isGranted($v): bool   { return self::isApproved($v) || self::isPaid($v); }
+
     /** as-written value to persist (never rewrite existing rows).
      *  `applications` keeps PascalCase ('Approved', 'Paid'); `loan_applications`
      *  keeps lowercase ('approved', 'paid'). */

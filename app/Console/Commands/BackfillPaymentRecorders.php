@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 
 class BackfillPaymentRecorders extends Command
 {
     protected $signature = 'sdcc:backfill-payment-recorders {--dry-run : Print what would change without writing} {--apply : Actually write changes}';
-    protected $description = 'Backfill recorded_by on payments from audit_logs';
+    protected $description = 'Backfill encoded_by on payments from audit_logs';
 
     public function handle(): int
     {
@@ -36,7 +36,7 @@ class BackfillPaymentRecorders extends Command
         // Find audit log entries for "Payment Recorded"
         $logs = AuditLog::where('action', 'Payment Recorded')
             ->whereNotNull('actor_id')
-            ->get(['id', 'actor_id', 'details']);
+            ->get(['id', 'actor_id', 'details', 'created_at']);
 
         $this->info("Found {$logs->count()} 'Payment Recorded' audit log entries.");
 
@@ -44,26 +44,46 @@ class BackfillPaymentRecorders extends Command
         $skipped = 0;
 
         foreach ($logs as $log) {
-            // Extract app_id from details: "Repayment of ₱1000.00 recorded for APP-0001"
-            if (!preg_match('/Repayment of .+ recorded for\s+(APP-\d+)/', $log->details, $m)) {
-                $this->warn("Could not parse app_id from audit log #{$log->id}: {$log->details}");
+            // Details: "Repayment of ₱1000.00 recorded for APP-0001"
+            if (!preg_match('/Repayment of ₱([\d,]+(?:\.\d{1,2})?) recorded for\s+(APP-\d+)/', $log->details, $m)) {
+                $this->warn("Could not parse amount/app_id from audit log #{$log->id}: {$log->details}");
                 $skipped++;
                 continue;
             }
-            $appId = $m[1];
+            $amount = (float) str_replace(',', '', $m[1]);
+            $appId  = $m[2];
 
-            $payment = Payment::whereHas('application', function ($q) use ($appId) {
-                $q->where('app_id', $appId);
-            })->latest()->first();
-
-            if (!$payment) {
-                $this->warn("Payment for $appId not found for audit log #{$log->id}");
+            // The audit log names the admin-side app_id; payments hang off the
+            // loan_application_id, so resolve through the Application row.
+            $application = Application::where('app_id', $appId)->first();
+            if (!$application) {
+                $this->warn("Application $appId not found for audit log #{$log->id}");
                 $skipped++;
                 continue;
             }
 
-            // Check if already has recorded_by
-            if ($payment->recorded_by !== null) {
+            $candidates = Payment::where('loan_application_id', $application->loan_application_id)
+                ->whereRaw('ABS(amount_paid - ?) < 0.005', [$amount])
+                ->get();
+
+            if ($candidates->count() > 1) {
+                // Same amount paid more than once: narrow by the payment date
+                // matching the audit entry's date, else call it ambiguous.
+                $sameDay = $candidates->filter(fn ($p) => optional($p->payment_date)->format('Y-m-d') === $log->created_at->format('Y-m-d'));
+                if ($sameDay->count() === 1) {
+                    $candidates = $sameDay;
+                }
+            }
+
+            if ($candidates->count() !== 1) {
+                $this->warn("Ambiguous or missing payment for $appId / ₱$amount (audit log #{$log->id}): {$candidates->count()} match(es) — skipping");
+                $skipped++;
+                continue;
+            }
+
+            $payment = $candidates->first();
+
+            if ($payment->encoded_by !== null) {
                 $skipped++;
                 continue;
             }
@@ -75,18 +95,18 @@ class BackfillPaymentRecorders extends Command
                 continue;
             }
 
-            $this->line("  Payment #{$payment->id} ($appId): would set recorded_by = {$recorder->id} ({$recorder->name})");
+            $this->line("  Payment #{$payment->id} ($appId, ₱$amount): " . ($apply ? 'set' : 'would set') . " encoded_by = {$recorder->id} ({$recorder->name})");
 
             if ($apply) {
-                $payment->update(['recorded_by' => $recorder->id]);
+                $payment->update(['encoded_by' => $recorder->id]);
                 $updated++;
             }
         }
 
         $this->newLine();
-        $this->info("Summary:");
+        $this->info('Summary:');
         $this->line("  Payments to update: $updated");
-        $this->line("  Skipped (already set / not found): $skipped");
+        $this->line("  Skipped (already set / not found / ambiguous): $skipped");
 
         if ($dryRun) {
             $this->warn('Dry run complete. Re-run with --apply to write changes.');

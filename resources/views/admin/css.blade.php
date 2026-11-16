@@ -947,6 +947,14 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   border: 1px solid rgba(129, 140, 248, 0.2);
 }
 
+.proof-thumb {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+
 /* MODALS & OVERLAYS STRICT OVERRIDES */
 .overlay {
   display: none !important;
@@ -1017,6 +1025,20 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   color: var(--text);
   border-color: var(--border2);
   background: #e2e8f0;
+}
+
+.req-mark { color: var(--red); font-weight: 700; }
+
+.modal-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 0 0;
+  margin-top: 1.5rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
 }
 
 @keyframes slideUp {

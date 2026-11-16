@@ -261,6 +261,10 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('repayments.store');
         Route::put('/repayments/{id}', [AdminController::class, 'updateRepayment'])
             ->name('repayments.update');
+        // Stream a payment's proof-of-payment file (never the raw path)
+        Route::get('/repayments/{id}/proof', [AdminController::class, 'showRepaymentProof'])
+            ->whereNumber('id')
+            ->name('repayments.proof');
     });
 
     // ------------------------------------------------------------------

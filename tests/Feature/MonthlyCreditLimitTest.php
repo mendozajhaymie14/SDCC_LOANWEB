@@ -14,6 +14,8 @@ use App\Services\CreditLimitService;
 use App\Services\LoanEvaluationService;
 use App\Services\LoanSubmissionService;
 use Carbon\Carbon;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -411,7 +413,7 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertSame(76, $result['risk_score']); // 30 DTI + 18 no-history + 0 docs + 20 savings + 8 monthly limit
         $this->assertSame([
             'Requested amount exceeds this month\'s available credit of ₱5,500.00. Capped at ₱5,500.00.',
-            'Requested amount (₱10000) is above this month\'s available credit (₱5500); risk raised to Medium.',
+            'Requested amount (₱10,000.00) is above this month\'s available credit (₱5,500.00); risk raised to Medium.',
             'No supporting documents uploaded.',
         ], $result['evaluation_reasons']);
         $this->assertEquals(30, $result['details']['dti_score']);
@@ -600,7 +602,7 @@ class MonthlyCreditLimitTest extends TestCase
             ->post(route('user.loans.store'), array_merge($base, ['amount' => 1000]))
             ->assertRedirect();
         $this->assertStringContainsString(
-            'You already have an application under review.',
+            'You already have a loan application under review. Please wait for it to be approved or rejected before requesting another loan.',
             session('error') ?? ''
         );
         $this->assertEquals(1, LoanApplication::where('user_id', $member->user_id)->where('status', 'pending')->count());
@@ -662,7 +664,7 @@ class MonthlyCreditLimitTest extends TestCase
             ->post(route('applications.encode.store'), array_merge($base, ['amount' => 1000]))
             ->assertRedirect();
         $this->assertStringContainsString(
-            'This member already has an application under review.',
+            'This member already has an application under review (APP-',
             session('error') ?? ''
         );
         $this->assertEquals(1, LoanApplication::where('status', 'pending')->count());
@@ -683,6 +685,264 @@ class MonthlyCreditLimitTest extends TestCase
         // plus its admin mirror. The unassessed member created nothing.
         $this->assertEquals(3, LoanApplication::count());
         $this->assertEquals(1, Application::count());
+    }
+
+    // ── One loan request at a time (pending or flagged blocks) ────────────
+
+    /** Member-form base payload; amount merged in per call. */
+    private function pendingBlockFormBase(CoopMember $member): array
+    {
+        return [
+            'full_name'                    => $member->full_name,
+            'email'                        => $member->email,
+            'contact_number'               => '09123456789',
+            'source_of_income'             => 'Salary',
+            'monthly_income'               => 50000,
+            'existing_monthly_obligations' => 0,
+            'purpose_of_loan'              => 'Personal',
+            'loan_type'                    => 'regular',
+            'term_months'                  => 36,
+            'agree'                        => 'yes',
+        ];
+    }
+
+    /** Staff-encode base payload for a member; amount merged in per call. */
+    private function pendingBlockEncodeBase(CoopMember $member): array
+    {
+        return [
+            'member_id'                    => $member->id,
+            'loan_type'                    => 'regular',
+            'term_months'                  => 36,
+            'purpose'                      => 'Personal',
+            'monthly_income'               => 50000,
+            'existing_monthly_obligations' => 0,
+            'source_of_income'             => 'Salary',
+        ];
+    }
+
+    private function limitAssessedMember(array $overrides = []): CoopMember
+    {
+        return $this->makeMember(array_merge([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 15500,
+            'monthly_credit_limit_source'   => 'manual',
+        ], $overrides));
+    }
+
+    /** @test */
+    public function pending_application_blocks_member_form_without_rows_or_files()
+    {
+        $member = $this->limitAssessedMember();
+        LoanApplication::factory()->create([
+            'user_id' => $member->user_id, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 10000, 'term_months' => 12,
+            'status' => LoanStatus::PENDING,
+        ]);
+
+        Storage::fake('public');
+        $this->actingAs($member->user)
+            ->post(route('user.loans.store'), array_merge(
+                $this->pendingBlockFormBase($member),
+                [
+                    'amount'              => 1000,
+                    'required_documents'  => [UploadedFile::fake()->create('doc.pdf', 100)],
+                    'document_consent'    => true,
+                ]
+            ))
+            ->assertRedirect();
+
+        $this->assertStringContainsString(
+            'You already have a loan application under review. Please wait for it to be approved or rejected before requesting another loan.',
+            session('error') ?? ''
+        );
+        $this->assertEquals(1, LoanApplication::where('user_id', $member->user_id)->count());
+        $this->assertEquals(0, Application::count());
+        $this->assertEquals([], Storage::disk('public')->files(), 'blocked encode must not store the uploaded file');
+    }
+
+    /** @test */
+    public function approved_or_rejected_application_unblocks_submission()
+    {
+        $member = $this->limitAssessedMember();
+        $this->approvedThisMonth($member, 10000);
+        LoanApplication::factory()->create([
+            'user_id' => $member->user_id, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 5000, 'term_months' => 12,
+            'status' => LoanStatus::REJECTED,
+        ]);
+
+        $this->actingAs($member->user)
+            ->post(route('user.loans.store'), array_merge($this->pendingBlockFormBase($member), ['amount' => 1000]))
+            ->assertRedirect();
+
+        $this->assertNull(session('error'));
+        $this->assertEquals(1, LoanApplication::where('user_id', $member->user_id)->where('status', LoanStatus::PENDING)->count());
+        $this->assertEquals(1, Application::count());
+    }
+
+    /** @test */
+    public function flagged_application_blocks_submission()
+    {
+        $member = $this->limitAssessedMember();
+        LoanApplication::factory()->create([
+            'user_id' => $member->user_id, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 10000, 'term_months' => 12,
+            'status' => LoanStatus::FLAGGED,
+        ]);
+
+        $this->actingAs($member->user)
+            ->post(route('user.loans.store'), array_merge($this->pendingBlockFormBase($member), ['amount' => 1000]))
+            ->assertRedirect();
+
+        $this->assertStringContainsString(
+            'You already have a loan application under review.',
+            session('error') ?? ''
+        );
+        $this->assertEquals(1, LoanApplication::where('user_id', $member->user_id)->count());
+        $this->assertEquals(0, Application::count());
+    }
+
+    /** @test */
+    public function portal_less_member_is_blocked_by_email_match_on_staff_encode()
+    {
+        $member = $this->makePortalLessMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 15500,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+        $pending = LoanApplication::factory()->create([
+            'user_id' => null, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 10000, 'term_months' => 12,
+            'status' => LoanStatus::PENDING,
+        ]);
+        Application::create([
+            'loan_application_id' => $pending->id, 'app_id' => 'APP-PEND9',
+            'applicant' => $pending->full_name, 'loan_type' => $pending->loan_type,
+            'amount' => $pending->amount, 'status' => 'Pending',
+        ]);
+
+        Storage::fake('public');
+        $this->actingAs($this->adminUser())
+            ->post(route('applications.encode.store'), array_merge(
+                $this->pendingBlockEncodeBase($member),
+                [
+                    'amount'             => 1000,
+                    'required_documents' => [UploadedFile::fake()->create('doc.pdf', 100)],
+                    'document_consent'   => true,
+                ]
+            ))
+            ->assertRedirect();
+
+        $this->assertStringContainsString(
+            'This member already has an application under review (APP-PEND9). It must be approved or rejected first.',
+            session('error') ?? ''
+        );
+        $this->assertEquals(1, LoanApplication::count());
+        $this->assertEquals(1, Application::count());
+        $this->assertEquals([], Storage::disk('public')->files(), 'blocked encode must not store the uploaded file');
+    }
+
+    /** @test */
+    public function two_portal_less_members_do_not_block_each_other()
+    {
+        $a = $this->makePortalLessMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 15500,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+        $b = $this->makePortalLessMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 15500,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+        LoanApplication::factory()->create([
+            'user_id' => null, 'email' => $a->email,
+            'loan_type' => 'regular', 'amount' => 10000, 'term_months' => 12,
+            'status' => LoanStatus::PENDING,
+        ]);
+
+        $this->actingAs($this->adminUser())
+            ->post(route('applications.encode.store'), array_merge(
+                $this->pendingBlockEncodeBase($b),
+                ['amount' => 1000]
+            ))
+            ->assertRedirect();
+
+        $this->assertNull(session('error'));
+        $this->assertEquals(1, LoanApplication::where('email', $b->email)->where('status', LoanStatus::PENDING)->count());
+        $this->assertEquals(2, LoanApplication::count());
+    }
+
+    /** @test */
+    public function double_submit_creates_one_application()
+    {
+        $member = $this->limitAssessedMember();
+        $payload = [
+            'user_id'                      => $member->user_id,
+            'reference'                    => LoanApplication::makeReference(),
+            'full_name'                    => $member->full_name,
+            'email'                        => $member->email,
+            'contact_number'               => '09123456789',
+            'address'                      => 'Test Address',
+            'employment_status'            => 'Employed',
+            'loan_type'                    => 'regular',
+            'amount'                       => 100000,
+            'term_months'                  => 36,
+            'monthly_income'               => 50000,
+            'existing_monthly_obligations' => 0,
+            'source_of_income'             => 'Salary',
+            'purpose_of_loan'              => 'Personal',
+        ];
+
+        app(LoanSubmissionService::class)->submit($payload);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('This member already has an application under review');
+        app(LoanSubmissionService::class)->submit($payload);
+
+        $this->assertEquals(1, LoanApplication::count());
+        $this->assertEquals(1, Application::count());
+    }
+
+    /** @test */
+    public function encode_page_marks_members_with_loan_under_review()
+    {
+        $blocked = $this->limitAssessedMember();
+        $free = $this->limitAssessedMember();
+        $pending = LoanApplication::factory()->create([
+            'user_id' => $blocked->user_id, 'email' => $blocked->email,
+            'loan_type' => 'regular', 'amount' => 10000, 'term_months' => 12,
+            'status' => LoanStatus::PENDING,
+        ]);
+        Application::create([
+            'loan_application_id' => $pending->id, 'app_id' => 'APP-OPEN1',
+            'applicant' => $pending->full_name, 'loan_type' => $pending->loan_type,
+            'amount' => $pending->amount, 'status' => 'Pending',
+        ]);
+
+        $response = $this->actingAs($this->adminUser())
+            ->get(route('applications.encode'))
+            ->assertOk();
+
+        $members = $response->viewData('members');
+        $blockedMember = $members->firstWhere('id', $blocked->id);
+        $freeMember = $members->firstWhere('id', $free->id);
+        $this->assertSame('APP-OPEN1', $blockedMember->pending_loan_ref);
+        $this->assertSame(LoanStatus::PENDING, $blockedMember->pending_loan_status);
+        $this->assertNull($freeMember->pending_loan_ref);
+        $this->assertNull($freeMember->pending_loan_status);
+
+        $response->assertSee('⚠ loan under review (APP-OPEN1)');
+        $response->assertSee('data-pending="1"', false);
+        $response->assertSee('memberPendingWarning');
     }
 
     /** @test */
@@ -985,7 +1245,9 @@ class MonthlyCreditLimitTest extends TestCase
             'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
             'source_of_income' => 'Salary', 'purpose_of_loan' => 'Personal',
         ]);
-        $appB = app(LoanSubmissionService::class)->submit([
+        // The one-at-a-time rule blocks a second submit for this member, so B
+        // is seeded directly as a pending fixture (with its admin mirror).
+        $appB = LoanApplication::factory()->create([
             'user_id' => $member->user_id, 'reference' => LoanApplication::makeReference(),
             'full_name' => $member->full_name, 'email' => $member->email,
             'contact_number' => '09123456789', 'address' => 'Test Address',
@@ -993,6 +1255,12 @@ class MonthlyCreditLimitTest extends TestCase
             'amount' => 100000, 'term_months' => 36,
             'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
             'source_of_income' => 'Salary', 'purpose_of_loan' => 'Personal',
+            'status' => LoanStatus::PENDING,
+        ]);
+        Application::create([
+            'loan_application_id' => $appB->id, 'app_id' => 'APP-PEND-B',
+            'applicant' => $appB->full_name, 'loan_type' => $appB->loan_type,
+            'amount' => $appB->amount, 'status' => 'Pending',
         ]);
 
         $mirrorA = Application::where('loan_application_id', $appA->id)->first();
@@ -1009,6 +1277,73 @@ class MonthlyCreditLimitTest extends TestCase
             ->get(route('admin.applications.data', $mirrorB->id))
             ->getData(true)['application'];
         $this->assertEquals(1, $payloadB['pending_loans_count']);
+    }
+
+    /** @test */
+    public function application_data_over_limit_true_for_100k_requested()
+    {
+        $member = $this->makeMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 15500,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+
+        $loanApp = LoanApplication::factory()->create([
+            'user_id' => $member->user_id, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 100000, 'term_months' => 36,
+            'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
+            'status' => 'pending',
+        ]);
+        $mirror = Application::create([
+            'loan_application_id' => $loanApp->id, 'app_id' => 'APP-0047',
+            'applicant' => $loanApp->full_name, 'loan_type' => $loanApp->loan_type,
+            'amount' => $loanApp->amount, 'status' => 'Pending',
+            'recommended_amount' => 15500, 'risk_level' => 'Low', 'risk_score' => 80,
+        ]);
+
+        $payload = $this->actingAs($this->adminUser())
+            ->get(route('admin.applications.data', $mirror->id))
+            ->assertOk()
+            ->getData(true)['application'];
+
+        $this->assertTrue($payload['over_limit'], 'over_limit should be true when requested 100,000 > monthly available 15,500');
+        $this->assertEquals(100000.0, $payload['requested_amount']);
+        $this->assertEquals(15500.0, $payload['monthly_available']);
+    }
+
+    /** @test */
+    public function application_data_over_limit_true_when_monthly_available_is_zero()
+    {
+        $member = $this->makeMember([
+            'monthly_income'                => 50000,
+            'existing_monthly_obligations'  => 0,
+            'approved_credit_limit'         => 1000000,
+            'approved_monthly_credit_limit' => 0,
+            'monthly_credit_limit_source'   => 'manual',
+        ]);
+
+        $loanApp = LoanApplication::factory()->create([
+            'user_id' => $member->user_id, 'email' => $member->email,
+            'loan_type' => 'regular', 'amount' => 5000, 'term_months' => 12,
+            'monthly_income' => 50000, 'existing_monthly_obligations' => 0,
+            'status' => 'pending',
+        ]);
+        $mirror = Application::create([
+            'loan_application_id' => $loanApp->id, 'app_id' => 'APP-AVAIL0',
+            'applicant' => $loanApp->full_name, 'loan_type' => $loanApp->loan_type,
+            'amount' => $loanApp->amount, 'status' => 'Pending',
+            'recommended_amount' => 0, 'risk_level' => 'Low', 'risk_score' => 80,
+        ]);
+
+        $payload = $this->actingAs($this->adminUser())
+            ->get(route('admin.applications.data', $mirror->id))
+            ->assertOk()
+            ->getData(true)['application'];
+
+        $this->assertTrue($payload['over_limit'], 'over_limit should be true when monthly available is 0');
+        $this->assertEquals(0.0, $payload['monthly_available']);
     }
 
     /** @test */
@@ -1108,7 +1443,7 @@ class MonthlyCreditLimitTest extends TestCase
             ->post(route('applications.encode.store'), array_merge($encodeBase, ['amount' => 16000]))
             ->assertRedirect();
         $this->assertStringContainsString(
-            'This member already has an application under review.',
+            'This member already has an application under review (APP-',
             session('error') ?? ''
         );
 
@@ -1217,7 +1552,7 @@ class MonthlyCreditLimitTest extends TestCase
             ])
             ->assertRedirect();
         $this->assertStringContainsString(
-            'This member already has an application under review.',
+            'This member already has an application under review (APP-',
             session('error') ?? ''
         );
 
@@ -1750,7 +2085,12 @@ class MonthlyCreditLimitTest extends TestCase
         $this->assertStringContainsString('data-total-available=', $blade);
         $this->assertStringContainsString('oninput="toggleOverrideBox()"', $blade);
         $this->assertStringContainsString('window.shouldShowOverride = function', $blade);
-        $this->assertStringContainsString('shouldShowOverride(prefillAmount, ma, ta, p.override)', $blade);
+        $this->assertStringContainsString('window.shouldShowOverride = function', $blade);
+        $this->assertStringContainsString('data-over-limit=', $blade);
+        $this->assertStringContainsString('data-requested=', $blade);
+        $this->assertStringContainsString("onOverrideToggle", $blade);
+        $this->assertStringContainsString("oninput=\"toggleOverrideBox()\"", $blade);
+        $this->assertStringContainsString("onchange=\"onOverrideToggle()\"", $blade);
         $this->assertStringContainsString("state === 'notice'", $blade);
         $this->assertStringContainsString("btn.disabled = state === 'notice'", $blade);
         $this->assertStringContainsString("fetch('/admin/applications/'", $blade, 'Sparse payloads self-fetch the canonical data');

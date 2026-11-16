@@ -171,7 +171,16 @@ class PaymentReminderService
                     $skipEmail = $loan->getRecipientEmail()
                         ?? config('mail.from.address');
 
-                    AppNotificationLog::log($skipEmail, $title, $type, 'Skipped', 'email', $loan->user_id, $loan->id);
+                    AppNotificationLog::log(
+                        $skipEmail,
+                        $title,
+                        $type,
+                        'Skipped',
+                        'email',
+                        $loan->user_id,
+                        $loan->id,
+                        'No email address on file'
+                    );
 
                     $totals['skipped']++;
                 }
@@ -202,6 +211,10 @@ class PaymentReminderService
 
     /**
      * Check if a notification of this type was already sent today for this loan.
+     *
+     * Dedupes across BOTH the in-app notification table and the email outbox
+     * log, so a second reminder run in the same Manila day cannot send a
+     * duplicate email even if the AppNotification row was missing.
      */
     private function alreadySentToday(int $loanId, string $type): bool
     {
@@ -214,9 +227,18 @@ class PaymentReminderService
             $end   = Carbon::today()->endOfDay();
         }
 
-        return AppNotification::query()
+        if (AppNotification::query()
             ->where('loan_application_id', $loanId)
             ->where('type', $type)
+            ->whereBetween('sent_at', [$start, $end])
+            ->exists()) {
+            return true;
+        }
+
+        return AppNotificationLog::query()
+            ->where('loan_application_id', $loanId)
+            ->where('notification_type', $type)
+            ->where('status', 'Sent')
             ->whereBetween('sent_at', [$start, $end])
             ->exists();
     }

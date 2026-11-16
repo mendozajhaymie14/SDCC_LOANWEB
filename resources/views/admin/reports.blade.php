@@ -11,9 +11,10 @@
         'overdue_payments'     => 'Overdue Payments',
     ];
 
-    // Exports reuse exactly what is on screen. Borrower Performance has no status filter.
+    // Exports reuse exactly what is on screen. Borrower Performance and Overdue
+    // Payments have no status filter (overdue only ever lists approved loans).
     $exportQuery = collect(request()->query())
-        ->except($reportType === 'borrower_performance' ? ['status', 'page'] : ['page'])
+        ->except(in_array($reportType, ['borrower_performance', 'overdue_payments'], true) ? ['status', 'page'] : ['page'])
         ->all();
 
     $hasFilters = collect(['start_date', 'end_date', 'status', 'risk_level'])
@@ -22,12 +23,15 @@
 
     $fmtDate = fn ($d) => $d ? \Illuminate\Support\Carbon::parse($d)->format('M d, Y') : null;
 
-    // Colour a label (risk level or performance rating) without assuming exact wording.
+    // Colour a label (risk level, performance rating, or loan status) without
+    // assuming exact wording.
     $pill = fn ($label) => match (strtolower(trim((string) $label))) {
-        'low', 'good', 'excellent', 'on-time', 'on time', 'reliable' => 'ok',
-        'medium', 'fair', 'average', 'moderate', 'watch'             => 'warn',
-        'high', 'poor', 'bad', 'delinquent', 'at risk'               => 'bad',
-        default                                                       => 'neutral',
+        'low', 'good', 'excellent', 'on-time', 'on time', 'reliable',
+        'approved', 'paid'                                              => 'ok',
+        'medium', 'fair', 'average', 'moderate', 'watch', 'pending'      => 'warn',
+        'high', 'poor', 'bad', 'delinquent', 'at risk', 'rejected',
+        'flagged'                                                        => 'bad',
+        default                                                          => 'neutral',
     };
 @endphp
 
@@ -144,8 +148,8 @@
 
             <div class="rpt-field">
                 <label for="status">Loan status</label>
-                <select name="status" id="status" onchange="this.form.submit()" @disabled($reportType === 'borrower_performance')
-                        @if ($reportType === 'borrower_performance') title="Not used by this report" @endif>
+                <select name="status" id="status" onchange="this.form.submit()" @disabled(in_array($reportType, ['borrower_performance', 'overdue_payments'], true))
+                        @if (in_array($reportType, ['borrower_performance', 'overdue_payments'], true)) title="Not used by this report" @endif>
                     <option value="">All statuses</option>
                     @foreach (['pending', 'approved', 'rejected', 'paid', 'flagged'] as $s)
                         <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst($s) }}</option>
@@ -177,7 +181,7 @@
                     {{ $fmtDate($filters['start_date'] ?? null) ?? 'Beginning' }} &ndash; {{ $fmtDate($filters['end_date'] ?? null) ?? 'Today' }}
                 </span>
             @endif
-            @if (!empty($filters['status']) && $reportType !== 'borrower_performance')
+            @if (!empty($filters['status']) && ! in_array($reportType, ['borrower_performance', 'overdue_payments'], true))
                 <span class="rpt-chip">Status: {{ ucfirst($filters['status']) }}</span>
             @endif
             @if (!empty($filters['risk_level']))
@@ -196,9 +200,9 @@
             <div class="rpt-kpi">
                 <div class="rpt-kpi-icon" style="background:rgba(5,150,105,.12); color:#059669;"><i class="fas fa-hand-holding-dollar"></i></div>
                 <div>
-                    <div class="rpt-kpi-label">Approved Loans</div>
+                    <div class="rpt-kpi-label">Granted Loans</div>
                     <div class="rpt-kpi-value">{{ \App\Support\Format::money($totalApproved ?? 0) }}</div>
-                    <div class="rpt-kpi-note">Approved loan amounts</div>
+                    <div class="rpt-kpi-note">Approved + fully paid loan amounts</div>
                 </div>
             </div>
             <div class="rpt-kpi">
@@ -236,6 +240,7 @@
                 <h3 class="rpt-section-title">Loan Summary</h3>
                 <span class="rpt-count">{{ number_format($summaryTotal) }} {{ \Illuminate\Support\Str::plural('application', $summaryTotal) }}</span>
             </div>
+            <p class="rpt-sub" style="margin:0 0 .9rem;">Amounts use the approved amount for approved/paid loans and the requested amount for everything else.</p>
 
             @if ($summaryTotal === 0)
                 <div class="rpt-empty">
@@ -330,7 +335,7 @@
                     <table class="rpt-table">
                         <thead>
                             <tr>
-                                <th>App ID</th><th>Member</th><th>Loan type</th><th class="num">Approved amount</th>
+                                <th>App ID</th><th>Member</th><th>Loan type</th><th>Status</th><th class="num">Approved amount</th>
                                 <th class="ctr">Term (mo)</th><th>Risk</th><th class="num">Recommended</th><th>Approved date</th><th>Approved by</th>
                             </tr>
                         </thead>
@@ -340,10 +345,11 @@
                                     <td class="rpt-mono">{{ $row->app_id ?: '—' }}</td>
                                     <td>{{ $row->member_name }}</td>
                                     <td>{{ $row->loan_type_label }}</td>
-                                    <td class="num">{{ $row->approved_amount }}</td>
+                                    <td><span class="rpt-pill {{ $pill($row->status_label) }}">{{ $row->status_label }}</span></td>
+                                    <td class="num">{{ \App\Support\Format::money($row->approved_amount) }}</td>
                                     <td class="ctr">{{ $row->term_months }}</td>
                                     <td><span class="rpt-pill {{ $pill($row->risk_level) }}">{{ $row->risk_level ?: '—' }}</span></td>
-                                    <td class="num">{{ $row->recommended_amt }}</td>
+                                    <td class="num">{{ \App\Support\Format::money($row->recommended_amt) }}</td>
                                     <td>{{ $row->approved_date }}</td>
                                     <td>{{ $row->approved_by }}</td>
                                 </tr>
@@ -381,8 +387,8 @@
                                 <tr>
                                     <td>{{ $row->member_name }}</td>
                                     <td class="ctr">{{ $row->total_loans }}</td>
-                                    <td class="num">{{ $row->total_paid }}</td>
-                                    <td class="num">{{ $row->outstanding }}</td>
+                                    <td class="num">{{ \App\Support\Format::money($row->total_paid) }}</td>
+                                    <td class="num">{{ \App\Support\Format::money($row->outstanding) }}</td>
                                     <td class="ctr">{{ $row->on_time_count }}</td>
                                     <td class="ctr">{{ $row->late_count }}</td>
                                     <td class="ctr {{ ($row->overdue_count ?? 0) > 0 ? 'rpt-late' : '' }}">{{ $row->overdue_count }}</td>
@@ -413,7 +419,7 @@
                     <table class="rpt-table">
                         <thead>
                             <tr>
-                                <th>App ID</th><th>Member</th><th>Loan type</th><th class="num">Overdue amount</th><th>Due date</th><th class="ctr">Days overdue</th>
+                                <th>App ID</th><th>Member</th><th>Loan type</th><th class="num">Overdue installment</th><th class="num">Remaining balance</th><th>Due date</th><th class="ctr">Days overdue</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -422,7 +428,8 @@
                                     <td class="rpt-mono">{{ $row->app_id ?: '—' }}</td>
                                     <td>{{ $row->member_name }}</td>
                                     <td>{{ $row->loan_type_label }}</td>
-                                    <td class="num">{{ $row->amount }}</td>
+                                    <td class="num">{{ \App\Support\Format::money($row->overdue_installment) }}</td>
+                                    <td class="num">{{ \App\Support\Format::money($row->amount) }}</td>
                                     <td>{{ $row->due_date }}</td>
                                     <td class="ctr"><span class="rpt-pill {{ $row->overdue_days > 30 ? 'bad' : 'warn' }}">{{ $row->overdue_days }}</span></td>
                                 </tr>

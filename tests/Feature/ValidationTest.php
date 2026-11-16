@@ -9,11 +9,19 @@ use App\Models\User;
 use App\Rules\PhilippineMobileNumber;
 use App\Services\LoanEvaluationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ValidationTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake('local');
+    }
 
     /** @test */
     public function philippine_mobile_number_rule_accepts_valid_format()
@@ -208,6 +216,7 @@ class ValidationTest extends TestCase
                 'amount' => 10000,
                 'payment_date' => '2024-01-15',
                 'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
             ]);
 
         $response->assertStatus(422);
@@ -253,6 +262,7 @@ class ValidationTest extends TestCase
                 'amount' => 5000,
                 'payment_date' => '2024-01-15',
                 'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
             ]);
 
         $response->assertStatus(200);
@@ -294,6 +304,7 @@ class ValidationTest extends TestCase
                 'amount' => 10000,
                 'payment_date' => '2024-02-15',
                 'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
             ]);
 
         $response->assertStatus(200);

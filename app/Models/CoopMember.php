@@ -372,6 +372,49 @@ class CoopMember extends Model
     }
 
     /**
+     * The member's loan application still under review (pending or flagged),
+     * or null when none. Newest first, so the reference shown to staff is the
+     * most recent undecided request.
+     *
+     * Scoped exactly like monthlyUsed(): portal members by user_id with an
+     * email fallback for legacy staff-encoded loans (user_id null), portal-less
+     * members by email only. A member with neither user_id nor email never
+     * matches, and two portal-less members never block each other.
+     */
+    public function pendingLoanApplication(): ?LoanApplication
+    {
+        if (!$this->user_id && !$this->email) {
+            return null;
+        }
+
+        return LoanApplication::whereIn('status', [LoanStatus::PENDING, LoanStatus::FLAGGED])
+            ->where(function ($q) {
+                if ($this->user_id) {
+                    $q->where('user_id', $this->user_id);
+                    if ($this->email) {
+                        $q->orWhere(fn ($q2) => $q2->whereNull('user_id')
+                            ->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]));
+                    }
+                } elseif ($this->email) {
+                    $q->whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($this->email))]);
+                }
+            })
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * Does the member already have a loan request under review?
+     *
+     * One loan request at a time: pending OR flagged both count as under
+     * review. Approve or reject the open one before submitting another.
+     */
+    public function hasPendingLoan(): bool
+    {
+        return $this->pendingLoanApplication() !== null;
+    }
+
+    /**
      * Monthly available = max(0, monthly_capacity - monthly_used).
      * Returns null when capacity is null; never returns a negative number.
      */

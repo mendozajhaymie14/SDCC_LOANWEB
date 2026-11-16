@@ -42,7 +42,7 @@ class PaymentReceivedMail extends Mailable
 
         return $this
             ->from(config('mail.from.address', 'hello@example.com'), $coopName)
-            ->to($this->loan->user?->email ?? config('mail.from.address', 'hello@example.com'))
+            ->to($this->loan->getRecipientEmail() ?? config('mail.from.address', 'hello@example.com'))
             ->subject('Payment Received - Thank You')
             ->markdown('emails.payment-received', $context);
     }

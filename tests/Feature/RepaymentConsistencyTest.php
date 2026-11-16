@@ -7,11 +7,19 @@ use App\Models\LoanApplication;
 use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class RepaymentConsistencyTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake('local');
+    }
 
     /**
      * Test that admin repayments page, admin application page, and member dashboard
@@ -58,6 +66,7 @@ class RepaymentConsistencyTest extends TestCase
             ->post('/admin/repayments', [
                 'application_id' => $application->id,
                 'amount'         => 2500,
+                'proof'          => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date'   => '2024-02-01',
                 'payment_method' => 'Cash',
             ]);
@@ -71,6 +80,7 @@ class RepaymentConsistencyTest extends TestCase
             ->post('/admin/repayments', [
                 'application_id' => $application->id,
                 'amount'         => 3000,
+                'proof'          => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date'   => '2024-03-01',
                 'payment_method' => 'Cash',
             ]);

@@ -22,6 +22,7 @@ class Payment extends Model
         'encoded_by',
         'notes',
         'payment_method',
+        'proof_path',
     ];
 
     protected $casts = [
@@ -44,6 +45,14 @@ class Payment extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The staff user who recorded this payment ("Recorded By").
+     */
+    public function encoder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'encoded_by');
     }
 
     /**

@@ -141,6 +141,7 @@
                     <th>App ID</th>
                     <th>Member</th>
                     <th>Loan Type</th>
+                    <th>Status</th>
                     <th>Approved Amount</th>
                     <th>Term (mo)</th>
                     <th>Risk</th>
@@ -155,10 +156,11 @@
                     <td>{{ $row->app_id }}</td>
                     <td>{{ $row->member_name }}</td>
                     <td>{{ $row->loan_type_label }}</td>
-                    <td class="text-right">{{ $row->approved_amount }}</td>
+                    <td>{{ $row->status_label }}</td>
+                    <td class="text-right">₱{{ number_format((float) $row->approved_amount, 2) }}</td>
                     <td class="text-center">{{ $row->term_months }}</td>
                     <td>{{ $row->risk_level }}</td>
-                    <td class="text-right">{{ $row->recommended_amt }}</td>
+                    <td class="text-right">₱{{ number_format((float) $row->recommended_amt, 2) }}</td>
                     <td>{{ $row->approved_date }}</td>
                     <td>{{ $row->approved_by }}</td>
                 </tr>
@@ -182,8 +184,8 @@
                 <tr>
                     <td>{{ $row->member_name }}</td>
                     <td class="text-center">{{ $row->total_loans }}</td>
-                    <td class="text-right">{{ $row->total_paid }}</td>
-                    <td class="text-right">{{ $row->outstanding }}</td>
+                    <td class="text-right">₱{{ number_format((float) $row->total_paid, 2) }}</td>
+                    <td class="text-right">₱{{ number_format((float) $row->outstanding, 2) }}</td>
                     <td class="text-center">{{ $row->late_count }}</td>
                 </tr>
                 @endforeach
@@ -197,7 +199,8 @@
                     <th>App ID</th>
                     <th>Member</th>
                     <th>Loan Type</th>
-                    <th>Overdue Amount</th>
+                    <th>Overdue Installment</th>
+                    <th>Remaining Balance</th>
                     <th>Due Date</th>
                     <th>Overdue Days</th>
                 </tr>
@@ -208,7 +211,8 @@
                     <td>{{ $row->app_id }}</td>
                     <td>{{ $row->member_name }}</td>
                     <td>{{ $row->loan_type_label }}</td>
-                    <td class="text-right">{{ $row->amount }}</td>
+                    <td class="text-right">₱{{ number_format((float) $row->overdue_installment, 2) }}</td>
+                    <td class="text-right">₱{{ number_format((float) $row->amount, 2) }}</td>
                     <td>{{ $row->due_date }}</td>
                     <td class="text-center">{{ $row->overdue_days }}</td>
                 </tr>

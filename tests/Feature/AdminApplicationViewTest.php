@@ -97,7 +97,7 @@ class AdminApplicationViewTest extends TestCase
     }
 
     /** @test */
-    public function admin_list_shows_risk_level_and_recommended_amount_columns()
+    public function admin_list_shows_risk_level_and_requested_amount_columns()
     {
         $admin = $this->makeAdmin();
         $member = $this->makeMember();
@@ -109,8 +109,62 @@ class AdminApplicationViewTest extends TestCase
         $response->assertSuccessful();
         // Risk level should be displayed in the risk column
         $response->assertSee('Medium');
-        // Recommended amount should be displayed in the recommended column
-        $response->assertSee('₱2,500.00');
+        // Requested amount (renamed from Amount) should be displayed
+        $response->assertSee('₱5,000.00');
+        $response->assertSee('Requested');
+        $response->assertSee('Approved');
+    }
+
+    /** @test */
+    public function admin_list_approved_column_reflects_status_based_approved_amount()
+    {
+        $admin = $this->makeAdmin();
+
+        $member = function (int $i) {
+            return $this->makeMember(['email' => "member{$i}@example.com"]);
+        };
+
+        // Approved: shows the real approved amount
+        $this->createTestApplicationWithLoan($member(1), [], [
+            'status'          => 'Approved',
+            'approved_amount' => 4000,
+        ]);
+
+        // Paid: same rule, case-insensitive status match
+        $this->createTestApplicationWithLoan($member(2), ['status' => 'paid'], [
+            'status'          => 'Paid',
+            'approved_amount' => 4500,
+        ]);
+
+        // Rejected: shows ₱0.00
+        $this->createTestApplicationWithLoan($member(3), ['status' => 'rejected'], [
+            'status' => 'Rejected',
+        ]);
+
+        // Pending: shows —, recommended amount must NOT leak into the list
+        $this->createTestApplicationWithLoan($member(4));
+
+        // Flagged: shows —
+        $this->createTestApplicationWithLoan($member(5), ['status' => 'flagged'], [
+            'status' => 'Flagged',
+        ]);
+
+        // Legacy approved row with empty approved_amount: falls back to requested
+        $this->createTestApplicationWithLoan($member(6), ['amount' => 7000], [
+            'status'          => 'Approved',
+            'approved_amount' => null,
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->get(route('applications.index'));
+
+        $response->assertSuccessful();
+        $response->assertSee('₱4,000.00');
+        $response->assertSee('₱4,500.00');
+        $response->assertSee('₱0.00');
+        $response->assertSee('₱7,000.00');
+        $response->assertSee('₱5,000.00');
+        $response->assertDontSee('₱2,500.00');
     }
 
     /** @test */

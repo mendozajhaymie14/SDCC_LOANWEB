@@ -32,11 +32,15 @@
                         data-income="{{ $m->monthly_income ?? '' }}"
                         data-obligations="{{ $m->existing_monthly_obligations ?? '' }}"
                         data-savings="{{ $m->savings_balance ?? '' }}"
-                        data-credit="{{ $m->approved_credit_limit ?? '' }}">
-                  {{ $m->full_name }} ({{ $m->member_id }})
+                        data-credit="{{ $m->approved_credit_limit ?? '' }}"
+                        data-pending="{{ $m->pending_loan_ref ? '1' : '0' }}"
+                        data-pending-ref="{{ $m->pending_loan_ref ?? '' }}"
+                        data-pending-status="{{ $m->pending_loan_status ?? '' }}">
+                  {{ $m->full_name }} ({{ $m->member_id }})@if($m->pending_loan_ref) — ⚠ loan under review ({{ $m->pending_loan_ref }})@endif
                 </option>
               @endforeach
             </select>
+            <div id="memberPendingWarning" style="display:none;margin-top:4px;padding:6px 10px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:6px;font-size:0.75rem;"></div>
             @error('member_id')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
           </label>
 
@@ -110,7 +114,7 @@
           </tbody>
         </table>
 
-        <button type="submit" class="btn-review" style="margin-top:12px;">Encode Application</button>
+        <button type="submit" class="btn-review" id="encodeSubmitBtn" style="margin-top:12px;">Encode Application</button>
       </form>
     </div>
 
@@ -155,6 +159,22 @@
     document.getElementById('mCredit').textContent     = money(opt.dataset.credit);
   }
 
+  // One loan request at a time: a member with an application still under
+  // review is marked in the picker; block the encode until it is decided.
+  function refreshPendingWarning() {
+    const opt = memberPicker.options[memberPicker.selectedIndex];
+    const warning = document.getElementById('memberPendingWarning');
+    const submit = document.getElementById('encodeSubmitBtn');
+    if (opt && opt.dataset.pending === '1') {
+      warning.textContent = 'This member already has an application under review (' + opt.dataset.pendingRef + '). It must be approved or rejected first.';
+      warning.style.display = 'block';
+      submit.disabled = true;
+    } else {
+      warning.style.display = 'none';
+      submit.disabled = false;
+    }
+  }
+
   // Check 70% income threshold warning
   function checkIncomeWarning() {
     const opt = memberPicker.options[memberPicker.selectedIndex];
@@ -189,6 +209,7 @@
   memberPicker.addEventListener('change', function() {
     fillProfile();
     checkIncomeWarning();
+    refreshPendingWarning();
   });
 
   amountInput.addEventListener('input', checkIncomeWarning);

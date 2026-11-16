@@ -253,7 +253,7 @@ class MemberApprovalFlowTest extends TestCase
         ]);
 
         $this->assertDatabaseHas('app_notification_logs', [
-            'notification_type' => 'member_rejected',
+            'notification_type' => 'membership_rejected',
             'channel' => 'email',
             'status' => 'Sent',
         ]);

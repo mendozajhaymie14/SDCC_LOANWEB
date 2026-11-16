@@ -2,6 +2,7 @@
 
 @php
 use App\Models\Setting;
+use App\Models\AppNotificationLog;
 @endphp
 
 @section('admin_content')
@@ -30,7 +31,7 @@ use App\Models\Setting;
 
   .nl-stats {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 1rem;
     margin-bottom: 1rem;
   }
@@ -61,6 +62,7 @@ use App\Models\Setting;
   .nl-failed { color: var(--red); }
   .nl-today { color: var(--accent); }
   .nl-error-rate { color: var(--red); }
+  .nl-skipped { color: var(--gold); }
 
   .nl-mail-notice {
     margin-bottom: 1rem;
@@ -213,77 +215,35 @@ use App\Models\Setting;
   .nl-pill-sent { background: rgba(52, 211, 153, 0.15); color: var(--accent3); }
   .nl-pill-failed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
   .nl-pill-pending { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
+  .nl-pill-skipped { background: rgba(107, 114, 128, 0.15); color: var(--muted); }
 
-  .nl-drawer {
-    display: none !important;
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.6);
-    backdrop-filter: blur(4px);
-    z-index: 2000;
-    align-items: center;
-    justify-content: flex-end;
-  }
-  .nl-drawer.open {
-    display: flex !important;
-  }
-  .nl-drawer-panel {
-    background: var(--surface);
-    width: 100%;
-    max-width: 480px;
-    max-height: 90vh;
-    border-radius: 20px 0 0 20px;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
-    position: relative;
-    z-index: 2001;
-    padding: 2rem;
-    overflow-y: auto;
-  }
-  .nl-drawer-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.25rem;
-  }
-  .nl-drawer-title {
-    font-weight: 700;
-    font-size: 1.1rem;
-    color: var(--text);
-    margin: 0;
-  }
-  .nl-drawer-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--card2);
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 0.95rem;
-    color: var(--muted);
-  }
-  .nl-drawer-field {
-    margin-bottom: 1rem;
-  }
-  .nl-drawer-field-label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted2);
-    margin-bottom: 0.35rem;
-  }
-  .nl-drawer-field-value {
-    font-size: 0.88rem;
+  .nl-muted { color: var(--muted); font-weight: 400; }
+  .nl-loan-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .nl-loan-link:hover { text-decoration: underline; }
+  .nl-error-text { color: var(--red); }
+
+  /* Detail modal — value rows use the shared .form-label / .form-group classes */
+  .nl-modal-value {
+    font-size: 0.9rem;
     color: var(--text);
     word-break: break-word;
   }
-  .nl-empty {
-    text-align: center;
-    padding: 2.5rem 0;
-    color: var(--muted);
+  .nl-modal-error {
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    color: var(--red);
+    font-size: 0.85rem;
+    word-break: break-word;
+  }
+  .nl-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
   }
 
   .flash {
@@ -302,7 +262,6 @@ use App\Models\Setting;
     .nl-filter-row { flex-direction: column; align-items: stretch; }
     .nl-filter-group { min-width: unset; }
     .nl-filter-actions { justify-content: flex-start; }
-    .nl-drawer-panel { max-width: 100%; width: 100%; border-radius: 0; }
   }
 </style>
 
@@ -331,23 +290,27 @@ use App\Models\Setting;
   <div class="nl-stats">
     <div class="nl-card">
       <div class="nl-label">Total</div>
-      <div class="nl-value">{{ $logs->total() }}</div>
+      <div class="nl-value">{{ $stats['total'] }}</div>
     </div>
     <div class="nl-card">
       <div class="nl-label nl-sent">Sent</div>
-      <div class="nl-value nl-sent">{{ $logs->filter(fn($l) => $l->status === 'Sent')->count() }}</div>
+      <div class="nl-value nl-sent">{{ $stats['sent'] }}</div>
     </div>
     <div class="nl-card">
       <div class="nl-label nl-failed">Failed</div>
-      <div class="nl-value nl-failed">{{ $logs->filter(fn($l) => $l->status === 'Failed')->count() }}</div>
+      <div class="nl-value nl-failed">{{ $stats['failed'] }}</div>
+    </div>
+    <div class="nl-card">
+      <div class="nl-label nl-skipped">Skipped</div>
+      <div class="nl-value nl-skipped">{{ $stats['skipped'] }}</div>
     </div>
     <div class="nl-card">
       <div class="nl-label nl-today">Today</div>
-      <div class="nl-value nl-today">{{ $logs->filter(fn($l) => $l->created_at->isToday())->count() }}</div>
+      <div class="nl-value nl-today">{{ $stats['today'] }}</div>
     </div>
     <div class="nl-card">
       <div class="nl-label nl-error-rate">Error Rate</div>
-      <div class="nl-value nl-error-rate">{{ $logs->total() ? round(($logs->filter(fn($l) => $l->status === 'Failed')->count() / $logs->total()) * 100, 1) : 0 }}%</div>
+      <div class="nl-value nl-error-rate">{{ $stats['sent'] + $stats['failed'] > 0 ? round(($stats['failed'] / ($stats['sent'] + $stats['failed'])) * 100, 1) : 0 }}%</div>
     </div>
   </div>
 
@@ -375,7 +338,7 @@ use App\Models\Setting;
             <option value="">All Statuses</option>
             <option value="Sent" {{ request('status') === 'Sent' ? 'selected' : '' }}>Sent</option>
             <option value="Failed" {{ request('status') === 'Failed' ? 'selected' : '' }}>Failed</option>
-            <option value="Pending" {{ request('status') === 'Pending' ? 'selected' : '' }}>Pending</option>
+            <option value="Skipped" {{ request('status') === 'Skipped' ? 'selected' : '' }}>Skipped</option>
           </select>
         </div>
         <div class="nl-filter-group">
@@ -390,10 +353,6 @@ use App\Models\Setting;
             <option value="payment_received" {{ request('type') === 'payment_received' ? 'selected' : '' }}>Payment Received</option>
             <option value="membership_approved" {{ request('type') === 'membership_approved' ? 'selected' : '' }}>Membership Approved</option>
             <option value="membership_rejected" {{ request('type') === 'membership_rejected' ? 'selected' : '' }}>Membership Rejected</option>
-            <option value="welcome" {{ request('type') === 'welcome' ? 'selected' : '' }}>Welcome</option>
-            <option value="reminder_failed" {{ request('type') === 'reminder_failed' ? 'selected' : '' }}>Reminder Failed</option>
-            <option value="reminder_summary" {{ request('type') === 'reminder_summary' ? 'selected' : '' }}>Reminder Summary</option>
-            <option value="system" {{ request('type') === 'system' ? 'selected' : '' }}>System</option>
           </select>
         </div>
         <div class="nl-filter-group">
@@ -436,32 +395,67 @@ use App\Models\Setting;
           <th>Channel</th>
           <th>Status</th>
           <th>Error</th>
-          <th>Sent At</th>
         </tr>
       </thead>
       <tbody id="notifLogsTableBody">
         @if($logs->isNotEmpty())
           @foreach($logs as $log)
-            <tr class="hover:bg-gray-50 transition-colors @if($loop->odd) bg-white @else bg-gray-50 @endif" data-status="{{ strtolower($log->status) }}" onclick="openNotifDrawer({{ $log->id }}, {{ json_encode($log->subject ?? '') }}, {{ json_encode($log->recipient_email ?? '') }}, {{ json_encode($log->notification_type ?? '') }}, {{ json_encode($log->status ?? '') }}, {{ json_encode($log->channel ?? '') }}, {{ json_encode($log->error_message ?? '') }}, {{ json_encode($log->sent_at?->format('M d, Y H:i') ?? '') }}, {{ $log->user_id ?? 'null' }}, {{ $log->loan_application_id ?? 'null' }})">
+            @php
+              $memberId = $log->user?->coopMember?->member_id;
+              $memberName = $log->user?->name;
+              $loanRef = $log->loanApplication?->application?->app_id;
+              $loanAppId = $log->loanApplication?->application?->id;
+            @endphp
+            <tr class="hover:bg-gray-50 transition-colors @if($loop->odd) bg-white @else bg-gray-50 @endif" data-status="{{ strtolower($log->status) }}"
+                onclick="openNotifModal(
+                  {{ $log->id }},
+                  {{ json_encode($log->subject ?? '') }},
+                  {{ json_encode($log->recipient_email ?? '') }},
+                  {{ json_encode(AppNotificationLog::typeLabel($log->notification_type)) }},
+                  {{ json_encode($log->status ?? '') }},
+                  {{ json_encode($log->channel ?? '') }},
+                  {{ json_encode($log->error_message ?? '') }},
+                  {{ json_encode($log->created_at->format('M d, Y H:i')) }},
+                  {{ json_encode($log->sent_at?->format('M d, Y H:i')) }},
+                  {{ json_encode($memberName) }},
+                  {{ json_encode($memberId) }},
+                  {{ json_encode($loanRef) }},
+                  {{ $loanAppId ?? 'null' }})">
               <td class="font-medium text-gray-600 text-sm">{{ $log->created_at->format('M d, Y H:i') }}</td>
               <td class="font-medium text-gray-600 text-sm">{{ $log->recipient_email }}</td>
               <td class="font-medium text-gray-600 text-sm" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $log->subject }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ $log->user_id ?: '—' }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ $log->loan_application_id ? 'APP-' . str_pad($log->loan_application_id, 4, '0', STR_PAD_LEFT) : '—' }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ ucfirst($log->notification_type) }}</td>
+              <td class="font-medium text-gray-600 text-sm">
+                @if($memberId)
+                  {{ $memberId }}
+                  @if($memberName)
+                    <span class="nl-muted"> · {{ $memberName }}</span>
+                  @endif
+                @elseif($memberName)
+                  {{ $memberName }}
+                @else
+                  —
+                @endif
+              </td>
+              <td class="font-medium text-gray-600 text-sm">
+                @if($loanRef)
+                  <a href="#" class="nl-loan-link" onclick="openNotifLoan('{{ $loanRef }}', {{ $loanAppId }}); return false;">{{ $loanRef }}</a>
+                @else
+                  —
+                @endif
+              </td>
+              <td class="font-medium text-gray-600 text-sm">{{ AppNotificationLog::typeLabel($log->notification_type) }}</td>
               <td class="font-medium text-gray-600 text-sm">{{ ucfirst($log->channel) }}</td>
               <td class="font-medium text-gray-600 text-sm">
                 <span class="nl-pill {{ 'nl-pill-' . strtolower($log->status) }}">
                   <span class="status-dot"></span>{{ $log->status }}
                 </span>
               </td>
-              <td class="font-medium text-gray-600 text-sm text-red-600">{{ $log->error_message ?? '—' }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ $log->sent_at?->format('M d, Y H:i') ?? '—' }}</td>
+              <td class="font-medium text-gray-600 text-sm nl-error-text">{{ $log->error_message ?? '—' }}</td>
             </tr>
           @endforeach
         @else
           <tr>
-            <td colspan="10" class="nl-empty">No notification logs found.</td>
+            <td colspan="9" class="nl-empty">No notification logs found.</td>
           </tr>
         @endif
       </tbody>
@@ -469,90 +463,84 @@ use App\Models\Setting;
   </div>
 
   <!-- Pagination -->
-  <div class="mt-4 flex justify-center">
-    {{ $logs->appends(request()->query())->links() }}
+  <div class="mt-4">
+    {{ $logs->appends(request()->query())->links('vendor.pagination.admin') }}
   </div>
 </div>
 
-<!-- Drawer overlay -->
-<div class="nl-drawer" id="notifDrawerOverlay" onclick="closeNotifDrawer()">
-  <div class="nl-drawer-panel" onclick="event.stopPropagation()">
-    <div class="nl-drawer-header">
-      <h3 class="nl-drawer-title" id="drawerTitle">Notification Detail</h3>
-      <div class="nl-drawer-close" onclick="closeNotifDrawer()">&times;</div>
+<!-- Detail modal (centered, shared .modal classes) -->
+<div class="modal"
+     id="modal-notifDetailModal"
+     onclick="event.stopPropagation()"
+     style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important; display: flex !important; flex-direction: column; max-height: 90vh;">
+  <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <div class="modal-title" id="notifModalTitle">Notification Detail</div>
+      <span id="notifModalPill"></span>
     </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Subject</div>
-      <div class="nl-drawer-field-value" id="drawerSubject"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Recipient</div>
-      <div class="nl-drawer-field-value" id="drawerRecipient"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Type</div>
-      <div class="nl-drawer-field-value" id="drawerType"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Channel</div>
-      <div class="nl-drawer-field-value" id="drawerChannel"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Status</div>
-      <div class="nl-drawer-field-value" id="drawerStatus"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Error Message</div>
-      <div class="nl-drawer-field-value" id="drawerError">{{ '—' }}</div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Sent At</div>
-      <div class="nl-drawer-field-value" id="drawerSentAt"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Member Ref</div>
-      <div class="nl-drawer-field-value" id="drawerMemberRef"></div>
-    </div>
-    <div class="nl-drawer-field">
-      <div class="nl-drawer-field-label">Loan Ref</div>
-      <div class="nl-drawer-field-value" id="drawerLoanRef"></div>
-    </div>
+    <div class="modal-close" onclick="closeAllModals()"><i class="fa-solid fa-xmark nav-icon"></i></div>
+  </div>
+  <div id="notifModalBody" style="flex:1;overflow-y:auto;"></div>
+  <div class="nl-modal-footer">
+    <button class="btn-cancel" style="width:auto;padding:0.55rem 1.5rem;" onclick="closeAllModals()">Close</button>
   </div>
 </div>
 
 <script>
-function openNotifDrawer(id, subject, recipient, type, status, channel, error, sentAt, memberId, loanAppId) {
-  document.getElementById('drawerTitle').textContent = 'Notification #' + id;
-  document.getElementById('drawerSubject').textContent = subject || '—';
-  document.getElementById('drawerRecipient').textContent = recipient || '—';
-  document.getElementById('drawerType').textContent = type ? type.charAt(0).toUpperCase() + type.slice(1) : '—';
-  document.getElementById('drawerStatus').textContent = status || '—';
-  document.getElementById('drawerChannel').textContent = channel ? channel.charAt(0).toUpperCase() + channel.slice(1) : '—';
-  document.getElementById('drawerError').textContent = error || '—';
-  document.getElementById('drawerSentAt').textContent = sentAt || '—';
-  document.getElementById('drawerMemberRef').textContent = memberId ? '#' + memberId : '—';
-  document.getElementById('drawerLoanRef').textContent = loanAppId ? 'APP-' + String(loanAppId).padStart(4, '0') : '—';
-  document.getElementById('notifDrawerOverlay').classList.add('open');
-}
-function closeNotifDrawer() {
-  document.getElementById('notifDrawerOverlay').classList.remove('open');
+function openNotifModal(id, subject, recipient, typeLabel, status, channel, error, created, sentAt, memberName, memberId, loanRef, loanAppId) {
+  document.getElementById('notifModalTitle').textContent = typeLabel + ' email';
+
+  var pill = document.getElementById('notifModalPill');
+  pill.className = 'nl-pill nl-pill-' + String(status).toLowerCase();
+  pill.innerHTML = '<span class="status-dot"></span>' + status;
+
+  var body = '';
+  body += nlField('Recipient', recipient || '—');
+  body += nlField('Subject', subject || '—');
+  body += nlField('Type', typeLabel || '—');
+  body += nlField('Channel', channel ? channel.charAt(0).toUpperCase() + channel.slice(1) : '—');
+  body += nlField('Status', status || '—');
+  body += nlField('Member', memberName
+      ? memberName + (memberId ? ' (' + memberId + ')' : '')
+      : (memberId || '—'));
+  body += nlField('Loan', loanRef
+      ? '<a href="#" class="nl-loan-link" onclick="openNotifLoan(\'' + loanRef + '\', ' + loanAppId + '); return false;">' + loanRef + '</a>'
+      : '—');
+  body += nlField('Date and time', created || '—');
+  if (sentAt && sentAt !== created) {
+    body += nlField('Sent at', sentAt);
+  }
+  if (status === 'Failed' || status === 'Skipped') {
+    body += '<div class="form-group"><div class="form-label">Error</div><div class="nl-modal-error">' + (error || '—') + '</div></div>';
+  }
+
+  document.getElementById('notifModalBody').innerHTML = body;
+  openModal('notifDetailModal');
 }
 
-function filterNotifLogs(term) {
-  const termLower = term.trim().toLowerCase();
-  const rows = document.querySelectorAll('#notifLogsTableBody tr');
-  rows.forEach(row => {
-    const text = row.textContent.toLowerCase();
-    row.style.display = termLower ? (text.includes(termLower) ? '' : 'none') : '';
-  });
+function nlField(label, valueHtml) {
+  return '<div class="form-group"><div class="form-label">' + label + '</div>' +
+         '<div class="nl-modal-value">' + valueHtml + '</div></div>';
 }
 
-function filterNotifLogsByStatus(status) {
-  const rows = document.querySelectorAll('#notifLogsTableBody tr');
-  rows.forEach(row => {
-    const rowStatus = row.dataset.status;
-    row.style.display = !status || rowStatus === status.toLowerCase() ? '' : 'none';
-  });
+function openNotifLoan(appRef, numericId) {
+  if (typeof window.openAppDetail === 'function') {
+    window.openAppDetail({ currentTarget: { dataset: { appId: appRef, numericId: String(numericId) } } });
+  }
 }
+
+function closeNotifModal() {
+  closeAllModals();
+}
+
+// Esc closes the modal when open
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') {
+    var m = document.getElementById('modal-notifDetailModal');
+    if (m && m.classList.contains('open')) {
+      closeAllModals();
+    }
+  }
+});
 </script>
 @endsection

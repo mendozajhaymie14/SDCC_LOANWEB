@@ -605,9 +605,9 @@ class ReportsTest extends TestCase
         $row = $borrowerPerf->first();
         $this->assertNotNull($row);
         // total_approved_amount only includes approved loan (5000)
-        $this->assertStringContainsString('5,000', $row->total_approved_amount);
+        $this->assertEqualsWithDelta(5000, (float) $row->total_approved_amount, 0.01);
         // outstanding sums remaining_balance of APPROVED loans only (1000)
-        $this->assertStringContainsString('1,000', $row->outstanding);
+        $this->assertEqualsWithDelta(1000, (float) $row->outstanding, 0.01);
     }
 
     /**
@@ -695,7 +695,7 @@ class ReportsTest extends TestCase
         // Only the approved+Low loan from Jan 10 should appear (pending/rejected excluded, Medium/High excluded)
         $this->assertEquals(1, $row->total_loans, 'Only 1 approved+Low loan created on 2026-01-10 should appear in date range');
         // total_approved_amount should only count the approved loan
-        $this->assertStringContainsString('5,000', $row->total_approved_amount);
+        $this->assertEqualsWithDelta(5000, (float) $row->total_approved_amount, 0.01);
     }
 
     /**

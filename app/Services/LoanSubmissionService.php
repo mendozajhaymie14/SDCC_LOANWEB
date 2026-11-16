@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Models\CoopMember;
 use App\Models\LoanApplication;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Shared submission path for both member self-submission and staff-encoded
@@ -22,44 +24,83 @@ class LoanSubmissionService
      */
     public function submit(array $data): LoanApplication
     {
-        $application = LoanApplication::create($data);
+        return DB::transaction(function () use ($data) {
+            // Last-line guard: one loan request at a time per member. The
+            // controllers check first; this closes the race for two
+            // concurrent submissions by locking the member row.
+            $member = $this->lockMemberRow($data);
+            if ($member) {
+                $pending = $member->pendingLoanApplication();
+                if ($pending) {
+                    $ref = Application::where('loan_application_id', $pending->id)->value('app_id')
+                        ?? $pending->reference;
+                    throw new \RuntimeException(
+                        'This member already has an application under review (' . $ref . '). It must be approved or rejected first.'
+                    );
+                }
+            }
 
-        $evaluation = app(LoanEvaluationService::class)->evaluate($application);
+            $application = LoanApplication::create($data);
 
-        $riskFactors = is_array($evaluation['details'] ?? null)
-            ? json_encode($evaluation['details'])
-            : null;
+            $evaluation = app(LoanEvaluationService::class)->evaluate($application);
 
-        $application->update([
-            'recommended_amount'  => $evaluation['recommended_amount'],
-            'risk_level'          => $evaluation['risk_level'],
-            'risk_score'          => $evaluation['risk_score'],
-            'risk_factors'        => $riskFactors,
-            'evaluation_reasons'  => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
-        ]);
+            $riskFactors = is_array($evaluation['details'] ?? null)
+                ? json_encode($evaluation['details'])
+                : null;
 
-        // Mirror into the admin applications table. app_id must be unique, so
-        // take max('id') including soft-deleted rows — same convention as
-        // LoanApplication::makeReference().
-        $lastId = Application::withTrashed()->max('id') ?? 0;
-        $appId  = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+            $application->update([
+                'recommended_amount'  => $evaluation['recommended_amount'],
+                'risk_level'          => $evaluation['risk_level'],
+                'risk_score'          => $evaluation['risk_score'],
+                'risk_factors'        => $riskFactors,
+                'evaluation_reasons'  => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
+            ]);
 
-        Application::create([
-            'loan_application_id'   => $application->id,
-            'app_id'                => $appId,
-            'applicant'             => $data['full_name'],
-            'loan_type'             => $application->loan_type,
-            'amount'                => $application->amount,
-            'term_months'           => $application->term_months,
-            'status'                => 'Pending',
-            'recommended_amount'    => $evaluation['recommended_amount'],
-            'risk_level'            => $evaluation['risk_level'],
-            'risk_score'            => $evaluation['risk_score'],
-            'risk_factors'          => $riskFactors,
-            'evaluation_reasons'    => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
-            'ai_score'              => null,
-        ]);
+            // Mirror into the admin applications table. app_id must be unique, so
+            // take max('id') including soft-deleted rows — same convention as
+            // LoanApplication::makeReference().
+            $lastId = Application::withTrashed()->max('id') ?? 0;
+            $appId  = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
 
-        return $application;
+            Application::create([
+                'loan_application_id'   => $application->id,
+                'app_id'                => $appId,
+                'applicant'             => $data['full_name'],
+                'loan_type'             => $application->loan_type,
+                'amount'                => $application->amount,
+                'term_months'           => $application->term_months,
+                'status'                => 'Pending',
+                'recommended_amount'    => $evaluation['recommended_amount'],
+                'risk_level'            => $evaluation['risk_level'],
+                'risk_score'            => $evaluation['risk_score'],
+                'risk_factors'          => $riskFactors,
+                'evaluation_reasons'    => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
+                'ai_score'              => null,
+            ]);
+
+            return $application;
+        });
+    }
+
+    /**
+     * Resolve the CoopMember a submission belongs to, locking the row so two
+     * concurrent submissions for the same member serialise on this guard.
+     * Same scoping as monthlyUsed(): user_id with email fallback for legacy
+     * staff-encoded loans, email only for portal-less members. Returns null
+     * when the submission carries neither a user_id nor an email.
+     */
+    private function lockMemberRow(array $data): ?CoopMember
+    {
+        if (!empty($data['user_id'])) {
+            $member = CoopMember::where('user_id', $data['user_id'])->lockForUpdate()->first();
+            if ($member) {
+                return $member;
+            }
+        }
+        if (!empty($data['email'])) {
+            return CoopMember::whereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($data['email']))])
+                ->lockForUpdate()->first();
+        }
+        return null;
     }
 }

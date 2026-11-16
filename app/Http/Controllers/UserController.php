@@ -96,6 +96,10 @@ class UserController extends Controller
                 'loanTypes' => Config::get('loan_matrix.loan_types'),
                 'coopMember' => $coopMember,
                 'outstanding' => $outstanding,
+                // One loan request at a time: when an application is still
+                // under review the form shows a banner and the submit button
+                // stays disabled.
+                'pendingLoanApp' => $coopMember ? $coopMember->pendingLoanApplication() : null,
             ]);
         }
 
@@ -216,15 +220,14 @@ class UserController extends Controller
         // Set employment_status from memberApplication's occupation field
         $data['employment_status'] = ($memberApp?->occupation ?? 'Employed');
 
-        // Block a second application while one is still under review.
-        $hasPending = LoanApplication::where('user_id', Auth::id())
-            ->where('status', 'pending')
-            ->exists();
-
-        if ($hasPending) {
+        // Block a second application while one is still under review (pending
+        // or flagged). Scoped through the member record so legacy staff-encoded
+        // loans (user_id null, email match) count too.
+        $coopMember = Auth::user()->coopMember;
+        if ($coopMember && $coopMember->hasPendingLoan()) {
             return back()
                 ->withInput()
-                ->with('error', 'You already have an application under review. Wait for it to be decided before applying again.');
+                ->with('error', 'You already have a loan application under review. Please wait for it to be approved or rejected before requesting another loan.');
         }
 
         unset($data['agree']);
@@ -238,7 +241,6 @@ class UserController extends Controller
         // Over-limit and zero-available requests are accepted as PENDING;
         // the evaluation service caps the recommendation and the approve
         // gate (AdminController::approve) stays authoritative.
-        $coopMember = Auth::user()->coopMember;
         if ($coopMember) {
             $monthlyAvailable = $coopMember->monthlyAvailable();
             if ($monthlyAvailable === null) {

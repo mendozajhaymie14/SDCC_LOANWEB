@@ -9,11 +9,40 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class RepaymentTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake('local');
+    }
+
+    private function approvedLoanWithApplication(string $appId, float $amount, float $balance): array
+    {
+        $loanApplication = LoanApplication::factory()->create([
+            'amount' => $amount,
+            'term_months' => 12,
+            'status' => 'approved',
+            'remaining_balance' => $balance,
+        ]);
+
+        $application = Application::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'app_id' => $appId,
+            'amount' => $amount,
+            'term_months' => 12,
+            'status' => 'Approved',
+            'remaining_balance' => $balance,
+        ]);
+
+        return [$loanApplication, $application];
+    }
 
     /** @test */
     public function payment_reduces_balance_and_creates_payment_record()
@@ -47,6 +76,7 @@ class RepaymentTest extends TestCase
                 'payment_date' => now()->toDateString(),
                 'payment_method' => 'bank_transfer',
                 'notes' => 'Test payment',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
             ]);
 
         // Assert: Payment successful
@@ -100,6 +130,7 @@ class RepaymentTest extends TestCase
                 'application_id' => $application->id,
                 'amount' => 6000, // overpayment - exceeds total_payable of 5176.44
                 'reference_no' => 'REF-456',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date' => now()->toDateString(),
             ]);
 
@@ -151,6 +182,7 @@ class RepaymentTest extends TestCase
                 'application_id' => $application->id,
                 'amount' => 10661.88,
                 'reference_no' => 'REF-789',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date' => now()->toDateString(),
             ]);
 
@@ -206,6 +238,7 @@ class RepaymentTest extends TestCase
                 'application_id' => $application->id,
                 'amount' => 3000,
                 'reference_no' => 'REF-999',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date' => now()->toDateString(),
             ]);
 
@@ -263,6 +296,7 @@ class RepaymentTest extends TestCase
                 'application_id' => $application->id,
                 'amount' => 2000,
                 'reference_no' => 'DUP-REF', // duplicate
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date' => now()->toDateString(),
             ]);
 
@@ -577,6 +611,7 @@ class RepaymentTest extends TestCase
                 'application_id' => $application->id,
                 'amount' => $partialAmount,
                 'reference_no' => 'PART-REF',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date' => now()->toDateString(),
             ]);
 
@@ -624,6 +659,7 @@ class RepaymentTest extends TestCase
                 'application_id' => $application->id,
                 'amount' => 10661.88,
                 'reference_no' => 'FINAL-REF',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
                 'payment_date' => now()->toDateString(),
             ]);
 
@@ -836,7 +872,6 @@ class RepaymentTest extends TestCase
             'payment_method' => 'Cash',
             'payment_date' => now(),
             'encoded_by' => $recorder->id,
-            'recorded_by' => $recorder->id,
             'notes' => 'Test payment',
         ]);
 
@@ -844,5 +879,276 @@ class RepaymentTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('Staff Recorder');
+    }
+
+    /** @test */
+    public function recording_repayment_without_proof_fails(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-PROOF-1', 10000, 10661.88);
+
+        $response = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post('/admin/repayments', [
+                'application_id' => $application->id,
+                'amount' => 2000,
+                'reference_no' => 'NO-PROOF',
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Cash',
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('proof');
+        $this->assertDatabaseMissing('payments', ['reference_no' => 'NO-PROOF']);
+    }
+
+    /** @test */
+    public function recording_repayment_with_valid_proof_stores_file_and_path(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-PROOF-2', 10000, 10661.88);
+
+        $response = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post('/admin/repayments', [
+                'application_id' => $application->id,
+                'amount' => 2000,
+                'reference_no' => 'WITH-PROOF',
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
+            ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+
+        $payment = Payment::where('reference_no', 'WITH-PROOF')->first();
+        $this->assertNotNull($payment->proof_path);
+        $this->assertStringStartsWith('payment-proofs/', $payment->proof_path);
+        Storage::assertExists($payment->proof_path);
+        // Random server-generated name, never the client's original file name
+        $this->assertStringNotContainsString('proof.jpg', $payment->proof_path);
+    }
+
+    /** @test */
+    public function proof_upload_rejects_non_image_and_oversize_files(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-PROOF-3', 10000, 10661.88);
+
+        $nonImage = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post('/admin/repayments', [
+                'application_id' => $application->id,
+                'amount' => 2000,
+                'reference_no' => 'TXT-PROOF',
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->create('proof.txt', 10, 'text/plain'),
+            ]);
+        $nonImage->assertStatus(422);
+        $nonImage->assertJsonValidationErrors('proof');
+
+        $oversize = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post('/admin/repayments', [
+                'application_id' => $application->id,
+                'amount' => 2000,
+                'reference_no' => 'BIG-PROOF',
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->image('big.jpg')->size(6000), // 6 MB > 5 MB cap
+            ]);
+        $oversize->assertStatus(422);
+        $oversize->assertJsonValidationErrors('proof');
+
+        $this->assertDatabaseMissing('payments', ['reference_no' => 'TXT-PROOF']);
+        $this->assertDatabaseMissing('payments', ['reference_no' => 'BIG-PROOF']);
+    }
+
+    /** @test */
+    public function editing_repayment_without_new_proof_keeps_old_proof(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-PROOF-4', 10000, 10661.88);
+
+        Storage::put('payment-proofs/old-proof.jpg', 'old-bytes');
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'KEEP-PROOF',
+            'payment_method' => 'Cash',
+            'payment_date' => now()->toDateString(),
+            'proof_path' => 'payment-proofs/old-proof.jpg',
+        ]);
+
+        $response = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->put("/repayments/{$payment->id}", [
+                'amount' => 2500,
+                'payment_method' => 'Cash',
+                'reference_no' => 'KEEP-PROOF',
+                'payment_date' => now()->toDateString(),
+            ]);
+
+        $response->assertStatus(200);
+        $payment->refresh();
+        $this->assertEquals('payment-proofs/old-proof.jpg', $payment->proof_path);
+        Storage::assertExists('payment-proofs/old-proof.jpg');
+    }
+
+    /** @test */
+    public function editing_repayment_with_new_proof_replaces_it_and_failed_edit_keeps_old(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-PROOF-5', 10000, 10661.88);
+
+        Storage::put('payment-proofs/old-proof.jpg', 'old-bytes');
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'REPLACE-PROOF',
+            'payment_method' => 'Cash',
+            'payment_date' => now()->toDateString(),
+            'proof_path' => 'payment-proofs/old-proof.jpg',
+        ]);
+
+        // Failed edit (invalid file type) must keep the old proof
+        $bad = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->put("/repayments/{$payment->id}", [
+                'amount' => 2500,
+                'payment_method' => 'Cash',
+                'reference_no' => 'REPLACE-PROOF',
+                'payment_date' => now()->toDateString(),
+                'proof' => UploadedFile::fake()->create('proof.txt', 10, 'text/plain'),
+            ]);
+        $bad->assertStatus(422);
+        $payment->refresh();
+        $this->assertEquals('payment-proofs/old-proof.jpg', $payment->proof_path);
+        Storage::assertExists('payment-proofs/old-proof.jpg');
+
+        // Successful edit replaces it and removes the old file only after commit
+        $good = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->put("/repayments/{$payment->id}", [
+                'amount' => 2500,
+                'payment_method' => 'Cash',
+                'reference_no' => 'REPLACE-PROOF',
+                'payment_date' => now()->toDateString(),
+                'proof' => UploadedFile::fake()->image('new-proof.png'),
+            ]);
+        $good->assertStatus(200);
+
+        $payment->refresh();
+        $this->assertNotNull($payment->proof_path);
+        $this->assertNotEquals('payment-proofs/old-proof.jpg', $payment->proof_path);
+        Storage::assertMissing('payment-proofs/old-proof.jpg');
+        Storage::assertExists($payment->proof_path);
+    }
+
+    /** @test */
+    public function editing_repayment_with_reason_saves_it_in_audit_log(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REASON-1', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'REASON-1',
+            'payment_method' => 'Cash',
+            'payment_date' => now()->toDateString(),
+        ]);
+
+        $response = $this->actingAs(User::factory()->asLoanOfficer()->create())
+            ->withHeaders(['Accept' => 'application/json'])
+            ->put("/repayments/{$payment->id}", [
+                'amount' => 2500,
+                'payment_method' => 'Cash',
+                'reference_no' => 'REASON-1',
+                'payment_date' => now()->toDateString(),
+                'reason' => 'Member requested correction of encoded amount',
+            ]);
+
+        $response->assertStatus(200);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action'  => 'Repayment Updated',
+            'details' => "Repayment #{$payment->id} updated for loan application #{$loanApplication->id} — Reason: Member requested correction of encoded amount",
+        ]);
+    }
+
+    /** @test */
+    public function proof_route_streams_file_for_staff_and_denies_member_and_guest(): void
+    {
+        $staff = User::factory()->asLoanOfficer()->create();
+        $member = User::factory()->create(['usertype' => Permissions::ROLE_MEMBER]);
+
+        $loanApplication = LoanApplication::factory()->create([
+            'amount' => 10000,
+            'term_months' => 12,
+            'status' => 'approved',
+            'remaining_balance' => 10000,
+        ]);
+
+        Storage::put('payment-proofs/proof.jpg', 'image-bytes');
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 1000,
+            'proof_path' => 'payment-proofs/proof.jpg',
+        ]);
+
+        $staffResponse = $this->actingAs($staff)->get("/repayments/{$payment->id}/proof");
+        $staffResponse->assertStatus(200);
+        $staffResponse->assertHeader('Content-Type', 'image/jpeg');
+
+        $memberResponse = $this->actingAs($member)->get("/repayments/{$payment->id}/proof");
+        $memberResponse->assertForbidden();
+
+        // No proof on file -> 404
+        $noProof = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'proof_path' => null,
+        ]);
+        $this->actingAs($staff)->get("/repayments/{$noProof->id}/proof")->assertNotFound();
+    }
+
+    /** @test */
+    public function proof_route_redirects_guests_to_login(): void
+    {
+        $loanApplication = LoanApplication::factory()->create([
+            'amount' => 10000,
+            'term_months' => 12,
+            'status' => 'approved',
+            'remaining_balance' => 10000,
+        ]);
+
+        Storage::put('payment-proofs/proof.jpg', 'image-bytes');
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 1000,
+            'proof_path' => 'payment-proofs/proof.jpg',
+        ]);
+
+        $response = $this->get("/repayments/{$payment->id}/proof");
+        $response->assertStatus(302);
+        $response->assertRedirect('/login');
+    }
+
+    /** @test */
+    public function repayments_page_shows_encoder_name_for_newly_recorded_payment(): void
+    {
+        $encoder = User::factory()->asLoanOfficer()->create(['name' => 'Staff Encoder']);
+        $viewer = User::factory()->asBranchManager()->create(['name' => 'Viewer Manager']);
+
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-PROOF-6', 10000, 10661.88);
+
+        $this->actingAs($encoder)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post('/admin/repayments', [
+                'application_id' => $application->id,
+                'amount' => 2000,
+                'reference_no' => 'ENCODER-REF',
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Cash',
+                'proof' => UploadedFile::fake()->image('proof.jpg'),
+            ])->assertStatus(200);
+
+        $this->actingAs($viewer)->get('/repayments')->assertSee('Staff Encoder');
     }
 }

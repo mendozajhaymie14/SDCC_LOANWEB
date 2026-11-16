@@ -25,6 +25,18 @@
       </div>
     @endif
 
+    {{-- One loan request at a time: an application still under review blocks
+         the form. Reference + status shown so the member knows which one. --}}
+    @isset($pendingLoanApp)
+      @if($pendingLoanApp)
+      <div class="form-error-summary" role="alert" style="border-color:#f59e0b;background:#fffbeb;color:#92400e;">
+        <p><strong>You already have a loan application under review.</strong></p>
+        <p style="margin:.25rem 0 0;">Reference <strong>{{ $pendingLoanApp->reference }}</strong> · Status <strong>{{ ucfirst($pendingLoanApp->status) }}</strong></p>
+        <p style="margin:.25rem 0 0;">Please wait for it to be approved or rejected before requesting another loan.</p>
+      </div>
+      @endif
+    @endisset
+
     <div class="form-stepper" id="formStepper">
       <div class="step active" data-step="1"><span class="step-num">1</span><span>Personal</span></div>
       <div class="step-sep"></div>
@@ -247,7 +259,7 @@
       </script>
 
       <div class="form-actions">
-        <button type="submit" class="btn-solid">Submit application</button>
+        <button type="submit" class="btn-solid" {{ isset($pendingLoanApp) && $pendingLoanApp ? 'disabled' : '' }}>Submit application</button>
         <a href="{{ route('user.dashboard') }}" class="btn-cancel">Cancel</a>
       </div>
     </div>

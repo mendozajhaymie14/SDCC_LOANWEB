@@ -11,6 +11,25 @@ class AppNotificationLog extends Model
 
     protected $table = 'app_notification_logs';
 
+    /**
+     * Human-readable labels for notification types (avoids ucfirst() on snake_case keys).
+     */
+    public const TYPE_LABELS = [
+        'approved'             => 'Loan Approved',
+        'rejected'             => 'Loan Rejected',
+        'due_soon'             => 'Due Soon',
+        'due_today'            => 'Due Today',
+        'overdue'              => 'Overdue',
+        'payment_received'     => 'Payment Received',
+        'membership_approved'  => 'Membership Approved',
+        'membership_rejected'  => 'Membership Rejected',
+    ];
+
+    public static function typeLabel(string $type): string
+    {
+        return self::TYPE_LABELS[$type] ?? ucfirst($type);
+    }
+
     protected $fillable = [
         'recipient_email',
         'subject',
@@ -26,6 +45,22 @@ class AppNotificationLog extends Model
     protected $casts = [
         'sent_at' => 'datetime',
     ];
+
+    /**
+     * The user the notification is for.
+     */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The loan application the notification is for.
+     */
+    public function loanApplication()
+    {
+        return $this->belongsTo(LoanApplication::class);
+    }
 
     /**
      * Scope for a specific status.
@@ -58,16 +93,17 @@ class AppNotificationLog extends Model
     /**
      * Log an email notification.
      *
-     * @param  string  $email
+     * @param  string|null  $email  Null when no recipient could be resolved (Skipped rows).
      * @param  string  $subject
      * @param  string  $type
      * @param  string  $status
      * @param  string  $channel
      * @param  int|null  $userId
      * @param  int|null  $loanApplicationId
+     * @param  string|null  $reason  Human-readable reason for Skipped/Failed rows.
      * @return static
      */
-    public static function log(string $email, string $subject, string $type = 'system', string $status = 'Sent', string $channel = 'email', ?int $userId = null, ?int $loanApplicationId = null): static
+    public static function log(?string $email, string $subject, string $type = 'system', string $status = 'Sent', string $channel = 'email', ?int $userId = null, ?int $loanApplicationId = null, ?string $reason = null): static
     {
         return static::create([
             'recipient_email' => $email,
@@ -76,6 +112,7 @@ class AppNotificationLog extends Model
             'channel' => $channel,
             'status' => $status,
             'sent_at' => $status === 'Sent' ? now() : null,
+            'error_message' => $reason,
             'user_id' => $userId,
             'loan_application_id' => $loanApplicationId,
         ]);

@@ -36,6 +36,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -175,6 +176,33 @@ class AdminController extends Controller
     public function encodeApplication()
     {
         $members = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->latest()->get();
+
+        // Mark members who already have a loan under review, so staff cannot
+        // encode a second request for them. One query for all undecided
+        // applications, matched to members by the same user_id/email scoping
+        // used by CoopMember::pendingLoanApplication().
+        $undecided = LoanApplication::whereIn('loan_applications.status', [LoanStatus::PENDING, LoanStatus::FLAGGED])
+            ->leftJoin('applications', 'applications.loan_application_id', '=', 'loan_applications.id')
+            ->select('loan_applications.*', 'applications.app_id as mirror_app_id')
+            ->get();
+
+        $members->each(function ($member) use ($undecided) {
+            $match = $undecided->first(function ($app) use ($member) {
+                if ($member->user_id) {
+                    return $app->user_id === $member->user_id
+                        || ($app->user_id === null && $member->email
+                            && strtolower(trim((string) $app->email)) === strtolower(trim((string) $member->email)));
+                }
+                if ($member->email) {
+                    return $app->user_id === null
+                        && strtolower(trim((string) $app->email)) === strtolower(trim((string) $member->email));
+                }
+                return false;
+            });
+            $member->setAttribute('pending_loan_ref', $match ? ($match->mirror_app_id ?? $match->reference) : null);
+            $member->setAttribute('pending_loan_status', $match ? $match->status : null);
+        });
+
         return view('admin.encode-application', compact('members'));
     }
 
@@ -277,16 +305,15 @@ class AdminController extends Controller
             return back()->withInput()->withErrors($validator2);
         }
 
-        // Block if member already has a pending application (only if linked to a user)
-        if ($user) {
-            $hasPending = LoanApplication::where('user_id', $user->id)
-                ->where('status', 'pending')
-                ->exists();
-
-            if ($hasPending) {
-                return back()->withInput()
-                    ->with('error', 'This member already has an application under review. Wait for it to be decided before applying again.');
-            }
+        // Block a second application while one is still under review (pending or
+        // flagged). Scoped through the member record itself, so portal-less
+        // members (encoded without a portal account) are covered too.
+        $pendingApp = $member->pendingLoanApplication();
+        if ($pendingApp) {
+            $ref = Application::where('loan_application_id', $pendingApp->id)->value('app_id')
+                ?? $pendingApp->reference;
+            return back()->withInput()
+                ->with('error', 'This member already has an application under review (' . $ref . '). It must be approved or rejected first.');
         }
 
         // Store uploaded supporting documents
@@ -361,6 +388,15 @@ class AdminController extends Controller
         // Pending applications may be soft-deleted; include trashed rows so the
         // act/reject flows work on them too.
         $application = Application::withTrashed()->where('id', $appId)->firstOrFail();
+
+        // Guard: an application already granted (Approved or Paid) cannot be
+        // re-approved — this prevents duplicate approval emails and log rows.
+        if (in_array($application->status, ['Approved', 'Paid'], true)) {
+            $errorMsg = 'This application is already ' . strtolower($application->status) . '.';
+            return request()->expectsJson()
+                ? response()->json(['success' => false, 'message' => $errorMsg], 409)
+                : back()->with('error', $errorMsg);
+        }
 
         // Accept approved_amount and reason from JSON or form requests
         $approvedAmount = request()->json('approved_amount') ?? request('approved_amount') ?? null;
@@ -612,6 +648,15 @@ class AdminController extends Controller
         // Pending applications may be soft-deleted; include trashed rows so the
         // act/reject flows work on them too.
         $application = Application::withTrashed()->where('id', $appId)->firstOrFail();
+
+        // Guard: an already-rejected application cannot be rejected again —
+        // prevents duplicate rejection emails and outbox rows.
+        if ($application->status === 'Rejected') {
+            $errorMsg = 'This application is already rejected.';
+            return request()->expectsJson()
+                ? response()->json(['success' => false, 'message' => $errorMsg], 409)
+                : back()->with('error', $errorMsg);
+        }
 
         // Accept reason from JSON or form requests
         $rejectReason = request()->json('reason') ?? request('reason') ?? null;
@@ -1437,8 +1482,28 @@ class AdminController extends Controller
                 $member->member_id,
                 (bool) $member->user_id
             ));
+
+            // Log the membership approval email to the outbox
+            AppNotificationLog::log(
+                $application->email,
+                'Your SDCC membership is approved - here is your Member ID',
+                'membership_approved',
+                'Sent',
+                'email',
+                $application->user_id,
+                null
+            );
         } catch (\Throwable $e) {
             \Log::error('Member approval email failed: ' . $e->getMessage());
+            AppNotificationLog::logFailed(
+                $application->email,
+                'Your SDCC membership is approved - here is your Member ID',
+                'membership_approved',
+                $e->getMessage(),
+                'email',
+                $application->user_id,
+                null
+            );
         }
     } catch (\Throwable $e) {
         \Log::error('Member approval failed: ' . $e->getMessage());
@@ -1549,7 +1614,7 @@ class AdminController extends Controller
                     ));
                     AppNotificationLog::log(
                         $applicantEmail, 'Your SDCC membership application was not approved',
-                        'member_rejected', 'Sent', 'email', $userId, null
+                        'membership_rejected', 'Sent', 'email', $userId, null
                     );
                 } catch (\Throwable $e) {
                     Log::error('Member rejection email failed', [
@@ -1558,7 +1623,7 @@ class AdminController extends Controller
                     ]);
                     AppNotificationLog::logFailed(
                         $applicantEmail, 'Your SDCC membership application was not approved',
-                        'member_rejected', $e->getMessage(), 'email', $userId, null
+                        'membership_rejected', $e->getMessage(), 'email', $userId, null
                     );
                 }
             }
@@ -1760,16 +1825,29 @@ class AdminController extends Controller
     // 27. Navigation Routes
     public function repayments()
     {
-        $repayments = Payment::with('loanApplication.user')
-            ->latest()
-            ->get();
-        $totalRepayments = Payment::sum('amount_paid');
-        $approvedLoans = Application::with('loanApplication.user')
+        $base = Payment::with(['loanApplication.user', 'encoder', 'loanApplication.user.coopMember'])
+            ->when(request('search'), function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('loanApplication.user', fn ($uq) => $uq->where('name', 'like', "%{$search}%"))
+                      ->orWhereHas('loanApplication.user.coopMember', fn ($cq) => $cq->where('member_id', 'like', "%{$search}%"))
+                      ->orWhere('reference_no', 'like', "%{$search}%")
+                      ->orWhereHas('loanApplication.application', fn ($aq) => $aq->where('app_id', 'like', "%{$search}%"));
+                });
+            })
+            ->when(request('start_date'), fn ($q, $d) => $q->whereDate('payment_date', '>=', $d))
+            ->when(request('end_date'), fn ($q, $d) => $q->whereDate('payment_date', '<=', $d));
+
+        $repayments = (clone $base)->latest()->get();
+        $totalRepayments = (clone $base)->sum('amount_paid');
+        $monthlyCollected = Payment::whereMonth('payment_date', now()->month)
+            ->whereYear('payment_date', now()->year)
+            ->sum('amount_paid');
+        $approvedLoans = Application::with('loanApplication.user.coopMember')
             ->where('status', 'Approved')
             ->where('remaining_balance', '>', 0)
             ->latest()
             ->get();
-        return view('admin.repayments', compact('repayments', 'totalRepayments', 'approvedLoans'));
+        return view('admin.repayments', compact('repayments', 'totalRepayments', 'monthlyCollected', 'approvedLoans'));
     }
 
     public function creditAssessment()
@@ -1854,7 +1932,9 @@ class AdminController extends Controller
         $filters = $this->buildReportFilters($request);
 
         // KPI cards (always show these, unaffected by report-type filters for now)
-        $totalApproved = LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount') ?? 0;
+        // Granted loans = approved + paid; use the approved amount when set.
+        $totalApproved = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::PAID])
+            ->sum(DB::raw('COALESCE(approved_amount, amount)')) ?? 0;
         $totalRepayments = Payment::sum('amount_paid') ?? 0;
         $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count() ?? 0;
         $pendingApplicationsCount = Application::where('status', 'Pending')->count() ?? 0;
@@ -1905,13 +1985,29 @@ class AdminController extends Controller
             $dateWhere = fn ($q) => $q->whereDate('created_at', '<=', $endDate);
         }
 
+        // Overdue is judged on the due date, not when the loan was created.
+        $overdueDateWhere = null;
+        if ($startDate && $endDate) {
+            $overdueDateWhere = fn ($q) => $q->whereDate('next_due_date', '>=', $startDate)
+                ->whereDate('next_due_date', '<=', $endDate);
+        } elseif ($startDate) {
+            $overdueDateWhere = fn ($q) => $q->whereDate('next_due_date', '>=', $startDate);
+        } elseif ($endDate) {
+            $overdueDateWhere = fn ($q) => $q->whereDate('next_due_date', '<=', $endDate);
+        }
+
         return [
             'report_type' => $type,
             'start_date'  => $startDate,
             'end_date'    => $endDate,
             'status'      => $status,
             'risk_level'  => $riskLevel,
-            'status_closures' => ['status' => $statusWhere, 'risk' => $riskWhere, 'date' => $dateWhere],
+            'status_closures' => [
+                'status'        => $statusWhere,
+                'risk'          => $riskWhere,
+                'date'          => $dateWhere,
+                'overdue_date'  => $overdueDateWhere,
+            ],
         ];
     }
 
@@ -1940,6 +2036,10 @@ class AdminController extends Controller
         $base = LoanApplication::query();
         $base = $this->applyReportFilters($base, $filters);
 
+        // Granted loans (approved/paid) are summed at their approved amount;
+        // everything else at the requested amount.
+        $amountExpr = "CASE WHEN status IN ('approved','paid') THEN COALESCE(approved_amount, amount) ELSE amount END";
+
         // ---- Status counts / sums (each on its own clone) ----
         $qStatusCount = clone $base;
         $countByStatus = $qStatusCount->selectRaw('status, count(*) as cnt')
@@ -1949,7 +2049,7 @@ class AdminController extends Controller
             ->toArray();
 
         $qStatusSum = clone $base;
-        $byStatus = $qStatusSum->selectRaw('status, sum(amount) as total')
+        $byStatus = $qStatusSum->selectRaw("status, sum({$amountExpr}) as total")
             ->groupBy('status')
             ->get()
             ->keyBy('status')
@@ -1963,7 +2063,7 @@ class AdminController extends Controller
             ->toArray();
 
         $qTypeSum = clone $base;
-        $byType = $qTypeSum->selectRaw('loan_type, sum(amount) as total')
+        $byType = $qTypeSum->selectRaw("loan_type, sum({$amountExpr}) as total")
             ->groupBy('loan_type')
             ->get()
             ->keyBy('loan_type')
@@ -2004,7 +2104,7 @@ class AdminController extends Controller
 
         // ---- Totals from a fresh query (not the cloned $base) ----
         $totalCount = clone $base;
-        $totalAmount = (float) $totalCount->sum('amount');
+        $totalAmount = (float) $totalCount->sum(DB::raw($amountExpr));
 
         return [
             'type'           => $filters['report_type'],
@@ -2025,7 +2125,7 @@ class AdminController extends Controller
      *  ================================================================== */
     private function approvedLoanRecordsData(array $filters): \Illuminate\Support\Collection
     {
-        $query = LoanApplication::whereIn('status', ['approved'])
+        $query = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::PAID])
             ->with(['user.coopMember', 'application.approver']);
 
         $query = $this->applyReportFilters($query, $filters);
@@ -2047,10 +2147,12 @@ class AdminController extends Controller
                     'member_id'       => $app->user?->id ?? null,
                     'loan_type'       => $app->loan_type,
                     'loan_type_label' => $app->getLoanTypeLabelAttribute(),
-                    'approved_amount' => Format::money($approvedAmt),
+                    'status'          => $app->status,
+                    'status_label'    => ucfirst($app->status),
+                    'approved_amount' => (float) $approvedAmt,
                     'term_months'     => $app->term_months,
                     'risk_level'      => $app->risk_level,
-                    'recommended_amt' => Format::money($app->recommended_amount ?? 0),
+                    'recommended_amt' => (float) ($app->recommended_amount ?? 0),
                     'approved_date'   => $app->reviewed_at ? $app->reviewed_at->format('M d, Y') : 'N/A',
                     'approved_by'     => $approverName ?? '—',
                     'app_id'          => $app->application?->app_id ?? $app->reference,
@@ -2070,19 +2172,35 @@ class AdminController extends Controller
             ->whereDate('next_due_date', '<', now()->toDateString())
             ->with(['user.coopMember']);
 
-        $query = $this->applyReportFilters($query, $filters);
+        // The status filter contradicts this report (it only ever lists approved
+        // loans), so it is ignored; the date filter judges next_due_date, not
+        // when the loan was created.
+        $closures = $filters['status_closures'] ?? [];
+        if ($closures['risk'] ?? null) {
+            $query = $closures['risk']($query);
+        }
+        if ($closures['overdue_date'] ?? null) {
+            $query = $closures['overdue_date']($query);
+        }
 
         return $query->latest('reviewed_at')
             ->get()
             ->map(function ($app) {
                 $overdueDays = (int) now()->startOfDay()->diff(Carbon::parse($app->next_due_date)->startOfDay())->days;
 
+                // The installment that was due: the monthly payment, capped at
+                // what is still owed (final installment can be smaller).
+                $emi = (float) $app->monthly_payment;
+                $remaining = (float) $app->remaining_balance;
+                $overdueInstallment = $emi > 0 ? min($emi, $remaining) : $remaining;
+
                 return (object)[
                     'member_name'   => $app->fullName(),
                     'member_id'     => $app->user?->id ?? null,
                     'loan_type'     => $app->loan_type,
                     'loan_type_label' => $app->getLoanTypeLabelAttribute(),
-                    'amount'         => Format::money((float) $app->remaining_balance),
+                    'overdue_installment' => $overdueInstallment,
+                    'amount'         => $remaining,
                     'due_date'      => $app->next_due_date?->format('M d, Y'),
                     'overdue_days'  => $overdueDays,
                     'app_id'        => $app->reference,
@@ -2100,15 +2218,26 @@ class AdminController extends Controller
         $query = LoanApplication::query();
         $query = $this->applyReportFilters($query, $filters);
 
-        $memberIds = $query->pluck('user_id')->unique()->filter()->values();
+        $loans = $query->get();
 
-        $members = CoopMember::whereIn('user_id', $memberIds)->get();
+        // Group loans by the member resolved per loan (same resolution used
+        // elsewhere: user link, then email fallback). Loans with no member row
+        // stay in the report under the applicant name from the loan itself
+        // instead of disappearing.
+        $groups = [];
+        foreach ($loans as $la) {
+            $member = CoopMember::forLoanApplication($la);
+            $key = $member ? 'member-' . $member->id : 'loan-' . $la->id;
 
-        return $members->map(function ($member) use ($filters) {
-            $loanAppsQuery = LoanApplication::where('user_id', $member->user_id);
-            $loanAppsQuery = $this->applyReportFilters($loanAppsQuery, $filters);
-            $loanApps = $loanAppsQuery->get();
+            $groups[$key] ??= [
+                'member' => $member,
+                'name'   => $member ? ($member->full_name ?? 'Unknown') : $la->fullName(),
+                'loans'  => [],
+            ];
+            $groups[$key]['loans'][] = $la;
+        }
 
+        return collect($groups)->map(function ($group) use ($filters) {
             $totalPaid = 0;
             $totalApprovedAmount = 0;
             $outstandingBalance = 0;
@@ -2116,10 +2245,12 @@ class AdminController extends Controller
             $late = 0;
             $overdue = 0;
 
-            foreach ($loanApps as $la) {
-                // Issue C: only count approved loans for approved amount
-                if ($la->status === LoanStatus::APPROVED) {
-                    $totalApprovedAmount += (float) ($la->amount ?? 0);
+            foreach ($group['loans'] as $la) {
+                // Granted loans (approved + paid) count toward the approved
+                // amount and outstanding balance; paid loans carry a zero
+                // remaining balance by definition.
+                if (LoanStatus::isGranted($la->status)) {
+                    $totalApprovedAmount += (float) ($la->approved_amount ?? $la->amount);
                     $outstandingBalance += (float) ($la->remaining_balance ?? 0);
                 }
 
@@ -2138,9 +2269,9 @@ class AdminController extends Controller
                     $firstDueDate = $la->disbursement_date
                         ? Carbon::parse($la->disbursement_date)
                         : Carbon::parse($la->created_at)->endOfMonth();
-                    $totalPaid = (float) $la->totalPaid();
+                    $anchorPaid = (float) $la->totalPaid();
                     $emi = (float) $la->monthly_payment;
-                    $installmentsCovered = $emi > 0 ? (int) floor($totalPaid / $emi) : 0;
+                    $installmentsCovered = $emi > 0 ? (int) floor($anchorPaid / $emi) : 0;
                     $computedNextDue = $firstDueDate->copy();
                     if ($installmentsCovered > 0) {
                         $computedNextDue = $computedNextDue->addMonths($installmentsCovered);
@@ -2149,10 +2280,15 @@ class AdminController extends Controller
                 }
 
                 foreach ($allPayments as $index => $p) {
-                    // Issue B: inclusive end-date filter on payment_date
-                    if ($filters['start_date'] && $filters['end_date']) {
-                        $pd = $p->payment_date;
-                        if (!$pd || !$pd->startOfDay()->gte($filters['start_date']) || !$pd->startOfDay()->lte($filters['end_date'])) {
+                    // Issue B: inclusive date filter on payment_date; either
+                    // bound alone is enough.
+                    $pd = $p->payment_date;
+                    if ($filters['start_date'] || $filters['end_date']) {
+                        $start = $filters['start_date'] ? Carbon::parse($filters['start_date'])->startOfDay() : null;
+                        $end   = $filters['end_date'] ? Carbon::parse($filters['end_date'])->endOfDay() : null;
+                        if (!$pd
+                            || ($start && $pd->startOfDay()->lt($start))
+                            || ($end && $pd->startOfDay()->gt($end))) {
                             continue;
                         }
                     }
@@ -2193,12 +2329,12 @@ class AdminController extends Controller
             }
 
             return (object)[
-                'member_name'   => $member->full_name ?? 'Unknown',
-                'member_id'     => $member->id,
-                'total_loans'   => $loanApps->count(),
-                'total_approved_amount' => Format::money($totalApprovedAmount),
-                'total_paid'    => Format::money($totalPaid),
-                'outstanding'   => Format::money($outstandingBalance),
+                'member_name'   => $group['name'],
+                'member_id'     => $group['member']?->id,
+                'total_loans'   => count($group['loans']),
+                'total_approved_amount' => $totalApprovedAmount,
+                'total_paid'    => $totalPaid,
+                'outstanding'   => $outstandingBalance,
                 'on_time_count' => $onTime,
                 'late_count'    => $late,
                 'overdue_count' => $overdue,
@@ -2217,6 +2353,7 @@ class AdminController extends Controller
             'reference_no' => 'nullable|string|max:255',
             'payment_date' => 'nullable|date',
             'notes' => 'nullable|string|max:500',
+            'proof' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $application = Application::where('id', $validated['application_id'])
@@ -2280,44 +2417,59 @@ class AdminController extends Controller
         }
 
         $payment = null;
+        $proofPath = null;
 
-        DB::transaction(function () use ($application, $validated, $amount, &$payment) {
-            // Create Payment record
-            $newRemainingBalance = (float) ($application->remaining_balance ?? 0) - $amount;
+        try {
+            DB::transaction(function () use ($application, $validated, $amount, $request, &$payment, &$proofPath) {
+                // Store the proof on the private local disk under a random
+                // generated name (never the client name), inside the same
+                // transaction as the payment row.
+                if ($request->hasFile('proof')) {
+                    $proofPath = $request->file('proof')->store('payment-proofs');
+                }
 
-            $payment = Payment::create([
-                'loan_application_id' => $application->loan_application_id,
-                'user_id'             => $application->user_id,
-                'amount_paid'         => $amount,
-                'remaining_balance_after' => $newRemainingBalance,
-                'reference_no'        => $validated['reference_no'] ?? null,
-                'payment_date'        => $validated['payment_date'] ?? now(),
-                'payment_method'      => $validated['payment_method'] ?? null,
-                'notes'               => $validated['notes'] ?? null,
-                'encoded_by'          => Auth::id(),
-            ]);
+                // Create Payment record
+                $newRemainingBalance = (float) ($application->remaining_balance ?? 0) - $amount;
 
-            // Recompute loan state using the single source of truth service.
-            // The new payment is now in the DB, so it will be counted in total_paid.
-            $loanApplication = $application->loan_application_id
-                ? LoanApplication::where('id', $application->loan_application_id)->lockForUpdate()->first()
-                : null;
+                $payment = Payment::create([
+                    'loan_application_id' => $application->loan_application_id,
+                    'user_id'             => $application->user_id,
+                    'amount_paid'         => $amount,
+                    'remaining_balance_after' => $newRemainingBalance,
+                    'reference_no'        => $validated['reference_no'] ?? null,
+                    'payment_date'        => $validated['payment_date'] ?? now(),
+                    'payment_method'      => $validated['payment_method'] ?? null,
+                    'notes'               => $validated['notes'] ?? null,
+                    'encoded_by'          => Auth::id(),
+                    'proof_path'          => $proofPath,
+                ]);
 
-            if ($loanApplication) {
-                app(PaymentService::class)->recomputeLoanState($loanApplication);
+                // Recompute loan state using the single source of truth service.
+                // The new payment is now in the DB, so it will be counted in total_paid.
+                $loanApplication = $application->loan_application_id
+                    ? LoanApplication::where('id', $application->loan_application_id)->lockForUpdate()->first()
+                    : null;
+
+                if ($loanApplication) {
+                    app(PaymentService::class)->recomputeLoanState($loanApplication);
+                }
+
+                AuditLog::log('Payment Recorded', "Repayment of ₱{$validated['amount']} recorded for {$application->app_id}" . ($proofPath ? " (proof of payment attached: {$proofPath})" : ''));
+            });
+        } catch (\Throwable $e) {
+            // Transaction failed — never leave an orphaned uploaded file.
+            if ($proofPath) {
+                Storage::delete($proofPath);
             }
+            throw $e;
+        }
 
-            AuditLog::log('Payment Recorded', "Repayment of ₱{$validated['amount']} recorded for {$application->app_id}");
-        });
-
-        // Dispatch event after transaction commits
-        if ($application->loan_application_id) {
-            DB::afterCommit(function () use ($application) {
-                PaymentReceived::dispatch(
-                    Payment::where('loan_application_id', $application->loan_application_id)
-                        ->latest()
-                        ->first()
-                );
+        // Dispatch event after transaction commits. Dispatch the actual
+        // payment we just created — do NOT re-query with latest(), which can
+        // pick the wrong row (or null) when timestamps collide.
+        if ($application->loan_application_id && $payment) {
+            DB::afterCommit(function () use ($payment) {
+                PaymentReceived::dispatch($payment);
             });
         }
 
@@ -2354,6 +2506,8 @@ class AdminController extends Controller
             'reference_no' => 'nullable|string|max:255',
             'payment_date' => 'nullable|date',
             'notes' => 'nullable|string|max:500',
+            'reason' => 'nullable|string|max:500',
+            'proof' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $newAmount = (float) $validated['amount'];
@@ -2413,8 +2567,15 @@ class AdminController extends Controller
 
         // Capture old values for audit log before update
         $oldValues = $repayment->toArray();
+        $oldProofPath = $repayment->proof_path;
+        $newProofPath = null;
 
-        DB::transaction(function () use ($repayment, $validated, $newAmount, $oldAmount, $loanApplication, $oldValues) {
+        DB::transaction(function () use ($repayment, $validated, $newAmount, $oldAmount, $loanApplication, $oldValues, $request, &$newProofPath) {
+            // Optional proof replacement; no file keeps the old one.
+            if ($request->hasFile('proof')) {
+                $newProofPath = $request->file('proof')->store('payment-proofs');
+            }
+
             // Update only editable fields.
             $repayment->update([
                 'amount_paid' => $newAmount,
@@ -2422,12 +2583,22 @@ class AdminController extends Controller
                 'reference_no' => $validated['reference_no'] ?? null,
                 'payment_date' => $validated['payment_date'] ?? $repayment->payment_date,
                 'notes' => $validated['notes'] ?? null,
+                'proof_path' => $newProofPath ?? $repayment->proof_path,
             ]);
 
-            AuditLog::log('Repayment Updated', "Repayment #{$repayment->id} updated for loan application #{$repayment->loan_application_id}", $repayment->user_id ?? null,
+            $auditText = "Repayment #{$repayment->id} updated for loan application #{$repayment->loan_application_id}"
+                . ($newProofPath ? " (proof of payment replaced: {$newProofPath})" : '')
+                . (!empty($validated['reason']) ? " — Reason: {$validated['reason']}" : '');
+
+            AuditLog::log('Repayment Updated', $auditText, $repayment->user_id ?? null,
                 $oldValues,
                 $repayment->toArray());
         });
+
+        // Delete the superseded proof only AFTER the transaction commits.
+        if ($newProofPath && $oldProofPath && $oldProofPath !== $newProofPath) {
+            Storage::delete($oldProofPath);
+        }
 
         // Recompute loan state after update. The payment has already been
         // updated in the DB with the new amount, so recomputeLoanState will
@@ -2443,6 +2614,18 @@ class AdminController extends Controller
                 'remaining_balance' => $loanApplication ? (float) ($loanApplication->remaining_balance ?? 0) : 0,
             ])
             : redirect()->route('repayments.index')->with('success', 'Repayment updated successfully.');
+    }
+
+    // 27b. Stream a payment's proof of payment (never exposes the storage path)
+    public function showRepaymentProof(int $id)
+    {
+        $payment = Payment::findOrFail($id);
+
+        if (!$payment->proof_path || !Storage::exists($payment->proof_path)) {
+            abort(404);
+        }
+
+        return Storage::response($payment->proof_path);
     }
 
     // 28. Update application settings (persists to the Setting model)
@@ -2558,7 +2741,7 @@ class AdminController extends Controller
             if (!empty($filters['risk_level'])) {
                 $filterLabel .= "Risk: {$filters['risk_level']} | ";
             }
-            $sheet->setCellValue('A3', rtrim($filterLabel, ' | '));
+            $sheet->setCellValue('A3', rtrim($filterLabel, ' | ') . ($filterLabel ? ' | ' : '') . 'Amounts: approved amount for approved/paid loans, requested amount otherwise');
 
             // Column widths
             $sheet->getColumnDimension('A')->setWidth(30);
@@ -2640,18 +2823,19 @@ class AdminController extends Controller
             $sheet->getColumnDimension('A')->setWidth(15);
             $sheet->getColumnDimension('B')->setWidth(30);
             $sheet->getColumnDimension('C')->setWidth(20);
-            $sheet->getColumnDimension('D')->setWidth(20);
-            $sheet->getColumnDimension('E')->setWidth(12);
+            $sheet->getColumnDimension('D')->setWidth(12);
+            $sheet->getColumnDimension('E')->setWidth(20);
             $sheet->getColumnDimension('F')->setWidth(12);
-            $sheet->getColumnDimension('G')->setWidth(20);
-            $sheet->getColumnDimension('H')->setWidth(18);
-            $sheet->getColumnDimension('I')->setWidth(20);
+            $sheet->getColumnDimension('G')->setWidth(12);
+            $sheet->getColumnDimension('H')->setWidth(20);
+            $sheet->getColumnDimension('I')->setWidth(18);
+            $sheet->getColumnDimension('J')->setWidth(20);
 
-            // Number format for amount columns (D: Approved Amount, G: Recommended Amount)
-            $sheet->getStyle('D')->getNumberFormat()->setFormatCode('₱#,##0.00');
-            $sheet->getStyle('G')->getNumberFormat()->setFormatCode('₱#,##0.00');
+            // Number format for amount columns (E: Approved Amount, H: Recommended Amount)
+            $sheet->getStyle('E')->getNumberFormat()->setFormatCode('₱#,##0.00');
+            $sheet->getStyle('H')->getNumberFormat()->setFormatCode('₱#,##0.00');
 
-            $headers = ['App ID', 'Member', 'Loan Type', 'Approved Amount', 'Term (mo)', 'Risk Level', 'Recommended Amount', 'Approved Date', 'Approved By'];
+            $headers = ['App ID', 'Member', 'Loan Type', 'Status', 'Approved Amount', 'Term (mo)', 'Risk Level', 'Recommended Amount', 'Approved Date', 'Approved By'];
             foreach ($headers as $i => $h) {
                 $sheet->setCellValue(chr(65 + $i) . '4', $h);
             }
@@ -2661,12 +2845,13 @@ class AdminController extends Controller
                 $sheet->setCellValue('A' . $row, $app->app_id ?? '');
                 $sheet->setCellValue('B' . $row, $app->member_name ?? 'N/A');
                 $sheet->setCellValue('C' . $row, $app->loan_type_label ?? 'N/A');
-                $sheet->setCellValue('D' . $row, $app->approved_amount ?? '0');
-                $sheet->setCellValue('E' . $row, $app->term_months ?? 0);
-                $sheet->setCellValue('F' . $row, $app->risk_level ?? 'N/A');
-                $sheet->setCellValue('G' . $row, $app->recommended_amt ?? '0');
-                $sheet->setCellValue('H' . $row, $app->approved_date ?? 'N/A');
-                $sheet->setCellValue('I' . $row, $app->approved_by ?? 'N/A');
+                $sheet->setCellValue('D' . $row, $app->status_label ?? 'N/A');
+                $sheet->setCellValue('E' . $row, (float) ($app->approved_amount ?? 0));
+                $sheet->setCellValue('F' . $row, $app->term_months ?? 0);
+                $sheet->setCellValue('G' . $row, $app->risk_level ?? 'N/A');
+                $sheet->setCellValue('H' . $row, (float) ($app->recommended_amt ?? 0));
+                $sheet->setCellValue('I' . $row, $app->approved_date ?? 'N/A');
+                $sheet->setCellValue('J' . $row, $app->approved_by ?? 'N/A');
                 $row++;
             }
         } elseif ($type === 'borrower_performance') {
@@ -2718,9 +2903,9 @@ class AdminController extends Controller
             foreach ($rows as $app) {
                 $sheet->setCellValue('A' . $row, $app->member_name ?? 'N/A');
                 $sheet->setCellValue('B' . $row, $app->total_loans ?? 0);
-                $sheet->setCellValue('C' . $row, $app->total_approved_amount ?? '0');
-                $sheet->setCellValue('D' . $row, $app->total_paid ?? '0');
-                $sheet->setCellValue('E' . $row, $app->outstanding ?? '0');
+                $sheet->setCellValue('C' . $row, (float) ($app->total_approved_amount ?? 0));
+                $sheet->setCellValue('D' . $row, (float) ($app->total_paid ?? 0));
+                $sheet->setCellValue('E' . $row, (float) ($app->outstanding ?? 0));
                 $sheet->setCellValue('F' . $row, $app->on_time_count ?? 0);
                 $sheet->setCellValue('G' . $row, $app->late_count ?? 0);
                 $sheet->setCellValue('H' . $row, $app->overdue_count ?? 0);
@@ -2756,13 +2941,15 @@ class AdminController extends Controller
             $sheet->getColumnDimension('B')->setWidth(30);
             $sheet->getColumnDimension('C')->setWidth(20);
             $sheet->getColumnDimension('D')->setWidth(20);
-            $sheet->getColumnDimension('E')->setWidth(15);
+            $sheet->getColumnDimension('E')->setWidth(20);
             $sheet->getColumnDimension('F')->setWidth(15);
+            $sheet->getColumnDimension('G')->setWidth(15);
 
-            // Number format for amount column (D: Overdue Amount)
+            // Number format for amount columns (D: Overdue Installment, E: Remaining Balance)
             $sheet->getStyle('D')->getNumberFormat()->setFormatCode('₱#,##0.00');
+            $sheet->getStyle('E')->getNumberFormat()->setFormatCode('₱#,##0.00');
 
-            $headers = ['App ID', 'Member', 'Loan Type', 'Overdue Amount', 'Due Date', 'Overdue Days'];
+            $headers = ['App ID', 'Member', 'Loan Type', 'Overdue Installment', 'Remaining Balance', 'Due Date', 'Overdue Days'];
             foreach ($headers as $i => $h) {
                 $sheet->setCellValue(chr(65 + $i) . '4', $h);
             }
@@ -2772,9 +2959,10 @@ class AdminController extends Controller
                 $sheet->setCellValue('A' . $row, $app->app_id ?? '');
                 $sheet->setCellValue('B' . $row, $app->member_name ?? 'N/A');
                 $sheet->setCellValue('C' . $row, $app->loan_type_label ?? 'N/A');
-                $sheet->setCellValue('D' . $row, (float) ($app->amount ?? 0));
-                $sheet->setCellValue('E' . $row, $app->due_date ?? 'N/A');
-                $sheet->setCellValue('F' . $row, $app->overdue_days ?? 0);
+                $sheet->setCellValue('D' . $row, (float) ($app->overdue_installment ?? 0));
+                $sheet->setCellValue('E' . $row, (float) ($app->amount ?? 0));
+                $sheet->setCellValue('F' . $row, $app->due_date ?? 'N/A');
+                $sheet->setCellValue('G' . $row, $app->overdue_days ?? 0);
                 $row++;
             }
         } else {
@@ -2800,17 +2988,32 @@ class AdminController extends Controller
 
     public function notificationLogs()
     {
-        $logs = AppNotificationLog::latest()
-            ->when(request('search'), fn ($q, $s) => $q->where('subject', 'like', "%{$s}%")->orWhere('recipient_email', 'like', "%{$s}%"))
+        // Base query: all logs, with optional filters applied. The search
+        // term is grouped so it does not leak into the other whens.
+        $base = AppNotificationLog::query()
+            ->when(request('search'), fn ($q, $s) => $q->where(function ($query) use ($s) {
+                $query->where('subject', 'like', "%{$s}%")
+                      ->orWhere('recipient_email', 'like', "%{$s}%");
+            }))
             ->when(request('status'), fn ($q, $s) => $q->where('status', $s))
             ->when(request('type'), fn ($q, $t) => $q->where('notification_type', $t))
             ->when(request('channel'), fn ($q, $c) => $q->where('channel', $c))
             ->when(request('start_date'), fn ($q, $d) => $q->whereDate('created_at', '>=', $d))
-            ->when(request('end_date'), fn ($q, $d) => $q->whereDate('created_at', '<=', $d))
-            ->paginate(20)
-            ->withQueryString();
+            ->when(request('end_date'), fn ($q, $d) => $q->whereDate('created_at', '<=', $d));
 
-        return view('admin.notifications-log', compact('logs'));
+        // Stats are computed from the SAME filtered query so the cards always
+        // match the visible rows (not the unfiltered totals).
+        $stats = [
+            'total'   => (clone $base)->count(),
+            'sent'    => (clone $base)->where('status', 'Sent')->count(),
+            'failed'  => (clone $base)->where('status', 'Failed')->count(),
+            'skipped' => (clone $base)->where('status', 'Skipped')->count(),
+            'today'   => (clone $base)->whereDate('created_at', today())->count(),
+        ];
+
+        $logs = (clone $base)->latest()->with('user', 'loanApplication')->paginate(20)->withQueryString();
+
+        return view('admin.notifications-log', compact('logs', 'stats'));
     }
 
     public function showApplication($id)
@@ -2946,6 +3149,16 @@ class AdminController extends Controller
             }
         }
 
+        $requestedAmount = (float) $application->amount;
+        $availableCreditTotal = $approvedLimit ? (float) $approvedLimit - $outstanding : null;
+        $overLimit = false;
+        if ($monthlyAvailable !== null && $requestedAmount > $monthlyAvailable) {
+            $overLimit = true;
+        }
+        if ($availableCreditTotal !== null && $requestedAmount > $availableCreditTotal) {
+            $overLimit = true;
+        }
+
         return response()->json([
             'success' => true,
             'application' => [
@@ -2984,7 +3197,11 @@ class AdminController extends Controller
                 'pending_loans_count' => $pendingCount,
                 'pending_loans_total' => round($pendingAmountTotal, 2),
                 'total_credit_limit' => $approvedLimit,
-                'available_credit_total' => $approvedLimit ? (float) $approvedLimit - $outstanding : null,
+                'available_credit_total' => $availableCreditTotal,
+                // Over-limit: requested > monthly available OR requested > total
+                // available credit. Drives the override UI at load time.
+                'over_limit' => $overLimit,
+                'requested_amount' => $requestedAmount,
             ],
         ]);
     }

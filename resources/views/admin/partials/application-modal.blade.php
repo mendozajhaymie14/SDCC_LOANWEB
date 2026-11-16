@@ -226,6 +226,11 @@ window.renderApplicationModal = function (app) {
     /* Prefill the approved amount with the recommendation (fall back to the
        requested amount when the recommendation is 0). */
     const prefillAmount = recommended > 0 ? recommended : amount;
+    /* Over-limit: requested above monthly available OR above total available.
+       Drives the override UI at load time — computed server-side and echoed
+       here so the client never has to recompute it from the request amount. */
+    const overLimit = app.over_limit === true || app.over_limit === '1';
+    const requestedAmount = app.requested_amount != null ? app.requested_amount : amount;
 
     const rowHtml = (label, value, extra = '') => `
         <div style="display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.88rem;">
@@ -262,11 +267,11 @@ window.renderApplicationModal = function (app) {
             '<div id="modalAiNotes" style="font-size:0.85rem;color:#1e293b;line-height:1.5;">' + scanNoteDisplay + '</div>' +
         '</div>' +
         row('Last Scan', scanTimeDisplay) +
-        (showActions ? modalActionSection(appId, prefillAmount, monthlyAvailable, availableCreditTotal) : '');
+        (showActions ? modalActionSection(appId, prefillAmount, monthlyAvailable, availableCreditTotal, overLimit, requestedAmount) : '');
 };
 
 /* Action buttons + Approve Amount / reject reason form */
-function modalActionSection(appId, prefillAmount, monthlyAvailable, totalAvailable) {
+function modalActionSection(appId, prefillAmount, monthlyAvailable, totalAvailable, overLimit, requestedAmount) {
     /* Permission flags computed server-side (see window.__modalPermissions).
        A role without the permission never sees the button. */
     const p = window.__modalPermissions || { approve: false, reject: false, scan: false, delete: false, override: false };
@@ -274,7 +279,18 @@ function modalActionSection(appId, prefillAmount, monthlyAvailable, totalAvailab
 
     const ma = monthlyAvailable === null || monthlyAvailable === undefined ? '' : monthlyAvailable;
     const ta = totalAvailable === null || totalAvailable === undefined ? '' : totalAvailable;
-    const state = shouldShowOverride(prefillAmount, ma, ta, p.override);
+    const isOverLimit = overLimit === true || overLimit === '1' || overLimit === 1;
+
+    /* Initial override UI at load is driven by the REQUESTED amount vs the
+       available limits (the server-computed over_limit flag), NOT by the
+       prefill. The recommendation is capped at available, so for an over-limit
+       request it equals available and the old prefill-based check could never
+       fire — that was the bug: staff never saw the override option. */
+    const initialBox = isOverLimit && p.override;
+    const initialNotice = isOverLimit && !p.override;
+    const introText = isOverLimit
+        ? 'This request is above the member\'s available credit this month. Approve up to ' + fmtMoney(prefillAmount) + ', or tick Override to approve a higher amount (reason required, audited).'
+        : '';
 
     return '' +
         '<div style="display:flex;flex-direction:column;gap:0.5rem;width:100%;margin-top:1.2rem;">' +
@@ -295,19 +311,24 @@ function modalActionSection(appId, prefillAmount, monthlyAvailable, totalAvailab
             '<div style="margin-bottom:.5rem;">' +
                 '<label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Approved Amount</label>' +
                 '<input type="number" id="approvedAmount" step="0.01" min="0" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;" value="' + prefillAmount + '" ' +
-                    'data-monthly-available="' + ma + '" data-total-available="' + ta + '" oninput="toggleOverrideBox()" />' +
+                    'data-monthly-available="' + ma + '" data-total-available="' + ta + '" ' +
+                    'data-over-limit="' + (isOverLimit ? '1' : '0') + '" ' +
+                    'data-requested="' + requestedAmount + '" ' +
+                    'data-recommended="' + prefillAmount + '" ' +
+                    'oninput="toggleOverrideBox()" />' +
             '</div>' +
-            (p.override ? '<div id="overrideBox" style="display:' + (state === 'box' ? 'block' : 'none') + ';margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
+            (p.override ? '<div id="overrideBox" style="display:' + (initialBox ? 'block' : 'none') + ';margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
+                (isOverLimit ? '<div id="overrideIntro" style="font-size:.78rem;color:#92400e;margin-bottom:.4rem;">' + introText + '</div>' : '') +
                 '<label style="display:flex;align-items:flex-start;gap:.4rem;cursor:pointer;font-size:.82rem;color:#92400e;">' +
-                    '<input type="checkbox" id="overrideCreditLimit" style="margin-top:0.15rem;" />' +
+                    '<input type="checkbox" id="overrideCreditLimit" style="margin-top:0.15rem;" onchange="onOverrideToggle()" />' +
                     '<span><strong>Override credit limit</strong> — I authorize approving this application above the member\'s available credit. This action is audited.</span>' +
                 '</label>' +
-                '<label style="display:block;font-size:.78rem;color:#92400e;margin-top:.3rem;margin-bottom:.1rem;">Override Reason <span style="color:#ef4444;">(required when checked)</span></label>' +
-                '<textarea id="overrideReason" placeholder="e.g. Member has strong repayment history, co-signed by branch manager..." style="width:100%;padding:.35rem .5rem;border:1px solid #fde68a;border-radius:6px;font-size:.82rem;min-height:50px;"></textarea>' +
+                '<label id="overrideReasonLabel" style="display:none;font-size:.78rem;color:#92400e;margin-top:.3rem;margin-bottom:.1rem;">Override Reason <span style="color:#ef4444;">(required when checked)</span></label>' +
+                '<textarea id="overrideReason" placeholder="e.g. Member has strong repayment history, co-signed by branch manager..." style="display:none;width:100%;padding:.35rem .5rem;border:1px solid #fde68a;border-radius:6px;font-size:.82rem;min-height:50px;"></textarea>' +
             '</div>' : '') +
-            (state === 'notice' ? '<div id="overrideNotice" style="margin-bottom:.5rem;padding:.5rem;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:.82rem;color:#991b1b;">This amount exceeds the member\'s available credit. Only a user with the override-credit-limit permission can approve it — ask a manager.</div>' : '') +
+            (initialNotice ? '<div id="overrideNotice" style="margin-bottom:.5rem;padding:.5rem;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:.82rem;color:#991b1b;">This request is above the member\'s available credit. Ask a manager with the override-credit-limit permission to approve it.</div>' : '') +
             '<div style="display:flex;gap:.5rem;">' +
-                '<button type="button" id="btn-confirmApprove" ' + (state === 'notice' ? 'disabled ' : '') + 'style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;' + (state === 'notice' ? 'opacity:.5;cursor:not-allowed;' : '') + '" onclick="confirmApprove(\'' + appId + '\')">Confirm Approve</button>' +
+                '<button type="button" id="btn-confirmApprove" ' + (initialNotice ? 'disabled ' : '') + 'style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;' + (initialNotice ? 'opacity:.5;cursor:not-allowed;' : '') + '" onclick="confirmApprove(\'' + appId + '\')">Confirm Approve</button>' +
                 '<button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;" onclick="closeApproveModal()">Cancel</button>' +
             '</div>' +
         '</div>' +
@@ -347,7 +368,9 @@ window.shouldShowOverride = function (amount, monthlyAvailable, totalAvailable, 
 };
 
 /* Keep the box, the ask-a-manager notice and the Confirm button in sync
-   with the approved-amount input. */
+   with the approved-amount input. The checkbox is NOT reset here — it is
+   only touched by onOverrideToggle(), so unchecking restores the
+   recommended amount and hides the reason box. */
 window.toggleOverrideBox = function () {
     var box = document.getElementById('overrideBox');
     var notice = document.getElementById('overrideNotice');
@@ -363,6 +386,32 @@ window.toggleOverrideBox = function () {
     if (box) box.style.display = state === 'box' ? 'block' : 'none';
     if (notice) notice.style.display = state === 'notice' ? 'block' : 'none';
     if (btn) btn.disabled = state === 'notice';
+};
+
+/* Override checkbox: checked ⇒ show the required reason box and prefill the
+   approved amount with the REQUESTED amount (editable, above available).
+   Unchecked ⇒ hide the reason box and restore the recommended amount. */
+window.onOverrideToggle = function () {
+    var checkbox = document.getElementById('overrideCreditLimit');
+    var input = document.getElementById('approvedAmount');
+    var reasonLabel = document.getElementById('overrideReasonLabel');
+    var reasonBox = document.getElementById('overrideReason');
+    if (!checkbox || !input) return;
+
+    if (checkbox.checked) {
+        if (reasonLabel) reasonLabel.style.display = 'block';
+        if (reasonBox) { reasonBox.style.display = 'block'; }
+        if (input.dataset.requested) {
+            input.value = parseFloat(input.dataset.requested);
+        }
+    } else {
+        if (reasonLabel) reasonLabel.style.display = 'none';
+        if (reasonBox) { reasonBox.style.display = 'none'; reasonBox.value = ''; }
+        if (input.dataset.recommended) {
+            input.value = parseFloat(input.dataset.recommended);
+        }
+        toggleOverrideBox();
+    }
 };
 
 /* ── Modal openers ── */

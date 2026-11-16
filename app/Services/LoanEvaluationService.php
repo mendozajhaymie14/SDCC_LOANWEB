@@ -214,7 +214,7 @@ class LoanEvaluationService
 
         if ($loanType === 'special' && $memberSavings < $minimumSavings) {
             $eligible = false;
-            $rejectionReason = sprintf('Special Loan requires at least ₱%s savings balance.', number_format($minimumSavings, 0));
+            $rejectionReason = sprintf('Special Loan requires at least ₱%s savings balance.', number_format($minimumSavings, 2));
             $recommendedAmount = 0;
         }
 
@@ -222,9 +222,9 @@ class LoanEvaluationService
         // Warn when the requested amount exceeds 70% of monthly income.
         if ($monthlyIncome > 0 && $amount > $monthlyIncome * self::INCOME_WARNING_THRESHOLD) {
             $reasons[] = sprintf(
-                'Requested amount exceeds 70%% of monthly income (₱%.0f vs ₱%.0f).',
-                $amount,
-                $monthlyIncome * self::INCOME_WARNING_THRESHOLD
+                'Requested amount exceeds 70%% of monthly income (₱%s vs ₱%s).',
+                number_format($amount, 2),
+                number_format($monthlyIncome * self::INCOME_WARNING_THRESHOLD, 2)
             );
         }
 
@@ -329,17 +329,17 @@ class LoanEvaluationService
                 if ($riskLevel !== 'High') {
                     $riskLevel = 'High';
                     $reasons[] = sprintf(
-                        'Requested amount (₱%.0f) is more than twice this month\'s available credit (₱%.0f); risk raised to High.',
-                        $amount,
-                        $monthlyAvailable
+                        'Requested amount (₱%s) is more than twice this month\'s available credit (₱%s); risk raised to High.',
+                        number_format($amount, 2),
+                        number_format($monthlyAvailable, 2)
                     );
                 }
             } elseif ($riskLevel === 'Low') {
                 $riskLevel = 'Medium';
                 $reasons[] = sprintf(
-                    'Requested amount (₱%.0f) is above this month\'s available credit (₱%.0f); risk raised to Medium.',
-                    $amount,
-                    $monthlyAvailable
+                    'Requested amount (₱%s) is above this month\'s available credit (₱%s); risk raised to Medium.',
+                    number_format($amount, 2),
+                    number_format($monthlyAvailable, 2)
                 );
             }
         }

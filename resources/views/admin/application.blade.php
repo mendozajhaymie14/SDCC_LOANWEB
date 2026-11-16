@@ -82,8 +82,8 @@
               <th>ID</th>
               <th>Applicant</th>
               <th>Loan Type</th>
-              <th>Amount</th>
-              <th>Recommended</th>
+              <th>Requested</th>
+              <th>Approved</th>
               <th>Risk</th>
               <th>Status</th>
               <th>Rule-Based Score</th>
@@ -98,7 +98,15 @@
     <td class="applicant-name">{{ $app->loanApplication?->fullName() ?? $app->applicant ?? 'Applicant' }}</td>
     <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
     <td class="num">{{ \App\Support\Format::money($app->amount) }}</td>
-    <td class="num">{{ \App\Support\Format::money($app->recommended_amount) }}</td>
+    <td class="num">
+      @if(in_array(strtolower($app->status), ['approved', 'disbursed', 'paid'], true))
+        {{ \App\Support\Format::money($app->approved_amount ?: $app->amount) }}
+      @elseif(strtolower($app->status) === 'rejected')
+        {{ \App\Support\Format::money(0) }}
+      @else
+        —
+      @endif
+    </td>
     <td class="td-num">
       <span class="status-pill {{ strtolower($app->risk_level ?? 'none') }}">
         {{ ucfirst($app->risk_level ?? 'None') }}

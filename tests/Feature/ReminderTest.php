@@ -9,7 +9,9 @@ use App\Models\LoanApplication;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ReminderTest extends TestCase
@@ -21,6 +23,7 @@ class ReminderTest extends TestCase
         parent::setUp();
 
         Mail::fake();
+        Storage::fake('local');
     }
 
     private function makeAdmin(): User
@@ -370,6 +373,7 @@ class ReminderTest extends TestCase
                 'amount'          => 1000,
                 'payment_method'  => 'Cash',
                 'payment_date'    => now()->format('Y-m-d'),
+                'proof'           => UploadedFile::fake()->image('proof.jpg'),
             ]);
 
         // PaymentReceived event dispatches NotifyMemberOfPayment — verify it

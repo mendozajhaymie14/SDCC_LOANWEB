@@ -26,32 +26,44 @@ class NotifyMemberOfPayment
         $payment = $event->payment;
         $loan = $payment->loanApplication;
 
-        // Create in-app notification
-        AppNotification::create([
-            'user_id'            => $loan->user_id,
-            'loan_application_id' => $loan->id,
-            'title'              => 'Payment Received',
-            'message'            => "Your payment of " . \App\Support\Format::money($payment->amount_paid) .
-                " for loan {$loan->reference} has been recorded. " .
-                "Remaining balance: " . \App\Support\Format::money($payment->remaining_balance_after) . ".",
-            'type'               => AppNotification::TYPE_PAYMENT_REC,
-            'is_read'            => false,
-        ]);
+        $userId = $loan->user_id;
 
-        // Send email notification
-        if ($loan->user?->email) {
+        // Create in-app notification ONLY when the loan has a portal user
+        if ($userId) {
+            AppNotification::create([
+                'user_id'            => $userId,
+                'loan_application_id' => $loan->id,
+                'title'              => 'Payment Received',
+                'message'            => "Your payment of " . \App\Support\Format::money($payment->amount_paid) .
+                    " for loan {$loan->reference} has been recorded. " .
+                    "Remaining balance: " . \App\Support\Format::money($payment->remaining_balance_after) . ".",
+                'type'               => AppNotification::TYPE_PAYMENT_REC,
+                'is_read'            => false,
+            ]);
+        }
+
+        // Send email notification — resolve recipient using the same priority as the approve flow
+        $email = $loan->getRecipientEmail();
+
+        if ($email) {
             try {
-                Mail::to($loan->user->email)->send(new PaymentReceivedMail($loan));
+                Mail::to($email)->send(new PaymentReceivedMail($loan));
                 AppNotificationLog::log(
-                $loan->user->email, 'Payment Received', 'payment_received', 'Sent',
-                'email', $loan->user_id, $loan->id
-            );
+                    $email, 'Payment Received', 'payment_received', 'Sent',
+                    'email', $userId, $loan->id
+                );
             } catch (\Throwable $e) {
                 AppNotificationLog::logFailed(
-                    $loan->user->email, 'Payment Received', 'payment_received', $e->getMessage(),
-                    'email', $loan->user_id, $loan->id
+                    $email, 'Payment Received', 'payment_received', $e->getMessage(),
+                    'email', $userId, $loan->id
                 );
             }
+        } else {
+            // No resolvable email on file — log as Skipped (never silent)
+            AppNotificationLog::log(
+                null, 'Payment Received', 'payment_received', 'Skipped',
+                'email', $userId, $loan->id, 'no email on file'
+            );
         }
     }
 }
