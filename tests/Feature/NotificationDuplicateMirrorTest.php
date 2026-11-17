@@ -6,6 +6,7 @@ use App\Models\AppNotificationLog;
 use App\Models\Application;
 use App\Models\CoopMember;
 use App\Models\LoanApplication;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -134,6 +135,72 @@ class NotificationDuplicateMirrorTest extends TestCase
             $outbox,
             'Outbox should NOT link to APP-0009 (mirror A — that is the wrong mirror)'
         );
+    }
+
+    /**
+     * Payment::appId() must resolve to the NEWEST mirror's app_id, matching the
+     * outbox/Applications page/modal — not the oldest mirror (belongsTo returns
+     * first match by id, which is the wrong one with duplicate mirrors).
+     */
+    public function test_payment_app_id_uses_newest_mirror(): void
+    {
+        $manager = $this->manager();
+        $member  = $this->member();
+        $coop    = $this->coopMember($member);
+
+        $loan = LoanApplication::factory()->create([
+            'id'                 => 10,
+            'user_id'            => $member->id,
+            'email'              => $member->email,
+            'full_name'          => 'Test Borrower',
+            'loan_type'          => 'regular',
+            'amount'             => 5000,
+            'status'             => 'approved',
+            'term_months'        => 12,
+            'monthly_income'     => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'      => 30000,
+            'remaining_balance'  => 4000,
+            'next_due_date'      => now()->addDays(2),
+        ]);
+
+        // Mirror A (id 8, older): APP-0009
+        Application::factory()->create([
+            'id'                 => 8,
+            'loan_application_id'=> 10,
+            'app_id'             => 'APP-0009',
+            'applicant'          => 'Test Borrower',
+            'status'             => 'Pending',
+            'recommended_amount' => 2500.00,
+        ]);
+
+        // Mirror B (id 9, newer, same loan): APP-0010
+        Application::factory()->create([
+            'id'                 => 9,
+            'loan_application_id'=> 10,
+            'app_id'             => 'APP-0010',
+            'applicant'          => 'Test Borrower',
+            'status'             => 'Pending',
+            'recommended_amount' => 2500.00,
+        ]);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loan->id,
+            'amount_paid'         => 1000,
+            'remaining_balance_after' => 3000,
+            'reference_no'        => 'REP-DUPLICATE-1',
+            'payment_date'        => now(),
+            'payment_method'      => 'Cash',
+        ]);
+
+        $this->assertSame('APP-0010', $payment->appId(),
+            'Payment::appId() must return the NEWEST mirror (APP-0010), not the oldest (APP-0009)');
+
+        $repay = $this->actingAs($manager)->get('/repayments')->getContent();
+        $this->assertStringContainsString('APP-0010', $repay,
+            'Repayments page Loan column must show the newest mirror APP-0010');
+        $this->assertStringNotContainsString('APP-0009', $repay,
+            'Repayments page must NOT show the stale oldest mirror APP-0009');
     }
 
     /**

@@ -119,11 +119,13 @@ class Payment extends Model
 
     /**
      * Borrower-facing app ID: from the Application row's app_id, or fallback.
+     * Uses the loan's canonical appId() (newest mirror) to stay consistent with
+     * the outbox, Applications page, and application modal.
      */
     public function appId(): string
     {
-        if ($this->application?->app_id) {
-            return $this->application->app_id;
+        if ($this->loanApplication?->appId()) {
+            return $this->loanApplication->appId();
         }
         return $this->loanApplication?->reference ?? $this->loan_application_id ?? 'N/A';
     }

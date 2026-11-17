@@ -407,10 +407,11 @@ use App\Models\CoopMember;
               $member = $log->user?->coopMember ?? ($loanApplication ? CoopMember::forLoanApplication($loanApplication) : null);
               $memberId   = $member?->member_id ?? null;
               $memberName = $log->user?->name ?? $member?->full_name ?? null;
-              // Always read app_id from the mirror row this log's loan was
-              // approved through; never trust applications.id/app_id being
-              // off-by-one from duplicate mirrors.
-              $loanRef = $loanApplication?->application?->app_id ?? null;
+              // Always read app_id through the loan's canonical appId() helper
+              // (newest mirror, latest('id')) — the same resolution the
+              // Applications page, Repayments page and application modal use,
+              // so duplicate mirrors can never shift this column.
+              $loanRef = $loanApplication?->appId();
               $loanAppId = $loanApplication?->application?->id ?? null;
             @endphp
             <tr class="hover:bg-gray-50 transition-colors @if($loop->odd) bg-white @else bg-gray-50 @endif" data-status="{{ strtolower($log->status) }}"

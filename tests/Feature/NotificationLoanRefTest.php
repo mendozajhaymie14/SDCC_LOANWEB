@@ -112,6 +112,14 @@ class NotificationLoanRefTest extends TestCase
         $outbox = $this->actingAs($manager)->get(route('admin.notifications-log'))->getContent();
         $this->assertStringContainsString('APP-0009', $outbox);
 
+        // Outbox link target (numericId) points to the mirror's id (8) so the data route
+        // resolves the same mirror; verify the onclick carries numericId=8.
+        $this->assertStringContainsString('openNotifLoan(\'APP-0009\', 8)', $outbox);
+
+        // Repayments page shows the same APP-0009 in the Loan column
+        $repay = $this->actingAs($manager)->get('/repayments')->getContent();
+        $this->assertStringContainsString('APP-0009', $repay);
+
         // Assert the log row stores loan_application_id = 10 (the loan's id, not the mirror's id 8)
         $this->assertDatabaseHas('app_notification_logs', [
             'notification_type'   => 'approved',
