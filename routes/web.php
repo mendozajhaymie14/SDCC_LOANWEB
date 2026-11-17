@@ -179,9 +179,11 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->whereNumber('id')
             ->name('admin.applications.show');
 
-        // JSON data endpoint for modal re-fetch
+        // JSON data endpoint for modal re-fetch. Accepts the numeric
+        // applications.id, an APP-XXXX code, or a loan id — the resolver in
+        // AdminController::applicationData() tries each, so every entry point
+        // (Applications, Repayments, outbox, member profile) opens without a 404.
         Route::get('/admin/applications/{id}/data', [AdminController::class, 'applicationData'])
-            ->whereNumber('id')
             ->name('admin.applications.data');
 
         Route::get('/admin/applications/{id}/amortization', [AdminController::class, 'amortizationSchedule'])

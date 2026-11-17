@@ -109,7 +109,7 @@
                 <td>{{ \App\Support\Format::date($loan->next_due_date) }}</td>
                 <td>
                   @if($mirror)
-                  <a class="btn-review" href="#" data-app-id="{{ $mirror->app_id }}" data-numeric-id="{{ $mirror->id }}" onclick="openAppDetail(event, '{{ $mirror->id }}', '{{ $mirror->app_id ?? '' }}')">View</a>
+                  <a class="btn-review" href="#" data-app-id="{{ $mirror->app_id }}" data-numeric-id="{{ $mirror->id }}" onclick="openAppDetail(event)">View</a>
                   @endif
                 </td>
               </tr>

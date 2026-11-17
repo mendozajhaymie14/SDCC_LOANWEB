@@ -52,7 +52,8 @@ class AdminController extends Controller
                 && ! Permissions::has(Auth::user(), Permissions::OWN_PORTAL)) {
                 $applications = Application::with('loanApplication.user')->latest()->get();
 
-                $totalApproved = (float) LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount');
+                $totalApproved = (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::PAID])
+                    ->sum(DB::raw('COALESCE(approved_amount, amount)'));
                 $activeMembersCount = CoopMember::where('status', CoopMember::STATUS_ACTIVE)->count();
                 $totalMembersCount = CoopMember::count();
                 $activeBorrowersCount = $activeMembersCount;
@@ -3267,10 +3268,18 @@ class AdminController extends Controller
 
     public function applicationData($id)
     {
-        // Pending applications may be soft-deleted in the audit trail, so
-        // include trashed rows to ensure the modal can still display them.
-        $application = Application::withTrashed()->where('app_id', $id)->first()
-            ?? Application::withTrashed()->where('id', (int) $id)->first();
+        // Resolve by app_id (APP-XXXX), then numeric applications.id, then loan_application_id
+        $application = Application::withTrashed()->where('app_id', $id)->first();
+        if (!$application && is_numeric($id)) {
+            $application = Application::withTrashed()->where('id', (int) $id)->first();
+        }
+        if (!$application && is_numeric($id)) {
+            // Fallback: the id might be a loan_application_id — find the newest mirror
+            $application = Application::withTrashed()
+                ->where('loan_application_id', (int) $id)
+                ->latest('id')
+                ->first();
+        }
 
         if (!$application) {
             return response()->json(['success' => false, 'message' => 'Application not found.'], 404);

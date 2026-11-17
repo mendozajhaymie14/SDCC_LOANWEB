@@ -64,6 +64,21 @@ class LoanApplication extends Model
     }
 
     /**
+     * The single shared loan reference ("APP-XXXX") for this loan.
+     *
+     * Every display surface (Applications list, Repayments, outbox, member
+     * profile, notifications) must resolve the ref through here so a loan that
+     * has duplicate mirror rows never shows two different numbers. Uses the
+     * newest mirror's app_id (the hasOne above is ordered latest('id')),
+     * falling back to APP-{loan id} only when no mirror row exists.
+     */
+    public function appId(): ?string
+    {
+        return $this->application?->app_id
+            ?? 'APP-' . str_pad((string) $this->id, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * Effective principal: approved_amount once granted, otherwise the
      * requested amount while pending. All money math (EMI, total payable,
      * amortization, outstanding principal, portal borrowed amounts) must use

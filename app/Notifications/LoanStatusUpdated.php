@@ -24,11 +24,11 @@ class LoanStatusUpdated extends Notification implements ShouldQueue
     {
         return [
             'applicant_name' => $this->application->user->name ?? $this->application->borrower_name ?? 'Loan Member',
-            'application_number' => $this->application->application_number ?? 'APP-' . str_pad($this->application->id, 4, '0', STR_PAD_LEFT),
+            'application_number' => $this->application->appId(),
             'loan_type' => $this->application->loan_type ?? 'Loan',
             'amount' => $this->application->amount ?? 0,
             'status' => $this->status ?? $this->application->status,
-            'message' => 'Your loan application #' . ($this->application->application_number ?? 'APP-' . $this->application->id) . ' has been ' . ($this->status ?? 'updated') . '.',
+            'message' => 'Your loan application #' . ($this->application->appId()) . ' has been ' . ($this->status ?? 'updated') . '.',
         ];
     }
 }
