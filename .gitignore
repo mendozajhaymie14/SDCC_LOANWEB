@@ -53,3 +53,6 @@ test_output.txt
 baseline_failures.txt
 with_changes_failures.txt
 *test_results.txt
+
+# Static-page dumps for the Playwright static-page helper
+tests/tmp/

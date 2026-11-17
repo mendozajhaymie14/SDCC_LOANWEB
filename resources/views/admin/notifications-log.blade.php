@@ -482,17 +482,17 @@ use App\Models\CoopMember;
 <div class="modal"
      id="modal-notifDetailModal"
      onclick="event.stopPropagation()"
-     style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important; display: flex !important; flex-direction: column; max-height: 90vh;">
+     style="position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; margin: 0 !important; z-index: 9999 !important;">
   <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
     <div style="display:flex;align-items:center;gap:0.75rem;">
       <div class="modal-title" id="notifModalTitle">Notification Detail</div>
       <span id="notifModalPill"></span>
     </div>
-    <div class="modal-close" onclick="closeAllModals()"><i class="fa-solid fa-xmark nav-icon"></i></div>
+    <div class="modal-close" onclick="closeNotifModal()"><i class="fa-solid fa-xmark nav-icon"></i></div>
   </div>
   <div id="notifModalBody" style="flex:1;overflow-y:auto;"></div>
   <div class="nl-modal-footer">
-    <button class="btn-cancel" style="width:auto;padding:0.55rem 1.5rem;" onclick="closeAllModals()">Close</button>
+    <button class="btn-cancel" style="width:auto;padding:0.55rem 1.5rem;" onclick="closeNotifModal()">Close</button>
   </div>
 </div>
 
@@ -540,6 +540,7 @@ function openNotifLoan(appRef, numericId) {
 }
 
 function closeNotifModal() {
+  document.getElementById('notifModalBody').innerHTML = '';
   closeAllModals();
 }
 
@@ -548,8 +549,18 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') {
     var m = document.getElementById('modal-notifDetailModal');
     if (m && m.classList.contains('open')) {
-      closeAllModals();
+      closeNotifModal();
     }
+  }
+});
+
+// Backdrop click clears the body too (overlay renders after this script)
+document.addEventListener('DOMContentLoaded', function () {
+  var overlay = document.getElementById('overlay');
+  if (overlay) {
+    overlay.addEventListener('click', function () {
+      document.getElementById('notifModalBody').innerHTML = '';
+    });
   }
 });
 </script>
