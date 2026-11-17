@@ -108,4 +108,80 @@ Three test assertions consistently fail near the UTC/Manila midnight boundary du
 
 ---
 
+# REPORT — Tasks 1–4 (repayments hardening), 2026-11-17
+
+**Baseline before this task set:** 714 tests / 2267 assertions / 15 skipped / 3 pre-existing flaky failures
+**Final state after Tasks 1–4:** **724 tests / 2328 assertions / 15 skipped / 0 failures** (full suite run once; the 3 pre-existing Manila/UTC flaky reminder tests passed on this run; skipped did not rise)
+**Delta:** +10 tests / +61 assertions / 0 new failures
+
+## Task 1 — Inline confirmation panel in the Record Payment modal
+Before a payment is recorded, the first submit is intercepted (`repConfirmed` flag) and `showRecordConfirmation()` builds a plain-language summary in `#recordConfirmPanel`: "Record ₱X for APP-#### (Name, Member ID)? Method: … Date: … Balance will go from A to B." Buttons: **Confirm and record** (sets the flag, re-submits the form) and **Back** (hides the panel). Purely client-side; server behavior unchanged.
+
+## Task 2 — Safer editing + Reverse Payment (Branch Manager only)
+- **Editing**: `updateRepayment` now validates `amount` / `payment_date` as `prohibited` unless the user has REVERSE_PAYMENTS; non-privileged edits of method/reference/notes/proof still work. The blade renders those two inputs readonly for non-privileged users. Also fixed a latent fatal: two unconditional `$newAmount`/`$oldAmount` assignments overrode the privilege conditionals and would crash with an undefined `amount` index for non-privileged edits.
+- **Reverse**: `POST /repayments/{id}/reverse` → 403 gate → `reason` required|min:10|max:500 → `Payment::withTrashed()` find → 409 if already reversed → transaction: set `reversed_by`/`reversal_reason`, save, soft-`delete()`, `PaymentService::recomputeLoanState()`, `AuditLog::log('Payment Reversed', …)`. Reversed rows are hidden from the list/totals by default, visible via `?show_reversed=1`; the View modal shows a "Reversed Payment" block (by/at/reason) and hides Edit/Reverse for reversed rows; editing or fetching proof of a reversed payment 404s.
+- Duplicate-reference, duplicate-amount+date and over-payment checks are **unchanged** (soft-delete scope means reversed rows no longer block reuse of a reference nor inflate the paid total — verified by test).
+
+## Task 3 — Shared repayment standing helper
+`LoanApplication::repaymentStanding()` returns `['key','label','days']` with keys `paid|overdue|due_today|due_soon|on_track`, judged in Asia/Manila, window from `loan_matrix.reminders.due_soon_window_days` (default 3). Used by the payments table (blade) and by `mapDueLoan()`, which is shared by the Due & Overdue tab and the reports overdue list — one definition, no drift.
+
+## Task 4 — Due & Overdue tab
+Lists approved loans with `remaining_balance > 0` and `next_due_date` within the due-soon window (today + window, inclusive), ordered **Overdue** (most days overdue first) → **Due today** → **Due soon** (fewest days first). Tab count badge, `#dueSearch` client filter, per-row "Record payment" quick action.
+
+## Files changed
+- `app/Http/Controllers/AdminController.php` — repayments() show_reversed/canReverse wiring; dueLoansForTab()/dueLoanQuery()/mapDueLoan()/overduePaymentsData(); updateRepayment privilege gate; reverseRepayment(); showRepaymentProof()
+- `app/Models/LoanApplication.php` — repaymentStanding()
+- `app/Models/Payment.php` — SoftDeletes, fillable, reversedBy()/isReversed()/refLabel()/appId()/borrowerName()/loanApplication()/user()/encoder()
+- `app/Support/Permissions.php` — REVERSE_PAYMENTS constant
+- `resources/views/admin/repayments.blade.php` — confirm panel, reversal block, Reverse modal, tabs, rewritten deduped script
+- `resources/views/admin/css.blade.php` — .rep-* styles
+- `routes/web.php` — POST /repayments/{id}/reverse (repayments.reverse) inside the RECORD_PAYMENTS group, whereNumber('id')
+- `tests/Feature/RepaymentTest.php` — 7 tests updated + 10 added
+- `PROGRESS.md` — updated
+
+## Migration
+- **Name**: `database/migrations/2026_11_17_000000_add_reversal_to_payments.php`
+- Adds `deleted_at` (softDeletes), `reversed_by`, `reversal_reason` to `payments` (all with `Schema::hasColumn` guards).
+- **Status: not run: waiting for my approval.**
+- ⚠️ The code depends on it: on a database without `deleted_at`, every default Payment query (payments pages, dashboard, reports) errors. Tests pass because RefreshDatabase runs all migrations on sqlite `:memory:`.
+
+## Permission mapping
+| Action | Permission | Roles |
+|---|---|---|
+| View /record /edit (non-financial) / proof | RECORD_PAYMENTS | admin, branch_manager, loan_officer |
+| Edit amount / payment_date | REVERSE_PAYMENTS | branch_manager only |
+| Reverse a payment (route + controller gate + UI button) | REVERSE_PAYMENTS | branch_manager only |
+
+The reverse route sits inside the RECORD_PAYMENTS group **and** re-checks REVERSE_PAYMENTS in the controller (RoleMiddleware has no admin bypass, so even admin needs the permission). `$canReverse` (blade) and `$canEditFinancial` (controller) read the same permission, so UI and server can never disagree.
+
+## Places verified to exclude reversed payments
+SoftDeletes global scope excludes them automatically — no per-query edits needed:
+dashboard KPIs (`AdminController:73/81/93`), repayments list + collected totals (`:1828-49`, unless `show_reversed`), Due & Overdue tab last-payment date (`:1892`), reports totals (`:2002`), borrower performance (`:1673`), member-profile delinquency flag (`:3705`), LoanEvaluationService:452, PaymentService::recomputeLoanState (:65) + schedule (:141), LoanApplication::totalPaid()/remainingBalance(), duplicate-ref/duplicate-amount+date/over-pay checks (`:2488/2504/2622/2639/2657`), ReconcileBalances:42, BackfillPaymentRecorders:65, proof route + edit path (404, `:2785/:2589`). PaymentReminderService never queries payments (works off next_due_date), so nothing to exclude there.
+
+## Tests old → new
+- RepaymentTest: **24 → 34**.
+- Changed (7): the amount-editing tests now act as `branch_manager` (loan_officer is refused by the new gate) — edit_repayment_recomputes_balance_and_due_date, edit_repayment_rejects_over_balance, edit_repayment_rejects_duplicate_reference, edit_repayment_recomputes_remaining_balance_after_and_running_balance, editing_repayment_without_new_proof_keeps_old_proof, editing_repayment_with_new_proof_replaces_it_and_failed_edit_keeps_old, editing_repayment_with_reason_saves_it_in_audit_log.
+- Added (10): record_payment_modal_shows_inline_confirmation_panel; branch_manager_can_reverse_a_payment_and_balance_is_recomputed; loan_officer_cannot_reverse_a_payment (403); reversing_an_already_reversed_payment_is_refused (409); reversing_a_payment_requires_a_reason_of_at_least_10_characters (422); non_branch_manager_cannot_edit_amount_or_payment_date (422, amount/payment_date prohibited); reversed_payment_cannot_be_edited (404); reversed_payments_are_hidden_from_the_list_and_totals_but_listable_on_demand; repayment_standing_uses_one_shared_definition (all 5 keys); due_and_overdue_tab_lists_overdue_then_due_today_then_due_soon (order + window exclusion).
+- Full suite: 714/2267/15/3-flaky → **724/2328/15/0**.
+
+## Anything not done
+- The reversal migration is **not run** (per instruction — awaiting approval).
+- Task 1's panel is client-side; covered by markup-presence test only. No Playwright browser spec added (no foreground serve/Playwright per standing rule).
+- The 3 Manila/UTC-boundary reminder tests remain flaky in principle (pre-existing, root cause documented above); they passed on this run.
+- Scratch-DB leftover rows from the earlier override fixture still need approval to delete (carried over).
+
+## Approval commands (run after my go-ahead)
+Backup first, then migrate the real `sdcc` database:
+
+```cmd
+php artisan sdcc:backup
+php artisan config:cache
+type bootstrap\cache\config.php | findstr DB_DATABASE
+set ALLOW_PROTECTED_DB=1 && php artisan migrate
+```
+
+(PowerShell equivalent of the override: `$env:ALLOW_PROTECTED_DB=1; php artisan migrate`.)
+
+---
+
 Generated: 2026-11-17

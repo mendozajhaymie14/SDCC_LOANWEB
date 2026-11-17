@@ -1825,7 +1825,7 @@ class AdminController extends Controller
     // 27. Navigation Routes
     public function repayments()
     {
-        $base = Payment::with(['loanApplication.user', 'encoder', 'loanApplication.user.coopMember'])
+        $base = Payment::with(['loanApplication.user', 'encoder', 'loanApplication.user.coopMember', 'reversedBy'])
             ->when(request('search'), function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->whereHas('loanApplication.user', fn ($uq) => $uq->where('name', 'like', "%{$search}%"))
@@ -1837,7 +1837,12 @@ class AdminController extends Controller
             ->when(request('start_date'), fn ($q, $d) => $q->whereDate('payment_date', '>=', $d))
             ->when(request('end_date'), fn ($q, $d) => $q->whereDate('payment_date', '<=', $d));
 
-        $repayments = (clone $base)->latest()->get();
+        // "Show reversed" reveals reversed rows; the collected totals never
+        // count them (SoftDeletes scope keeps them out of every sum).
+        $repayments = (clone $base)
+            ->when(request('show_reversed'), fn ($q) => $q->withTrashed())
+            ->latest()
+            ->get();
         $totalRepayments = (clone $base)->sum('amount_paid');
         $monthlyCollected = Payment::whereMonth('payment_date', now()->month)
             ->whereYear('payment_date', now()->year)
@@ -1847,7 +1852,66 @@ class AdminController extends Controller
             ->where('remaining_balance', '>', 0)
             ->latest()
             ->get();
-        return view('admin.repayments', compact('repayments', 'totalRepayments', 'monthlyCollected', 'approvedLoans'));
+
+        $dueLoans = $this->dueLoansForTab();
+        $showReversed = (bool) request('show_reversed');
+        $canReverse = Permissions::has(Auth::user(), Permissions::REVERSE_PAYMENTS);
+
+        return view('admin.repayments', compact(
+            'repayments', 'totalRepayments', 'monthlyCollected', 'approvedLoans',
+            'dueLoans', 'showReversed', 'canReverse'
+        ));
+    }
+
+    /**
+     * Due & Overdue tab rows: approved loans with a remaining balance whose
+     * next_due_date falls inside the due-soon window, ordered Overdue first
+     * (most days overdue first), then Due today, then Due soon.
+     *
+     * Uses the SAME shared query/mapper as the Reports overdue list
+     * (dueLoansUpTo + mapDueLoan) so both pages can never disagree.
+     */
+    private function dueLoansForTab(): \Illuminate\Support\Collection
+    {
+        try {
+            $today = Carbon::today(new \DateTimeZone('Asia/Manila'));
+        } catch (\Throwable $e) {
+            $today = Carbon::today();
+        }
+        $window = (int) config('loan_matrix.reminders.due_soon_window_days', 3);
+
+        $rows = $this->dueLoanQuery($today->copy()->addDays($window), '<=')
+            ->latest('reviewed_at')
+            ->get()
+            ->map(fn ($app) => $this->mapDueLoan($app));
+
+        // Last payment date per loan in ONE grouped query (reversed payments
+        // are excluded by the SoftDeletes scope).
+        $ids = $rows->pluck('loan_id')->filter()->values();
+        $lastPay = $ids->isNotEmpty()
+            ? Payment::whereIn('loan_application_id', $ids)
+                ->selectRaw('loan_application_id, MAX(payment_date) as last_date')
+                ->groupBy('loan_application_id')
+                ->pluck('last_date', 'loan_application_id')
+            : collect();
+
+        $rank = ['overdue' => 0, 'due_today' => 1, 'due_soon' => 2];
+        return $rows->map(function ($row) use ($lastPay) {
+            $row->last_payment_date = isset($row->loan_id) && isset($lastPay[$row->loan_id])
+                ? Carbon::parse($lastPay[$row->loan_id])->format('M d, Y')
+                : '—';
+            return $row;
+        })->sortBy(function ($row) use ($rank) {
+            $s = $row->standing;
+            $r = $rank[$s['key']] ?? 3;
+            if ($s['key'] === 'overdue') {
+                return [$r, -$s['days'], $row->due_sort];
+            }
+            if ($s['key'] === 'due_soon') {
+                return [$r, $s['days'], $row->due_sort];
+            }
+            return [$r, 0, $row->due_sort];
+        })->values();
     }
 
     public function creditAssessment()
@@ -2164,13 +2228,13 @@ class AdminController extends Controller
      *  Overdue Payments report:
      *  disbursed/approved loans with remaining balance > 0 AND next_due_date
      *  in the past. Each row shows member, loan type, due date, overdue amount.
+     *
+     *  Shares dueLoanQuery() + mapDueLoan() with the Repayments page's
+     *  Due & Overdue tab, so both can never disagree on what "due" means.
      *  ================================================================== */
     private function overduePaymentsData(array $filters): \Illuminate\Support\Collection
     {
-        $query = LoanApplication::where('status', LoanStatus::APPROVED)
-            ->where('remaining_balance', '>', 0)
-            ->whereDate('next_due_date', '<', now()->toDateString())
-            ->with(['user.coopMember']);
+        $query = $this->dueLoanQuery(now(), '<');
 
         // The status filter contradicts this report (it only ever lists approved
         // loans), so it is ignored; the date filter judges next_due_date, not
@@ -2185,27 +2249,62 @@ class AdminController extends Controller
 
         return $query->latest('reviewed_at')
             ->get()
-            ->map(function ($app) {
-                $overdueDays = (int) now()->startOfDay()->diff(Carbon::parse($app->next_due_date)->startOfDay())->days;
+            ->map(fn ($app) => $this->mapDueLoan($app));
+    }
 
-                // The installment that was due: the monthly payment, capped at
-                // what is still owed (final installment can be smaller).
-                $emi = (float) $app->monthly_payment;
-                $remaining = (float) $app->remaining_balance;
-                $overdueInstallment = $emi > 0 ? min($emi, $remaining) : $remaining;
+    /**
+     * Shared "loans with a payment due by $cutoff" query: approved loans with
+     * a remaining balance and a next_due_date on/before $cutoff.
+     *
+     * @param Carbon $cutoff   boundary date (Asia/Manila today + window for the tab)
+     * @param string $operator '<' for the reports overdue list (strictly past),
+     *                         '<=' for the tab (includes the boundary day)
+     */
+    private function dueLoanQuery(Carbon $cutoff, string $operator): \Illuminate\Database\Eloquent\Builder
+    {
+        return LoanApplication::where('status', LoanStatus::APPROVED)
+            ->where('remaining_balance', '>', 0)
+            ->whereNotNull('next_due_date')
+            ->whereDate('next_due_date', $operator, $cutoff->toDateString())
+            ->with(['user.coopMember']);
+    }
 
-                return (object)[
-                    'member_name'   => $app->fullName(),
-                    'member_id'     => $app->user?->id ?? null,
-                    'loan_type'     => $app->loan_type,
-                    'loan_type_label' => $app->getLoanTypeLabelAttribute(),
-                    'overdue_installment' => $overdueInstallment,
-                    'amount'         => $remaining,
-                    'due_date'      => $app->next_due_date?->format('M d, Y'),
-                    'overdue_days'  => $overdueDays,
-                    'app_id'        => $app->reference,
-                ];
-            });
+    /**
+     * Shared row mapper for due/overdue loans. The installment that is due is
+     * the monthly payment capped at what is still owed (the final installment
+     * can be smaller) — one definition reused by reports and the tab.
+     */
+    private function mapDueLoan(LoanApplication $app): \stdClass
+    {
+        $overdueDays = (int) now()->startOfDay()->diff(Carbon::parse($app->next_due_date)->startOfDay())->days;
+
+        $emi = (float) $app->monthly_payment;
+        $remaining = (float) $app->remaining_balance;
+
+        // Member resolution for the tab: user link, then email fallback
+        // (portal-less borrowers still show their member name).
+        $member = CoopMember::forLoanApplication($app);
+
+        return (object)[
+            'member_name'   => $app->fullName(),
+            'member_id'     => $app->user?->id ?? null,
+            'member_ref'    => $member?->member_id ?? null,
+            'loan_type'     => $app->loan_type,
+            'loan_type_label' => $app->getLoanTypeLabelAttribute(),
+            'overdue_installment' => $emi > 0 ? min($emi, $remaining) : $remaining,
+            'amount'        => $remaining,
+            'due_date'      => $app->next_due_date?->format('M d, Y'),
+            'overdue_days'  => $overdueDays,
+            'app_id'        => $app->reference,
+            // Due & Overdue tab extras (reports ignores these keys):
+            'loan_id'       => $app->id,
+            'application_id' => $app->application?->id,
+            'loan_ref'      => $app->application?->app_id ?? $app->reference,
+            'resolved_name' => $member ? ($member->full_name ?? $app->fullName()) : $app->fullName(),
+            'resolved_id'   => $member?->id ?? $app->user?->id,
+            'standing'      => $app->repaymentStanding(),
+            'due_sort'      => $app->next_due_date?->format('Y-m-d'),
+        ];
     }
 
     /** ==================================================================
@@ -2486,6 +2585,7 @@ class AdminController extends Controller
     // 27. Update an existing repayment record
     public function updateRepayment(Request $request, int $id)
     {
+        // Reversed payments (soft-deleted) are excluded by default scope → 404
         $repayment = Payment::findOrFail($id);
 
         $loanApplication = null;
@@ -2500,18 +2600,22 @@ class AdminController extends Controller
             $application = Application::where('loan_application_id', $loanApplication->id)->first();
         }
 
+        // Only Branch Managers (REVERSE_PAYMENTS) may edit amount/payment_date.
+        $canEditFinancial = Permissions::has(Auth::user(), Permissions::REVERSE_PAYMENTS);
+
         $validated = $request->validate([
-            'amount' => 'required|numeric|min:0.01',
+            'amount' => $canEditFinancial ? 'required|numeric|min:0.01' : 'prohibited',
             'payment_method' => 'nullable|string|max:100',
             'reference_no' => 'nullable|string|max:255',
-            'payment_date' => 'nullable|date',
+            'payment_date' => $canEditFinancial ? 'nullable|date' : 'prohibited',
             'notes' => 'nullable|string|max:500',
             'reason' => 'nullable|string|max:500',
             'proof' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
-        $newAmount = (float) $validated['amount'];
+        $newAmount = $canEditFinancial ? (float) $validated['amount'] : (float) $repayment->amount_paid;
         $oldAmount = (float) $repayment->amount_paid;
+        $paymentDate = $canEditFinancial ? ($validated['payment_date'] ?? $repayment->payment_date) : $repayment->payment_date;
 
         // Duplicate reference check: excludes the payment being edited
         if (!empty($validated['reference_no'])) {
@@ -2570,7 +2674,7 @@ class AdminController extends Controller
         $oldProofPath = $repayment->proof_path;
         $newProofPath = null;
 
-        DB::transaction(function () use ($repayment, $validated, $newAmount, $oldAmount, $loanApplication, $oldValues, $request, &$newProofPath) {
+        DB::transaction(function () use ($repayment, $validated, $newAmount, $oldAmount, $paymentDate, $loanApplication, $oldValues, $request, &$newProofPath) {
             // Optional proof replacement; no file keeps the old one.
             if ($request->hasFile('proof')) {
                 $newProofPath = $request->file('proof')->store('payment-proofs');
@@ -2581,7 +2685,7 @@ class AdminController extends Controller
                 'amount_paid' => $newAmount,
                 'payment_method' => $validated['payment_method'] ?? null,
                 'reference_no' => $validated['reference_no'] ?? null,
-                'payment_date' => $validated['payment_date'] ?? $repayment->payment_date,
+                'payment_date' => $paymentDate,
                 'notes' => $validated['notes'] ?? null,
                 'proof_path' => $newProofPath ?? $repayment->proof_path,
             ]);
@@ -2614,6 +2718,65 @@ class AdminController extends Controller
                 'remaining_balance' => $loanApplication ? (float) ($loanApplication->remaining_balance ?? 0) : 0,
             ])
             : redirect()->route('repayments.index')->with('success', 'Repayment updated successfully.');
+    }
+
+    // 27c. Reverse a payment (Branch Manager only)
+    public function reverseRepayment(Request $request, int $id)
+    {
+        if (! Permissions::has(Auth::user(), Permissions::REVERSE_PAYMENTS)) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'reason' => 'required|string|min:10|max:500',
+        ]);
+
+        // withTrashed: a reversed row must be findable so we can refuse it
+        $payment = Payment::withTrashed()->findOrFail($id);
+
+        if ($payment->trashed()) {
+            $msg = 'This payment has already been reversed.';
+            return $request->expectsJson()
+                ? response()->json(['success' => false, 'message' => $msg], 409)
+                : back()->with('error', $msg);
+        }
+
+        $loanApplication = LoanApplication::find($payment->loan_application_id);
+        $reason = trim((string) $request->input('reason'));
+
+        DB::transaction(function () use ($payment, $reason, $loanApplication) {
+            $oldValues = $payment->toArray();
+
+            // Record who/why, then soft-delete: every Payment::sum()/query in
+            // the app now excludes this row automatically.
+            $payment->reversed_by = Auth::id();
+            $payment->reversal_reason = $reason;
+            $payment->save();
+            $payment->delete();
+
+            if ($loanApplication) {
+                app(PaymentService::class)->recomputeLoanState($loanApplication);
+            }
+
+            $ref = $payment->refLabel();
+            $loanRef = optional($payment->loanApplication)->reference ?? $payment->loan_application_id;
+
+            AuditLog::log('Payment Reversed',
+                "Payment {$ref} of ₱{$payment->amount_paid} for loan {$loanRef} reversed — Reason: {$reason}",
+                null,
+                $oldValues,
+                ['reversed' => true, 'reversed_by' => Auth::id(), 'reversal_reason' => $reason],
+                'payment',
+                $payment->id);
+        });
+
+        return $request->expectsJson()
+            ? response()->json([
+                'success' => true,
+                'message' => 'Payment reversed successfully.',
+                'remaining_balance' => $loanApplication ? (float) ($loanApplication->remaining_balance ?? 0) : 0,
+            ])
+            : redirect()->route('repayments.index')->with('success', 'Payment reversed successfully.');
     }
 
     // 27b. Stream a payment's proof of payment (never exposes the storage path)

@@ -5,10 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Payment extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $table = 'payments';
 
@@ -23,13 +24,32 @@ class Payment extends Model
         'notes',
         'payment_method',
         'proof_path',
+        'reversed_by',
+        'reversal_reason',
     ];
 
     protected $casts = [
         'amount_paid'               => 'decimal:2',
         'remaining_balance_after'   => 'decimal:2',
         'payment_date'              => 'date',
+        'deleted_at'                => 'datetime',
     ];
+
+    /**
+     * The staff user who reversed this payment (null until reversed).
+     */
+    public function reversedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
+    }
+
+    /**
+     * Whether this payment has been reversed (soft-deleted).
+     */
+    public function isReversed(): bool
+    {
+        return (bool) $this->trashed();
+    }
 
     /**
      * The loan this payment was applied against.

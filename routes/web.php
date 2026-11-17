@@ -265,6 +265,10 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::get('/repayments/{id}/proof', [AdminController::class, 'showRepaymentProof'])
             ->whereNumber('id')
             ->name('repayments.proof');
+        // Reverse a payment (Branch Manager only — enforced in controller via REVERSE_PAYMENTS)
+        Route::post('/repayments/{id}/reverse', [AdminController::class, 'reverseRepayment'])
+            ->whereNumber('id')
+            ->name('repayments.reverse');
     });
 
     // ------------------------------------------------------------------

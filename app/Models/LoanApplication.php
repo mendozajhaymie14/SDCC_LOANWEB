@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Services\AmortizationService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use App\Support\LoanProductHelper;
 
@@ -267,5 +268,50 @@ class LoanApplication extends Model
     public function statusString(): string
     {
         return \App\Support\LoanStatus::write($this->status, 'loan_applications');
+    }
+
+    /**
+     * The loan's current repayment standing — the ONE shared definition used
+     * by the repayments table, the Due & Overdue tab and the reports.
+     *
+     * Returns ['key' => ..., 'label' => ..., 'days' => ...] where days is
+     * 0 for paid/due-today/on-track, the whole days overdue for overdue, or
+     * the whole days until the due date for due-soon.
+     *
+     * Dates are judged in Asia/Manila, like PaymentReminderService.
+     */
+    public function repaymentStanding(): array
+    {
+        try {
+            $today = Carbon::today(new \DateTimeZone('Asia/Manila'));
+        } catch (\Throwable $e) {
+            $today = Carbon::today();
+        }
+
+        $balance = (float) $this->remaining_balance;
+        if ($this->status === \App\Support\LoanStatus::PAID || $balance <= 0) {
+            return ['key' => 'paid', 'label' => 'Paid', 'days' => 0];
+        }
+
+        if (! $this->next_due_date) {
+            return ['key' => 'on_track', 'label' => 'On track', 'days' => 0];
+        }
+
+        $dueDay = Carbon::parse($this->next_due_date, $today->getTimezone())->startOfDay();
+        $days = (int) round($today->copy()->startOfDay()->diffInDays($dueDay, false));
+
+        if ($days < 0) {
+            return ['key' => 'overdue', 'label' => 'Overdue', 'days' => abs($days)];
+        }
+        if ($days === 0) {
+            return ['key' => 'due_today', 'label' => 'Due today', 'days' => 0];
+        }
+
+        $window = (int) config('loan_matrix.reminders.due_soon_window_days', \App\Services\PaymentReminderService::DUE_SOON_WINDOW_DAYS);
+        if ($days <= $window) {
+            return ['key' => 'due_soon', 'label' => 'Due soon', 'days' => $days];
+        }
+
+        return ['key' => 'on_track', 'label' => 'On track', 'days' => $days];
     }
 }

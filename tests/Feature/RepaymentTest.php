@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Application;
 use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Permissions;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -341,10 +343,10 @@ class RepaymentTest extends TestCase
             'payment_date' => now()->subMonths(1)->toDateString(),
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
+        $this->actingAs(User::factory()->asBranchManager()->create());
 
         // Act: Edit the existing payment amount
-        $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$existingPayment->id}", [
                 'amount' => 5000,
@@ -399,7 +401,7 @@ class RepaymentTest extends TestCase
             'reference_no' => 'OVER-REF',
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
+        $this->actingAs(User::factory()->asBranchManager()->create());
 
         // Act: Try to increase to 6000 — total would be 6000 > 5176.44 total payable
         $existingPayment = Payment::where('loan_application_id', $loanApplication->id)->first();
@@ -407,7 +409,7 @@ class RepaymentTest extends TestCase
 
         $paymentId = $existingPayment->id;
 
-        $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$paymentId}", [
                 'amount' => 6000,
@@ -457,10 +459,10 @@ class RepaymentTest extends TestCase
             'reference_no' => 'OTHER-REF',
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
+        $this->actingAs(User::factory()->asBranchManager()->create());
 
         // Act: Edit the first payment to use the same reference as the second
-        $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$otherPayment->id}", [
                 'amount' => 1500,
@@ -517,10 +519,10 @@ class RepaymentTest extends TestCase
             'remaining_balance_after' => 9700,
         ]);
 
-        $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
+        $this->actingAs(User::factory()->asBranchManager()->create());
 
         // Edit payment1 from 100 to 200 — total paid becomes 400, balance = 10661.88 - 400 = 10261.88
-        $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$payment1->id}", [
                 'amount' => 200,
@@ -560,7 +562,7 @@ class RepaymentTest extends TestCase
 
         // (e) Over-pay is rejected with 422 and nothing changes
         // total paid after edit = 200 (payment1) + 200 (payment2) - 200 + 20000 = 20200 > 10661.88
-        $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$payment1->id}", [
                 'amount' => 20000,
@@ -978,7 +980,7 @@ class RepaymentTest extends TestCase
             'proof_path' => 'payment-proofs/old-proof.jpg',
         ]);
 
-        $response = $this->actingAs(User::factory()->asLoanOfficer()->create())
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$payment->id}", [
                 'amount' => 2500,
@@ -1009,7 +1011,7 @@ class RepaymentTest extends TestCase
         ]);
 
         // Failed edit (invalid file type) must keep the old proof
-        $bad = $this->actingAs(User::factory()->asLoanOfficer()->create())
+        $bad = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$payment->id}", [
                 'amount' => 2500,
@@ -1024,7 +1026,7 @@ class RepaymentTest extends TestCase
         Storage::assertExists('payment-proofs/old-proof.jpg');
 
         // Successful edit replaces it and removes the old file only after commit
-        $good = $this->actingAs(User::factory()->asLoanOfficer()->create())
+        $good = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$payment->id}", [
                 'amount' => 2500,
@@ -1055,7 +1057,7 @@ class RepaymentTest extends TestCase
             'payment_date' => now()->toDateString(),
         ]);
 
-        $response = $this->actingAs(User::factory()->asLoanOfficer()->create())
+        $response = $this->actingAs(User::factory()->asBranchManager()->create())
             ->withHeaders(['Accept' => 'application/json'])
             ->put("/repayments/{$payment->id}", [
                 'amount' => 2500,
@@ -1150,5 +1152,340 @@ class RepaymentTest extends TestCase
             ])->assertStatus(200);
 
         $this->actingAs($viewer)->get('/repayments')->assertSee('Staff Encoder');
+    }
+
+    // ==================================================================
+    // Task 1 — inline confirmation panel before a payment is recorded
+    // ==================================================================
+
+    /** @test */
+    public function record_payment_modal_shows_inline_confirmation_panel(): void
+    {
+        $manager = User::factory()->asBranchManager()->create();
+
+        $response = $this->actingAs($manager)->get('/repayments');
+
+        $response->assertStatus(200);
+        $response->assertSee('id="recordConfirmPanel"', false);
+        $response->assertSee('Confirm and record');
+        $response->assertSee('hideRecordConfirmation()');
+        $response->assertSee('confirmAndRecord()');
+    }
+
+    // ==================================================================
+    // Task 2 — safer editing + Reverse Payment (Branch Manager only)
+    // ==================================================================
+
+    /** @test */
+    public function branch_manager_can_reverse_a_payment_and_balance_is_recomputed(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-1', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'REV-REF',
+            'payment_date' => now()->toDateString(),
+        ]);
+        // Reflect the payment on the loan balance so the reversal is visible.
+        $loanApplication->update(['remaining_balance' => 8661.88]);
+
+        $manager = User::factory()->asBranchManager()->create();
+
+        $response = $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", [
+                'reason' => 'Payment was encoded twice by mistake',
+            ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+
+        // Soft-deleted: invisible to every default Payment query/sum
+        $this->assertNull(Payment::find($payment->id));
+        $this->assertNotNull(Payment::onlyTrashed()->find($payment->id));
+
+        $payment = Payment::onlyTrashed()->find($payment->id);
+        $this->assertEquals($manager->id, $payment->reversed_by);
+        $this->assertEquals('Payment was encoded twice by mistake', $payment->reversal_reason);
+
+        // Balance restored to the full total payable
+        $loanApplication->refresh();
+        $this->assertEquals(10661.88, $loanApplication->remaining_balance, '', 1);
+
+        // Audited
+        $this->assertDatabaseHas('audit_logs', ['action' => 'Payment Reversed']);
+        $log = AuditLog::where('action', 'Payment Reversed')->latest()->first();
+        $this->assertStringContainsString('REV-REF', $log->details);
+        $this->assertStringContainsString('Payment was encoded twice by mistake', $log->details);
+    }
+
+    /** @test */
+    public function loan_officer_cannot_reverse_a_payment(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-2', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'REV-REF-2',
+            'payment_date' => now()->toDateString(),
+        ]);
+
+        $officer = User::factory()->asLoanOfficer()->create();
+
+        $response = $this->actingAs($officer)
+            ->postJson("/repayments/{$payment->id}/reverse", [
+                'reason' => 'Not allowed to reverse payments',
+            ]);
+
+        $response->assertForbidden();
+        $this->assertNull(Payment::onlyTrashed()->find($payment->id));
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'Payment Reversed']);
+    }
+
+    /** @test */
+    public function reversing_an_already_reversed_payment_is_refused(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-3', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'REV-REF-3',
+            'payment_date' => now()->toDateString(),
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+
+        $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", [
+                'reason' => 'Reversing for the first time here',
+            ])->assertStatus(200);
+
+        $second = $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", [
+                'reason' => 'Trying to reverse it a second time',
+            ]);
+
+        $second->assertStatus(409);
+        $second->assertJson(['success' => false]);
+    }
+
+    /** @test */
+    public function reversing_a_payment_requires_a_reason_of_at_least_10_characters(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-4', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'REV-REF-4',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+
+        $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", ['reason' => 'short'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('reason');
+
+        $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", [])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('reason');
+
+        $this->assertNull(Payment::onlyTrashed()->find($payment->id));
+    }
+
+    /** @test */
+    public function non_branch_manager_cannot_edit_amount_or_payment_date(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-5', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'EDIT-ROLE',
+            'payment_date' => now()->toDateString(),
+        ]);
+
+        $officer = User::factory()->asLoanOfficer()->create();
+
+        $response = $this->actingAs($officer)
+            ->putJson("/repayments/{$payment->id}", [
+                'amount' => 3000,
+                'payment_date' => now()->toDateString(),
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['amount', 'payment_date']);
+
+        $payment->refresh();
+        $this->assertEquals(2000, (float) $payment->amount_paid);
+    }
+
+    /** @test */
+    public function reversed_payment_cannot_be_edited(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-6', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'EDIT-TRASHED',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+
+        $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", [
+                'reason' => 'Reversed so it cannot be edited anymore',
+            ])->assertStatus(200);
+
+        $this->actingAs($manager)
+            ->putJson("/repayments/{$payment->id}", ['amount' => 1000])
+            ->assertNotFound();
+    }
+
+    /** @test */
+    public function reversed_payments_are_hidden_from_the_list_and_totals_but_listable_on_demand(): void
+    {
+        [$loanApplication, $application] = $this->approvedLoanWithApplication('APP-REV-7', 10000, 10661.88);
+
+        $payment = Payment::factory()->create([
+            'loan_application_id' => $loanApplication->id,
+            'amount_paid' => 2000,
+            'reference_no' => 'HIDDEN-REF',
+            'payment_date' => now()->toDateString(),
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+
+        $this->actingAs($manager)
+            ->postJson("/repayments/{$payment->id}/reverse", [
+                'reason' => 'Hidden from the list by default after reversal',
+            ])->assertStatus(200);
+
+        $this->actingAs($manager)->get('/repayments')
+            ->assertOk()
+            ->assertDontSee('HIDDEN-REF');
+
+        $this->actingAs($manager)->get('/repayments?show_reversed=1')
+            ->assertOk()
+            ->assertSee('HIDDEN-REF');
+    }
+
+    // ==================================================================
+    // Task 3 — shared repaymentStanding() helper
+    // ==================================================================
+
+    /** @test */
+    public function repayment_standing_uses_one_shared_definition(): void
+    {
+        $today = Carbon::today(new \DateTimeZone('Asia/Manila'));
+
+        $paid = LoanApplication::factory()->create([
+            'status' => 'paid',
+            'remaining_balance' => 0,
+            'next_due_date' => $today->copy()->subDays(5),
+        ]);
+        $this->assertSame('paid', $paid->repaymentStanding()['key']);
+
+        $overdue = LoanApplication::factory()->create([
+            'status' => 'approved',
+            'remaining_balance' => 5000,
+            'next_due_date' => $today->copy()->subDays(4),
+        ]);
+        $standing = $overdue->repaymentStanding();
+        $this->assertSame('overdue', $standing['key']);
+        $this->assertEquals(4, $standing['days']);
+
+        $dueToday = LoanApplication::factory()->create([
+            'status' => 'approved',
+            'remaining_balance' => 5000,
+            'next_due_date' => $today,
+        ]);
+        $this->assertSame('due_today', $dueToday->repaymentStanding()['key']);
+
+        $dueSoon = LoanApplication::factory()->create([
+            'status' => 'approved',
+            'remaining_balance' => 5000,
+            'next_due_date' => $today->copy()->addDay(),
+        ]);
+        $standing = $dueSoon->repaymentStanding();
+        $this->assertSame('due_soon', $standing['key']);
+        $this->assertEquals(1, $standing['days']);
+
+        $onTrack = LoanApplication::factory()->create([
+            'status' => 'approved',
+            'remaining_balance' => 5000,
+            'next_due_date' => $today->copy()->addDays(30),
+        ]);
+        $this->assertSame('on_track', $onTrack->repaymentStanding()['key']);
+    }
+
+    // ==================================================================
+    // Task 4 — Due & Overdue tab: Overdue → Due today → Due soon
+    // ==================================================================
+
+    /** @test */
+    public function due_and_overdue_tab_lists_overdue_then_due_today_then_due_soon(): void
+    {
+        $today = Carbon::today(new \DateTimeZone('Asia/Manila'));
+        $manager = User::factory()->asBranchManager()->create();
+
+        // user_id = null so the stored full_name is what fullName() returns
+        LoanApplication::factory()->create([
+            'user_id' => null,
+            'full_name' => 'Soon, Cira',
+            'status' => 'approved',
+            'remaining_balance' => 4000,
+            'next_due_date' => $today->copy()->addDay(),
+        ]);
+        LoanApplication::factory()->create([
+            'user_id' => null,
+            'full_name' => 'Today, Bea',
+            'status' => 'approved',
+            'remaining_balance' => 5000,
+            'next_due_date' => $today,
+        ]);
+        LoanApplication::factory()->create([
+            'user_id' => null,
+            'full_name' => 'Overdue, Ana',
+            'status' => 'approved',
+            'remaining_balance' => 6000,
+            'next_due_date' => $today->copy()->subDays(6),
+        ]);
+        // Outside the due-soon window: must not appear in the tab
+        LoanApplication::factory()->create([
+            'user_id' => null,
+            'full_name' => 'Later, Dina',
+            'status' => 'approved',
+            'remaining_balance' => 7000,
+            'next_due_date' => $today->copy()->addDays(9),
+        ]);
+
+        $response = $this->actingAs($manager)->get('/repayments');
+
+        $response->assertStatus(200);
+        $response->assertSee('tab-due');
+        $response->assertSee('6 days overdue');
+        $response->assertSee('Due today');
+        $response->assertSee('Due in 1 day');
+
+        $html = $response->getContent();
+        $posOverdue = strpos($html, 'Overdue, Ana');
+        $posToday = strpos($html, 'Today, Bea');
+        $posSoon = strpos($html, 'Soon, Cira');
+
+        $this->assertNotFalse($posOverdue, 'Overdue loan missing from the page');
+        $this->assertNotFalse($posToday, 'Due-today loan missing from the page');
+        $this->assertNotFalse($posSoon, 'Due-soon loan missing from the page');
+
+        $this->assertLessThan($posToday, $posOverdue, 'Overdue loans must sort before Due today');
+        $this->assertLessThan($posSoon, $posToday, 'Due today loans must sort before Due soon');
+
+        // Outside the due-soon window
+        $response->assertDontSee('Later, Dina');
     }
 }

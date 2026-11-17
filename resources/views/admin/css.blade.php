@@ -1228,6 +1228,135 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   font-size: 0.85rem;
 }
 
+/* ===== Shared repayment tabs / reversal styles (used by repayments page) ===== */
+.rep-hidden { display: none !important; }
+
+.rep-tab-bar {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.rep-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.6rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted2);
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.rep-tab:hover { color: var(--accent); }
+.rep-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.rep-tab-count {
+  background: var(--red);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 50px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* Loan standing pills (repayments table / due tab) */
+.status-pill.overdue  { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.status-pill.due-soon { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
+.status-pill.reversed { background: rgba(100, 116, 139, 0.15); color: var(--muted); }
+
+/* Reversed payment rows: greyed out */
+.row-reversed td { color: var(--muted); background: rgba(100, 116, 139, 0.05); }
+tr.row-reversed:hover { background: rgba(100, 116, 139, 0.1); }
+
+.rep-standing-balance {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Record Repayment inline confirmation panel (Task 1) */
+.rep-confirm {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 10px;
+  background: rgba(2, 132, 199, 0.05);
+  border: 1px solid rgba(2, 132, 199, 0.35);
+}
+.rep-confirm-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+  color: var(--text);
+}
+.rep-confirm-text { font-size: 0.88rem; color: var(--muted2); line-height: 1.5; }
+.rep-confirm-warn {
+  font-size: 0.8rem;
+  color: var(--gold);
+  margin-top: 0.4rem;
+  font-weight: 600;
+}
+.rep-confirm-actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 0.8rem; }
+.rep-confirm-actions .btn-submit,
+.rep-confirm-actions .btn-cancel {
+  width: auto;
+  margin-top: 0;
+  padding: 0.6rem 1.2rem;
+}
+
+/* Read-only amount/date display in the Edit modal (non-privileged users) */
+.rep-readonly {
+  background: var(--card2);
+  border: 1px dashed var(--border2);
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  color: var(--muted2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rep-verify-note {
+  font-size: 0.75rem;
+  color: var(--gold);
+  margin-top: 0.3rem;
+  display: block;
+}
+
+/* List toolbar (record count + "Show reversed" toggle) */
+.rep-list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+  flex-wrap: wrap;
+}
+.rep-show-reversed {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted2);
+}
+.rep-show-reversed input[type="checkbox"] { accent-color: var(--accent); }
+.rep-show-reversed .rep-btn { padding: 0.35rem 0.8rem; font-size: 0.78rem; }
+
+/* Due & Overdue tab search */
+.rep-due-search { margin-bottom: 0.8rem; max-width: 320px; }
+
+/* Reversal info block in the View modal */
+.rep-reversal-info {
+  margin-bottom: 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  background: rgba(100, 116, 139, 0.08);
+  border: 1px solid var(--border2);
+}
+
 /* TOAST NOTIFICATION CONTAINER (TOP-CENTER) */
 .toast-container {
   position: fixed;

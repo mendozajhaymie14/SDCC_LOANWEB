@@ -46,6 +46,8 @@ class Permissions
     public const VIEW_APPLICATIONS = 'view_applications';
     public const VIEW_EVALUATION = 'view_evaluation';
     public const RECORD_PAYMENTS = 'record_payments';
+    /** Reverse a payment and edit amount/date — Branch Manager only. */
+    public const REVERSE_PAYMENTS = 'reverse_payments';
     public const VIEW_REPORTS = 'view_reports';
     public const STAFF_ACTIVITY = 'staff_activity';
     public const VERIFY_DOCUMENTS = 'verify_documents';
@@ -93,6 +95,7 @@ class Permissions
             self::VIEW_APPLICATIONS => true,
             self::VIEW_EVALUATION => true,
             self::RECORD_PAYMENTS => true,
+            self::REVERSE_PAYMENTS => true,
             self::VERIFY_DOCUMENTS => true,
             self::ADD_REVIEW_NOTES => true,
             self::VALIDATE_RECOMMENDATION => true,
