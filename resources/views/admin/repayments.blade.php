@@ -278,7 +278,7 @@
                     <i class="fa-solid fa-pen nav-icon"></i>Edit
                   </button>
                   @if($canReverse)
-                  <button type="button" class="btn-review btn-delete btn-reverse-repayment"
+                  <button type="button" class="btn-review btn-delete btn-reverse-repayment rep-row-reverse"
                           data-repayment-id="{{ $repayment->id }}"
                           data-borrower="{{ $borrowerName }}"
                           data-amount="{{ $amount }}"

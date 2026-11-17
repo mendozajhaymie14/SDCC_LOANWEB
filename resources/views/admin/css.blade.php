@@ -1220,8 +1220,16 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   background: #fef2f2;
   border-color: #dc2626;
 }
-
-.empty-table-msg {
+/* Reverse is intentionally less prominent than View/Edit: same ghost/danger look,
+   but smaller, dashed border — still in the row, confirmation modal keeps the reason. */
+.btn-review.btn-delete.rep-row-reverse {
+  font-size: 0.72rem;
+  padding: 0.25rem 0.6rem;
+  border-style: dashed;
+  color: var(--red);
+  border-color: var(--red);
+  background: transparent !important;
+}
 
 .search-icon {
   color: var(--muted, #64748b);
