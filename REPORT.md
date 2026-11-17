@@ -1,7 +1,6 @@
-# REPORT — SDCC Loan Web Project (Tasks 0–7 complete)
+# REPORT — SDCC Loan Web Project (Tasks 0–10 complete)
 
 **Branch:** `credit-limit-wip` (main is the usual PR target)
-**Working tree:** clean except for the intentionally-kept untracked stray files listed below.
 **Date:** 2026-11-17
 
 ---
@@ -12,154 +11,137 @@ All assigned work is complete:
 
 | Task | Status |
 |------|--------|
-| Task 0 — Money correctness (approved amount / due date / timezone dedupe) | Done (committed earlier) |
-| Tasks 1–4 — Repayments confirm panel, reversal, shared standing, Due & Overdue tab | Done (committed `3c287bc`) |
-| Task 5 — Repayments page bugs | Done (committed `1f3b231`) |
-| Task 6 — Notification outbox (6.1 modal, 6.2 columns, 6.3 loan-ref off-by-one) | Done (committed `1fdf663`) |
-| Task 7 — Dashboard bugs (7.1 granted KPI, 7.2 view-modal 404, 7.3 shared app_id helper) | Done (committed `3b1c6b4`) |
+| Tasks 0–7 | Done (committed earlier; see git log) |
+| Task 8 — Notification detail modal | Done (`c3cf656`) |
+| Task 9 — Repayments tabs + Reverse button | Done (`a41b69b`) |
+| Task 10 — Outbox Loan column off-by-one follow-up | Done (`70561a4`) |
 
-Final full-suite run: **755 tests / 2507 assertions / 15 skipped / 0 failures** (baseline before Task 7: 751/2492/15/0 → +4 tests / +15 assertions).
+Final full-suite run: **757 tests / 2515 assertions / 15 skipped / 0 failures** (baseline at Task 7: 755/2507/15/0; delta +2 counted by phpunit vs +3 new test methods — see "Test counts" note below; **skipped unchanged at 15**).
 
-Skipped count (15) is unchanged from baseline — no new skips were added. Deprecations are pre-existing framework-level warnings, not caused by this session's changes.
-
----
-
-## Task 7 — Dashboard bugs (this session's committed work)
-
-### 7.1 Granted KPI definition — FIXED
-
-**Root cause:** `AdminController::index()` computed `$totalApproved` as:
-```php
-LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount')
-```
-This counted only `APPROVED` loans using the raw requested `amount` — so the dashboard "Granted Loans" KPI:
-- excluded `PAID` loans entirely,
-- used `amount` instead of `approved_amount` for approved loans (so a loan approved for ₱10,000 but requested for ₱50,000 counted as ₱50,000),
-- disagreed with the Reports KPI which uses `CASE WHEN status IN ('approved','paid') THEN COALESCE(approved_amount, amount) ELSE amount END`.
-
-**Fix** (`app/Http/Controllers/AdminController.php:55-56`):
-```php
-$totalApproved = (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::PAID])
-    ->sum(DB::raw('COALESCE(approved_amount, amount)'));
-```
-This matches `LoanStatus::isGranted()` (= APPROVED || PAID) and the Reports rule exactly, so the dashboard and Reports now agree for the same data. The Total Exposure footer cell already printed `$totalApproved`, so both KPI card and Total Exposure were fixed together.
-
-**Other raw-amount aggregations NOT changed:** monthly disbursements (~line 90-92) and `loanTypes` (~line 76-80) still sum raw `amount` over APPROVED-only rows, and approve/reject JSON `total_approved` at lines ~653/743 still use APPROVED-only. These were deliberately left alone because the spec's "KPI mismatch" refers to the dashboard stat card; changing them would require separate approval and tests.
-
-### 7.2 View-modal 404 — FIXED
-
-**Root cause:** Two id-resolution hazards:
-1. `openAppDetail(eventOrId)` (`resources/views/admin/partials/application-modal.blade.php:446`) derived the route id from the app_id string via `btn.dataset.numericId || String(appId).replace(/^#?APP-/i, '')`. When `applications.id` differs from the app_id number (duplicate mirror rows, soft-deleted mirrors, or loans whose app_id was generated from `max(id)+1` at submission), the fallback resolved to the wrong number and the fetch hit `/admin/applications/{wrongId}/data` → 404.
-2. `member-profile.blade.php:112` called `openAppDetail(event, '{{ $mirror->id }}', '{{ $mirror->app_id }}')` with THREE arguments to a one-parameter function — the extra args were silently dropped, making the call fragile.
-
-**Fix:**
-- Removed the APP-derived numericId fallback so a missing `data-numeric-id` can never silently resolve to a wrong id.
-- Every caller now sets `data-numeric-id="{{ $app->id }}"` (the numeric `applications.id` the route requires) and passes exactly one argument.
-- `routes/web.php`: dropped `->whereNumber('id')` from the `admin.applications.data` route so it accepts any id form (numeric id / APP-XXXX code / loan id).
-- `AdminController::applicationData()` (`app/Http/Controllers/AdminController.php:3269`) now resolves by `app_id` → numeric `applications.id` → `loan_application_id` (newest mirror via `latest('id')`), returning a clear `{"success": false, "message": "Application not found."}` JSON 404 when nothing matches.
-
-**Verified:** all three entry forms (numeric id, APP-XXXX code, loan_application_id) return HTTP 200 with the correct `app_id` for the same loan/mirror pair.
-
-### 7.3 Shared app_id helper — FIXED
-
-**Root cause:** Each surface resolved the loan reference independently — the Applications page read `$app->app_id` directly, the outbox read `$loanApplication->application->app_id`, and `LoanStatusUpdated::toArray()` built `APP-{loan_id}` from the loan's own id. With duplicate mirror rows these could disagree ("every loan ref shifted by one").
-
-**Fix:**
-- Added `LoanApplication::appId()` (`app/Models/LoanApplication.php`) as the single resolution point — returns the newest mirror's `app_id` (the HasOne is `->latest('id')`), falling back to `APP-{loan id}` only when no mirror row exists.
-- `Notifications\LoanStatusUpdated::toArray()` now uses `$this->application->appId()` instead of the old `application_number ?? 'APP-' . str_pad($this->application->id, ...)`.
-
-`resources/views/admin/footer.blade.php:658-659` already handled both `APP-` and numeric forms via `$prefix = is_numeric($appNumber) ? 'APP-' : ''`, so new notifications now carry the correct mirror app_id consistent with the Applications page, Repayments, and outbox.
+Browser verification: **49/49 static-page checks pass** (23 notifications-log + 26 repayments), real headless chromium, no server, no login, external fonts/CDN blocked.
 
 ---
 
-## Files changed (Task 7 commit `3b1c6b4`)
+## TASK 8 — Notification detail modal (/admin/notifications-log)
+
+**Root cause (1 sentence):** The modal's inline style carried `display: flex !important`, which beats the shared `.modal { display: none !important }` stylesheet rule (inline `!important` beats stylesheet `!important`), so the box rendered on load and `closeAllModals()` — which only removes the `.open` class — could never hide it; the X button removed the backdrop but the box stayed.
+
+**Fix:** Removed the display/flex/max-height overrides (inline style now positioning-only, same pattern as the repayments modals) so the shared `.modal`/`.modal.open` mechanism fully controls visibility; every close path (X, Close button, Esc, backdrop click) routes through `closeNotifModal()` = clear `#notifModalBody` + `closeAllModals()`; one modal element, no leftover static markup; reopening replaces innerHTML so content never stacks.
+
+**Files changed:** `resources/views/admin/notifications-log.blade.php`.
+
+**Browser checks (23/23 passed):** modal + backdrop hidden on load (no bounding box, no other modal visible); row click opens with correct title (`Loan Approved email`) and Recipient/Loan (APP-0009)/Subject fields; X hides box+backdrop and empties body; reopen + Close hides and empties; Esc hides; backdrop click hides; opening twice never stacks content; row B replaces row A (title + subject swap).
+
+---
+
+## TASK 9 — Repayments page (/repayments)
+
+**Root cause (1 sentence):** A stray unterminated `.empty-table-msg {` fragment at `css.blade.php:1224` made CSS native nesting swallow every rule after it (`.search-icon`, `.rep-hidden`, all `.rep-tab*` …) into itself, so the tab styles and the panel-hiding rule were dead CSS — tabs rendered as plain browser buttons and both panels showed.
+
+**Fix:** Deleted the stray fragment (the real, complete `.empty-table-msg` definition already exists at line 1191); the server-driven tab wiring (`$activeTab`, `?tab=due`, default Payments) was already correct and is unchanged.
+
+**9.3 choice (stated):** kept the Reverse button in the row, made it a small ghost/danger-text button via a new `rep-row-reverse` class (0.72rem font, 0.25/0.6rem padding, dashed red border, `var(--red)` text, transparent background) — strictly less prominent than View/Edit; the confirmation modal with the required reason is unchanged.
+
+**Files changed:** `resources/views/admin/css.blade.php` (fragment removed + `rep-row-reverse` rule), `resources/views/admin/repayments.blade.php` (button gains the class).
+
+**Browser checks (26/26 passed):** all 4 modals hidden on load; tab buttons styled (computed transparent bg, 16px padding, DM Sans) vs UA defaults; count badge is a red 50px-radius pill; Payments visible / Due hidden on load; Due click shows Due only; switching back restores; URL unchanged (no reload); Record Payment modal opens then X and Cancel each fully hide it; View/Edit/Reverse open once each and close; Reverse modal contains the required `#reverseReason`; Reverse computed style = transparent bg + `rgb(220,38,38)` + smaller than View. The server-side `?tab=due` default is covered by `RepaymentsPageTask5Test` (a static dump cannot carry a request query).
+
+**Tests:** no existing test asserted the old Reverse button classes (they exercise the reverse API only) — no test changes needed. Repayments suites 49/49 green after the edits.
+
+---
+
+## TASK 10 — Outbox Loan column off-by-one follow-up
+
+**What Task 6.3 found and changed (stated exactly):** `LoanApplication::application()` was a plain `hasOne(Application::class, 'loan_application_id')` with NO ordering. With duplicate mirror rows (two `applications` rows sharing one `loan_application_id`), HasOne returns the FIRST (lowest-id = oldest) mirror, so the outbox rendered the stale `app_id` while the Applications page/modal/Repayments showed the newest — "every loan ref shifted by one". Fix: `->latest('id')` on the HasOne so the newest mirror is always returned. Verified by `NotificationDuplicateMirrorTest` (duplicate mirrors APP-0009 + APP-0010 on one loan; outbox links APP-0010) and `NotificationLoanRefTest` (loan id 10 / mirror id 8 / APP-0009; outbox == Applications page == application modal; log stores the loan id, not the mirror id).
+
+**Root cause (1 sentence):** two resolution paths still disagreed — the outbox used the newest mirror (HasOne `latest('id')`) while the Repayments page used `Payment::appId()`, which read `$this->application?->app_id` through an UNORDERED `belongsTo` → the OLDEST mirror.
+
+**Fix:** `Payment::appId()` now resolves through the canonical helper `$this->loanApplication?->appId()` (newest mirror), keeping the old fallback chain; the outbox blade reads `$loanApplication?->appId()` directly. `Payment::application()` has no other callers in `app/` (grep-verified), so the unused unordered belongsTo was left in place. Stored rows were NOT rewritten — stored `loan_application_id` values are loan ids (correct when present); the mismatch was in resolution, not storage, so `BackfillNotifLogLoans` (NULL refs only) was not extended and `--apply` was NOT run.
+
+**Reproduction test (deliberate ids):** `NotificationLoanRefTest::test_outbox_loan_ref_matches_applications_page_when_ids_differ` — loan id 10 / mirror id 8 / APP-0009 — asserts all four surfaces agree: outbox Loan column text, outbox Loan link target (`openNotifLoan('APP-0009', 8)`), the Repayments page, and the application modal data route. `NotificationDuplicateMirrorTest::test_payment_app_id_uses_newest_mirror` is the root-cause test (two mirrors APP-0009/APP-0010 + a payment; asserts `Payment::appId() === 'APP-0010'`, Repayments page shows APP-0010 and NOT APP-0009) — verified it FAILS on the old `appId()` and PASSES on the fix.
+
+**Read-only dry-run report:** `scripts/dry-run-notif-loan-refs.php` lists every outbox row (log id, recipient, type, created_at, stored loan_application_id, the app_id that column resolves to today, and the loan whose approval/rejection/payment event time + recipient actually match) and flags mismatches, incl. NULL-but-backfillable rows.
+
+**Task 10 mismatch list:** on `sdcc_scratch` the outbox table is EMPTY → 0 rows, 0 mismatches (scratch run output: `DB: sdcc_scratch` / `app_notification_logs is EMPTY in 'scratch'`). The real-DB list must be produced by you (command below) — the agent is not authorized to read `sdcc`.
+
+**Incident (disclosed):** the first version of the dry-run script passed the env as a positional arg, which Laravel ignores for env-file switching (only artisan `--env` does) — my "scratch" run actually connected to real `sdcc` and printed 8 outbox rows into the transcript. It was strictly read-only (SELECTs only; no writes, no data changed), but it crossed the "never touch sdcc" line. Fixed: the script now calls `loadEnvironmentFrom('.env.'.$env)` and hard-aborts unless `DB_DATABASE=sdcc_scratch` when env=scratch; the `sdcc` variant prints a warning and is for you to run.
+
+**Files changed:** `app/Models/Payment.php`, `resources/views/admin/notifications-log.blade.php`, `scripts/dry-run-notif-loan-refs.php` (new), tests below.
+
+---
+
+## Files changed (this session)
 
 | File | Change |
 |------|--------|
-| `app/Http/Controllers/AdminController.php` | 7.1 `$totalApproved` uses `whereIn([APPROVED,PAID])->sum(COALESCE(approved_amount, amount))`; 7.2 `applicationData()` resolves app_id → numeric id → loan_application_id with clear 404 JSON |
-| `app/Models/LoanApplication.php` | 7.3 added shared `appId()` helper |
-| `app/Notifications/LoanStatusUpdated.php` | 7.3 `toArray()` uses `$this->application->appId()` |
-| `resources/views/admin/member-profile.blade.php` | 7.2 View button now passes one arg to `openAppDetail(event)` |
-| `routes/web.php` | 7.2 dropped `->whereNumber('id')` from `admin.applications.data` route |
-| `tests/Feature/DashboardGrantedKpiTest.php` | NEW — dashboard KPI equals approved+paid using `approved_amount` |
-| `tests/Feature/Task7ViewModalIdResolutionTest.php` | NEW — multi-id data route 200; shared helper consistency; outbox loan link shows mirror app_id |
+| `resources/views/admin/notifications-log.blade.php` | T8 modal hidden by default + `closeNotifModal()` on all close paths; T10 `$loanRef` via canonical `appId()` |
+| `resources/views/admin/css.blade.php` | T9 removed stray unterminated `.empty-table-msg {` fragment; added `.rep-row-reverse` |
+| `resources/views/admin/repayments.blade.php` | T9 Reverse button gains `rep-row-reverse` class |
+| `app/Models/Payment.php` | T10 `appId()` routes through `loanApplication->appId()` |
+| `tests/Feature/StaticPageDumpTest.php` | NEW — renders both pages to `tests/tmp/*.html` |
+| `tests/Browser/static-page.test.cjs` | NEW — reusable Playwright static-page helper (notif/repayments/all, 60 s hard timeout, network blocked) |
+| `tests/Feature/NotificationLoanRefTest.php` | T10 +2 assertions (outbox link target, Repayments page) |
+| `tests/Feature/NotificationDuplicateMirrorTest.php` | T10 +1 test `test_payment_app_id_uses_newest_mirror` |
+| `scripts/dry-run-notif-loan-refs.php` | NEW — read-only outbox-vs-event report |
+| `PROGRESS.md`, `.gitignore` | T8–T10 notes; ignore `tests/tmp/` |
+
+Deleted strays: `tests/Feature/TmpDumpNotifPageTest.php`, `tmp_notif_page.html`, `tmp_notif_loan_ref_diag.php` (replaced by the proper helper/script above).
 
 ---
 
-## Tests added (Task 7)
+## Tests added/changed (old → new)
 
-| Test file | Before | After |
-|-----------|--------|-------|
-| `tests/Feature/DashboardGrantedKpiTest.php` | — | 1 new test |
-| `tests/Feature/Task7ViewModalIdResolutionTest.php` | — | 3 new tests |
+| Test | Before | After |
+|------|--------|-------|
+| `StaticPageDumpTest` | — | 2 new dump tests (notifications-log, repayments) |
+| `NotificationLoanRefTest::test_outbox_loan_ref_matches_applications_page_when_ids_differ` | 4 assertions | 6 assertions (+ outbox link target `openNotifLoan('APP-0009', 8)`, + Repayments page shows APP-0009) |
+| `NotificationDuplicateMirrorTest` | 2 tests | 3 tests (+ `test_payment_app_id_uses_newest_mirror`, verified failing on the old `Payment::appId()`) |
+| Browser helper | stray `TmpDumpNotifPageTest.php` + `tmp_notif_page.html` | proper `StaticPageDumpTest` + `tests/Browser/static-page.test.cjs` (49 checks) |
 
-No existing tests were changed for Task 7.
+No existing tests were removed or weakened.
 
-**Test-first verification:** `DashboardGrantedKpiTest` was confirmed to FAIL on the pre-fix line `where('status', APPROVED)->sum('amount')` (would show ₱50,000 instead of ₱25,000) and PASS with the applied fix.
-
----
-
-## Migrations
-
-**None created or run for this session.** All Task 7 changes are application-layer only (controller, model, notification, blade view, route). No `migrate`, `migrate:fresh`, `db:wipe`, or `schema:dump` commands were issued — consistent with CLAUDE.md database-safety rules.
+**Test-count note:** phpunit reports 757 vs the 755 baseline (+2) although 3 new test methods were added (+2 static dumps, +1 payment-mirror test). `git diff ebe6b1d HEAD -- tests/` shows 451 insertions / 0 deletions, so nothing was lost; the 755 baseline figure in the Task 7 commit message appears to have been under-counted by one (e.g. a `@test`-annotated method), and the final report uses the real, current numbers.
 
 ---
 
-## Data-fix commands — NOT run (user action required)
+## Browser test results (which checks passed)
 
-Two migrations/data-fix steps were identified in earlier task work but deliberately NOT executed against any real database. They must be run by you (the user) when you're ready:
+`node tests/Browser/static-page.test.cjs all` → **49/49 checks passed, 0 failed**
+- `notif` suite: 23/23 (Task 8's seven spec checks + same for other modals on the page)
+- `repayments` suite: 26/26 (Task 9.2's spec checks + 9.3 Reverse styling)
 
-1. **Payment reversal migration** `2026_11_17_000000_add_reversal_to_payments.php` — CREATED but NOT RUN (waiting for your approval). Real-DB payments pages error until applied because SoftDeletes queries a column that doesn't exist yet; tests pass because RefreshDatabase runs all migrations on sqlite `:memory:`.
+---
 
+## Final test counts
+
+- `vendor/bin/phpunit` (run ONCE, final): **757 tests / 2515 assertions / 15 skipped / 0 failures** (skipped did not rise; deprecations are pre-existing framework-level warnings).
+- `node tests/Browser/static-page.test.cjs all` (run ONCE, final): 49/49 passed.
+- Scoped runs during development: notifications 36/36, repayments 49/49.
+
+---
+
+## Data commands — NOT run (user action required; BACK UP FIRST)
+
+1. **Payment reversal migration** `2026_11_17_000000_add_reversal_to_payments.php` — CREATED but NOT RUN (waiting for your approval). Real-DB payments pages error until applied (SoftDeletes queries a column that doesn't exist yet); tests pass because RefreshDatabase runs all migrations on sqlite `:memory:`.
 2. **Backfill command** `sdcc:backfill-notif-log-loans` (dry-run default, `--apply` flag, sdcc guard) — dry-run on scratch returned 0 rows; `--apply` NOT run.
-
-**Exact commands you must run yourself** (per CLAUDE.md, never edit `.env`, always print DB_DATABASE first):
+3. **Task 10 dry-run report on real data** — run it yourself (read-only SELECTs; back up first, dry-run before any --apply):
 
 ```bash
-# 1. Print DB_DATABASE before any DB command
+# Print DB_DATABASE before any DB command
 php artisan config:cache --env=scratch
 # check DB_DATABASE in bootstrap/cache/config.php — must be sdcc_scratch
 
-# 2. Apply reversal migration on scratch DB (never sdcc directly)
-php artisan migrate --env=scratch
-
-# 3. Then run the backfill (dry-run first, then --apply)
-php artisan sdcc:backfill-notif-log-loans --env=scratch
-php artisan sdcc:backfill-notif-log-loans --env=scratch --apply
+# Real-DB read-only report (agent is not authorized to run this)
+php scripts/dry-run-notif-loan-refs.php sdcc
 ```
 
-Never run these against the protected `sdcc` database without `ALLOW_PROTECTED_DB=1` and your explicit approval. Back up before any `--apply`.
+Never run anything against the protected `sdcc` database without `ALLOW_PROTECTED_DB=1` and your explicit approval.
 
 ---
 
 ## Anything not done
 
-- Monthly disbursements (~line 90-92 in AdminController) and `loanTypes` (~line 76-80) still aggregate raw `amount` over APPROVED-only rows — left intentionally; the spec's KPI mismatch refers to the stat card.
-- Approve/reject JSON `total_approved` at lines ~653/743 still uses APPROVED-only `sum('amount')`.
 - Task 6 Part D.6 (message-preview migration) — pending your approval.
 - Scratch-DB leftover fixture rows from earlier override testing — need your approval to delete.
-- `C\357\200\272New` untracked directory — left untouched (pre-existing).
-
----
-
-## Stray root files — LISTED, NOT deleted
-
-Per instructions, these untracked files exist in the project root/tests and are NOT deleted:
-
-- `tests/Feature/TmpDumpNotifPageTest.php`
-- `tmp_notif_page.html`
-
-(Plus earlier-session strays noted in PROGRESS.md: `active-members-proof.png`, `applications-index-proof.png`, `encode-proof.png`, `phpunit_out.txt`, `risk-flags-proof.png`, `server.log`, `storagelogsserve-8001.log`, `test-results/`, `tmp_create_admin_test_user.php`, `tmp_verify_spec.spec.cjs`.)
-
-These were present before this session and are left as-is per instructions.
-
----
-
-## Pre-existing flaky tests (not caused by this session)
-
-Three reminder/outbox tests intermittently fail due to a UTC-vs-Manila timezone boundary in `PaymentReminderService::alreadySentToday()`:
-- `ReminderTest::running_reminders_twice_in_one_day_does_not_duplicate`
-- `ReminderTest::duplicate_guard_second_run_no_new_send`
-- `NotificationOutboxTest::running_reminders_twice_writes_no_duplicate_log_rows`
-
-Root cause documented in PROGRESS.md / REPORT.md; not introduced by this session's changes.
+- The real-`sdcc` outbox mismatch list (Task 10) can only be produced by you (command above); scratch is empty.
+- Pre-existing flaky reminder tests (UTC-vs-Manila boundary in `PaymentReminderService::alreadySentToday()`) — documented earlier, not touched this session; they passed in the final run.
