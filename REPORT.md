@@ -1,187 +1,165 @@
-# REPORT — Parts A–D (SDCC Loan Web, Laravel 12)
+# REPORT — SDCC Loan Web Project (Tasks 0–7 complete)
 
-**Baseline before this session:** 707 tests / 2239 assertions / 15 skipped / 0 failures
-**Final state after this session:** 714 tests / 2267 assertions / 3 failures / 15 skipped
-**New:** +7 tests / +28 assertions / 3 pre-existing flaky failures (0 new caused by Parts A–D)
-
----
-
-## Part A — Notification Outbox / Payment Received Listener Fix
-**Root cause confirmed:** Suspect (a) only. The `PaymentReceived` event listener (`NotifyMemberOfPayment`) used `$loan->user?->email`, which silently returns `null` for portal-less members (no linked user account). This caused those payments to be omitted from the outbox entirely.
-
-**Fix applied:**
-- Listener now fills `MEMBER REF` / `LOAN REF` via eager-loaded relationships (`with('user','loanApplication')`), not just `$loan->user?->email`.
-- Outbox uses `TYPE_LABELS` map (`AppNotificationLog::TYPE_LABELS`) for human-readable type labels instead of `ucfirst()`, avoiding `Undefined array key` crashes on snake_case keys.
-- **Email-only:** SMS replaced with email-only for all reminder and loan events. `AppNotificationLog` logging ensures exactly one row (Sent / Failed / Skipped) per recorded payment; mail failure must not break recording. In-app notification only when loan has portal user.
-- AdminController::approve() and reject() now have guards blocking re-approval/re-rejection (409), preventing duplicate outbox rows.
-- Type dropdown in notifications-log.blade.php gains `Skipped` option; `error_message` ('No email address on file') appears in Error column.
-
-**Files modified (relevant):**
-- `app/Listeners/NotifyMemberOfPayment.php` — fixed email resolution for portal-less members
-- `app/Models/AppNotificationLog.php` — TYPE_LABELS map addition
-- `app/Http/Controllers/AdminController.php` — approve/reject 409 guard
-- `resources/views/admin/notifications-log.blade.php` — Skipped badge, type-dropdown cleanup
-
-**Tests added/changed:**
-- `tests/Feature/NotificationOutboxTest.php` — 29/29 pass (Part A complete); includes `outbox_page_returns_modal_data_for_sent_failed_and_skipped_rows` (Part D modal-data requirement).
-- Full suite now includes payment outbox scenarios; all existing outbox tests continue passing.
-
-**Anything not done:** None — Part A is complete.
+**Branch:** `credit-limit-wip` (main is the usual PR target)
+**Working tree:** clean except for the intentionally-kept untracked stray files listed below.
+**Date:** 2026-11-17
 
 ---
 
-## Part B — Repayments Page Restyle + Search + Audit Reason Guard
-**Files changed:**
-- `resources/views/admin/repayments.blade.php` — restyled to shared `.rep-*` classes (`.rep-filter-row`, `.rep-filter-group`, `.rep-filter-label`, `.rep-filter-control`, `.rep-filter-actions`, `.rep-btn`, `.rep-btn-danger`); table headers now "Member ID" / "NAME"; summary KPI "Collected this month" with `Format::money($monthlyCollected ?? 0)`; added search form (Search / Start Date / End Date) + Reset; Record modal: notes moved LAST (after Proof of Payment drop area + Remove), `<span class="req-mark">*</span>` on required labels, quick-pay buttons `quickPay('installment')`/`quickPay('full')` using `.rep-btn`, hidden `#loanSummaryCard` populated by `populateLoanFields()`; View modal: `#viewRepaymentAmountBig`, `#viewLoanStatusAfter` status pill, proof Download link `#viewProofDownload`/`#viewProofDownloadLink`, footer `<div class="modal-footer">` with Edit button + normal-width Close; Edit modal: `type="text" class="form-input num"` amount, "Reason for change" field `#editReason`, "Balance after this change" label + gold warning small text, footer `class="modal-footer"`; `.req-mark { color: var(--red); font-weight: 700; }` and `.modal-footer { position: sticky; bottom: 0; ... }` added to `admin/css.blade.php` after `@include('admin.css')`.
-- `resources/views/admin/css.blade.php` — added `.req-mark` and `.modal-footer` sticky.
-- `app/Http/Controllers/AdminController.php` — `updateRepayment()` validation gained `'reason' => 'nullable|string|max:500'`; audit text refactored into `$auditText` variable using `$validated['reason'] ?? null` (fixed crash when reason omitted).
-- `routes/web.php:259` — GET /repayments verified.
+## Summary
 
-**Tests added/changed:**
-- `tests/Feature/RepaymentTest.php` — added `@test public function editing_repayment_with_reason_saves_it_in_audit_log()` (PUT `/repayments/{$payment->id}` with `reason`, assert 200 + `assertDatabaseHas('audit_logs', ['action'=>'Repayment Updated','details'=>"Repayment #{$payment->id} updated for loan application #{$loanApplication->id} — Reason: Member requested correction of encoded amount"])`). 24/24 RepaymentTest green.
-- Full suite scoped runs: RepaymentTest+BackfillPaymentRecordersTest 25/25; Validation+Reminder+RepaymentConsistency 41/41; AdminApplicationViewTest 11/11.
+All assigned work is complete:
 
-**Anything not done:** None — Part B is complete.
+| Task | Status |
+|------|--------|
+| Task 0 — Money correctness (approved amount / due date / timezone dedupe) | Done (committed earlier) |
+| Tasks 1–4 — Repayments confirm panel, reversal, shared standing, Due & Overdue tab | Done (committed `3c287bc`) |
+| Task 5 — Repayments page bugs | Done (committed `1f3b231`) |
+| Task 6 — Notification outbox (6.1 modal, 6.2 columns, 6.3 loan-ref off-by-one) | Done (committed `1fdf663`) |
+| Task 7 — Dashboard bugs (7.1 granted KPI, 7.2 view-modal 404, 7.3 shared app_id helper) | Done (committed `3b1c6b4`) |
 
----
+Final full-suite run: **755 tests / 2507 assertions / 15 skipped / 0 failures** (baseline before Task 7: 751/2492/15/0 → +4 tests / +15 assertions).
 
-## Part C — Audit Reason Guard + Controller Crash Fix
-**Root cause:** `$validated['reason']` was undefined when the PUT request omitted `reason`, even though validation was `nullable|string|max:500` (nullable does not add the key when absent). This caused a 500 error when editing a repayment without a reason.
-
-**Fix applied:** `$validated['reason'] ?? null` guard, audit text refactored into `$auditText` variable. Added `'reason' => 'nullable|string|max:500'` explicitly ensures key existence.
-
-**Tests added/changed:**
-- `tests/Feature/RepaymentTest.php` — the `editing_repayment_with_reason_saves_it_in_audit_log` test (Part B test above) now passes green; 24/24 RepaymentTest suite passes.
-- No new test file added; existing test assertion updated to match new audit log format.
-
-**Anything not done:** None — Part C is complete.
+Skipped count (15) is unchanged from baseline — no new skips were added. Deprecations are pre-existing framework-level warnings, not caused by this session's changes.
 
 ---
 
-## Part D — Notification Log Backfill Command + Open Items
-**D.5 — `sdcc:backfill-notif-log-loans` command:**
-- New command `app/Console/Commands/BackfillNotifLogLoans.php` with signature `sdcc:backfill-notif-log-loans {--dry-run}{--apply}`.
-- Logic: rows missing `loan_application_id` where user_id not null and user has exactly one LoanApplication (certainty rule); ambiguous counts (0 or >1) are skipped with a warning.
-- **Dry-run executed on scratch DB:** `"Found 0 notification-log rows missing loan_application_id."` — zero rows to backfill, matching expectations.
-- `--apply` **NOT run** per instructions (user to approve/run afterward).
+## Task 7 — Dashboard bugs (this session's committed work)
 
-**D.6 — Message-preview migration:**
-- **NOT done.** Per user instruction: "ASK FIRST, do not create without approval." Pending user approval before creating the migration that would add a `message-preview` column to `app_notification_logs`.
+### 7.1 Granted KPI definition — FIXED
 
-**D.7 — Resend button:**
-- **Already complied:** no Resend button added. Zero change.
+**Root cause:** `AdminController::index()` computed `$totalApproved` as:
+```php
+LoanApplication::where('status', LoanStatus::APPROVED)->sum('amount')
+```
+This counted only `APPROVED` loans using the raw requested `amount` — so the dashboard "Granted Loans" KPI:
+- excluded `PAID` loans entirely,
+- used `amount` instead of `approved_amount` for approved loans (so a loan approved for ₱10,000 but requested for ₱50,000 counted as ₱50,000),
+- disagreed with the Reports KPI which uses `CASE WHEN status IN ('approved','paid') THEN COALESCE(approved_amount, amount) ELSE amount END`.
 
-**Anything not done:**
-- D.6 message-preview migration pending user approval.
-- 3 pre-existing flaky test failures (detailed below).
+**Fix** (`app/Http/Controllers/AdminController.php:55-56`):
+```php
+$totalApproved = (float) LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::PAID])
+    ->sum(DB::raw('COALESCE(approved_amount, amount)'));
+```
+This matches `LoanStatus::isGranted()` (= APPROVED || PAID) and the Reports rule exactly, so the dashboard and Reports now agree for the same data. The Total Exposure footer cell already printed `$totalApproved`, so both KPI card and Total Exposure were fixed together.
 
----
+**Other raw-amount aggregations NOT changed:** monthly disbursements (~line 90-92) and `loanTypes` (~line 76-80) still sum raw `amount` over APPROVED-only rows, and approve/reject JSON `total_approved` at lines ~653/743 still use APPROVED-only. These were deliberately left alone because the spec's "KPI mismatch" refers to the dashboard stat card; changing them would require separate approval and tests.
 
-## Pre-existing Flaky Test Failures (unrelated to Parts A–D)
-Three test assertions consistently fail near the UTC/Manila midnight boundary due to a timezone mismatch in `PaymentReminderService::alreadySentToday()`: the DB stores `sent_at` as UTC wall-clock (`now()`), while the dedupe check compares against Manila local-date strings via `whereBetween('sent_at', [$start, $end])`. When UTC `now()` falls on the previous calendar day vs. Manila today, the stored UTC date falls outside the Manila bounds, the dedupe misses, and a duplicate email/notification is sent on the second run.
+### 7.2 View-modal 404 — FIXED
 
-**Failures:**
-1. `ReminderTest::running_reminders_twice_in_one_day_does_not_duplicate` (line 208) — second same-day run should send nothing new, but sends 1 duplicate.
-2. `ReminderTest::duplicate_guard_second_run_no_new_send` (line 934) — same issue, expected 0 new sends, got 1.
-3. `NotificationOutboxTest::running_reminders_twice_writes_no_duplicate_log_rows` (line 440) — expected 1 log row, got 2 (duplicate).
+**Root cause:** Two id-resolution hazards:
+1. `openAppDetail(eventOrId)` (`resources/views/admin/partials/application-modal.blade.php:446`) derived the route id from the app_id string via `btn.dataset.numericId || String(appId).replace(/^#?APP-/i, '')`. When `applications.id` differs from the app_id number (duplicate mirror rows, soft-deleted mirrors, or loans whose app_id was generated from `max(id)+1` at submission), the fallback resolved to the wrong number and the fetch hit `/admin/applications/{wrongId}/data` → 404.
+2. `member-profile.blade.php:112` called `openAppDetail(event, '{{ $mirror->id }}', '{{ $mirror->app_id }}')` with THREE arguments to a one-parameter function — the extra args were silently dropped, making the call fragile.
 
-**Root cause:** Timezone comparison granularity — `Carbon::today('Asia/Manila')` produces a Manila-wall-clock date string, while `now()` stores UTC. The `whereBetween` string comparison across timezone boundaries is unreliable in SQLite. This bug exists independently of Parts A–D; ReminderTest was not touched in this session. The full suite baseline (707/15/0) was recorded at a different time-of-day where dates aligned; today's run (2026-11-17 Manila) hits the boundary.
+**Fix:**
+- Removed the APP-derived numericId fallback so a missing `data-numeric-id` can never silently resolve to a wrong id.
+- Every caller now sets `data-numeric-id="{{ $app->id }}"` (the numeric `applications.id` the route requires) and passes exactly one argument.
+- `routes/web.php`: dropped `->whereNumber('id')` from the `admin.applications.data` route so it accepts any id form (numeric id / APP-XXXX code / loan id).
+- `AdminController::applicationData()` (`app/Http/Controllers/AdminController.php:3269`) now resolves by `app_id` → numeric `applications.id` → `loan_application_id` (newest mirror via `latest('id')`), returning a clear `{"success": false, "message": "Application not found."}` JSON 404 when nothing matches.
 
-**Fix:** Not applied (unrequested scope). A proper fix would convert $start/$end to UTC before the DB comparison, or store `sent_at` in local time. If desired, this can be addressed in a follow-up session.
+**Verified:** all three entry forms (numeric id, APP-XXXX code, loan_application_id) return HTTP 200 with the correct `app_id` for the same loan/mirror pair.
 
----
+### 7.3 Shared app_id helper — FIXED
 
-## Summary of Deliverables
-| Part | Status | Key changes |
-|------|--------|-------------|
-| A | ✅ Complete | Listener email fix, TYPE_LABELS map, email-only, outbox dedupe |
-| B | ✅ Complete | Repayments restyle `.rep-*` classes, search form, audit reason guard |
-| C | ✅ Complete | `$validated['reason'] ?? null` guard, audit text refactor |
-| D.5 | ✅ Complete | Backfill command dry-run (0 rows), `--apply` not run |
-| D.6 | ⏸ Pending | Message-preview migration — awaiting user approval |
-| D.7 | ✅ Compliant | No Resend button added |
+**Root cause:** Each surface resolved the loan reference independently — the Applications page read `$app->app_id` directly, the outbox read `$loanApplication->application->app_id`, and `LoanStatusUpdated::toArray()` built `APP-{loan_id}` from the loan's own id. With duplicate mirror rows these could disagree ("every loan ref shifted by one").
 
-**Final test counts:** 714 tests / 2267 assertions / 3 failures (pre-existing flaky) / 15 skipped
-**Baseline:** 707 / 2239 / 0 / 15 → delta: +7 tests / +28 assertions / +3 pre-existing failures
+**Fix:**
+- Added `LoanApplication::appId()` (`app/Models/LoanApplication.php`) as the single resolution point — returns the newest mirror's `app_id` (the HasOne is `->latest('id')`), falling back to `APP-{loan id}` only when no mirror row exists.
+- `Notifications\LoanStatusUpdated::toArray()` now uses `$this->application->appId()` instead of the old `application_number ?? 'APP-' . str_pad($this->application->id, ...)`.
 
-**Files modified since baseline:** 34 tracked files modified (Parts A–C + D.5 command) plus 7 new files (BackfillNotifLogLoans, 2 migrations, test files, etc.). `PaymentReminderService.php` contains the restored dedupe block (uncommitted WIP present at session start).
+`resources/views/admin/footer.blade.php:658-659` already handled both `APP-` and numeric forms via `$prefix = is_numeric($appNumber) ? 'APP-' : ''`, so new notifications now carry the correct mirror app_id consistent with the Applications page, Repayments, and outbox.
 
 ---
 
-# REPORT — Tasks 1–4 (repayments hardening), 2026-11-17
+## Files changed (Task 7 commit `3b1c6b4`)
 
-**Baseline before this task set:** 714 tests / 2267 assertions / 15 skipped / 3 pre-existing flaky failures
-**Final state after Tasks 1–4:** **724 tests / 2328 assertions / 15 skipped / 0 failures** (full suite run once; the 3 pre-existing Manila/UTC flaky reminder tests passed on this run; skipped did not rise)
-**Delta:** +10 tests / +61 assertions / 0 new failures
+| File | Change |
+|------|--------|
+| `app/Http/Controllers/AdminController.php` | 7.1 `$totalApproved` uses `whereIn([APPROVED,PAID])->sum(COALESCE(approved_amount, amount))`; 7.2 `applicationData()` resolves app_id → numeric id → loan_application_id with clear 404 JSON |
+| `app/Models/LoanApplication.php` | 7.3 added shared `appId()` helper |
+| `app/Notifications/LoanStatusUpdated.php` | 7.3 `toArray()` uses `$this->application->appId()` |
+| `resources/views/admin/member-profile.blade.php` | 7.2 View button now passes one arg to `openAppDetail(event)` |
+| `routes/web.php` | 7.2 dropped `->whereNumber('id')` from `admin.applications.data` route |
+| `tests/Feature/DashboardGrantedKpiTest.php` | NEW — dashboard KPI equals approved+paid using `approved_amount` |
+| `tests/Feature/Task7ViewModalIdResolutionTest.php` | NEW — multi-id data route 200; shared helper consistency; outbox loan link shows mirror app_id |
 
-## Task 1 — Inline confirmation panel in the Record Payment modal
-Before a payment is recorded, the first submit is intercepted (`repConfirmed` flag) and `showRecordConfirmation()` builds a plain-language summary in `#recordConfirmPanel`: "Record ₱X for APP-#### (Name, Member ID)? Method: … Date: … Balance will go from A to B." Buttons: **Confirm and record** (sets the flag, re-submits the form) and **Back** (hides the panel). Purely client-side; server behavior unchanged.
+---
 
-## Task 2 — Safer editing + Reverse Payment (Branch Manager only)
-- **Editing**: `updateRepayment` now validates `amount` / `payment_date` as `prohibited` unless the user has REVERSE_PAYMENTS; non-privileged edits of method/reference/notes/proof still work. The blade renders those two inputs readonly for non-privileged users. Also fixed a latent fatal: two unconditional `$newAmount`/`$oldAmount` assignments overrode the privilege conditionals and would crash with an undefined `amount` index for non-privileged edits.
-- **Reverse**: `POST /repayments/{id}/reverse` → 403 gate → `reason` required|min:10|max:500 → `Payment::withTrashed()` find → 409 if already reversed → transaction: set `reversed_by`/`reversal_reason`, save, soft-`delete()`, `PaymentService::recomputeLoanState()`, `AuditLog::log('Payment Reversed', …)`. Reversed rows are hidden from the list/totals by default, visible via `?show_reversed=1`; the View modal shows a "Reversed Payment" block (by/at/reason) and hides Edit/Reverse for reversed rows; editing or fetching proof of a reversed payment 404s.
-- Duplicate-reference, duplicate-amount+date and over-payment checks are **unchanged** (soft-delete scope means reversed rows no longer block reuse of a reference nor inflate the paid total — verified by test).
+## Tests added (Task 7)
 
-## Task 3 — Shared repayment standing helper
-`LoanApplication::repaymentStanding()` returns `['key','label','days']` with keys `paid|overdue|due_today|due_soon|on_track`, judged in Asia/Manila, window from `loan_matrix.reminders.due_soon_window_days` (default 3). Used by the payments table (blade) and by `mapDueLoan()`, which is shared by the Due & Overdue tab and the reports overdue list — one definition, no drift.
+| Test file | Before | After |
+|-----------|--------|-------|
+| `tests/Feature/DashboardGrantedKpiTest.php` | — | 1 new test |
+| `tests/Feature/Task7ViewModalIdResolutionTest.php` | — | 3 new tests |
 
-## Task 4 — Due & Overdue tab
-Lists approved loans with `remaining_balance > 0` and `next_due_date` within the due-soon window (today + window, inclusive), ordered **Overdue** (most days overdue first) → **Due today** → **Due soon** (fewest days first). Tab count badge, `#dueSearch` client filter, per-row "Record payment" quick action.
+No existing tests were changed for Task 7.
 
-## Files changed
-- `app/Http/Controllers/AdminController.php` — repayments() show_reversed/canReverse wiring; dueLoansForTab()/dueLoanQuery()/mapDueLoan()/overduePaymentsData(); updateRepayment privilege gate; reverseRepayment(); showRepaymentProof()
-- `app/Models/LoanApplication.php` — repaymentStanding()
-- `app/Models/Payment.php` — SoftDeletes, fillable, reversedBy()/isReversed()/refLabel()/appId()/borrowerName()/loanApplication()/user()/encoder()
-- `app/Support/Permissions.php` — REVERSE_PAYMENTS constant
-- `resources/views/admin/repayments.blade.php` — confirm panel, reversal block, Reverse modal, tabs, rewritten deduped script
-- `resources/views/admin/css.blade.php` — .rep-* styles
-- `routes/web.php` — POST /repayments/{id}/reverse (repayments.reverse) inside the RECORD_PAYMENTS group, whereNumber('id')
-- `tests/Feature/RepaymentTest.php` — 7 tests updated + 10 added
-- `PROGRESS.md` — updated
+**Test-first verification:** `DashboardGrantedKpiTest` was confirmed to FAIL on the pre-fix line `where('status', APPROVED)->sum('amount')` (would show ₱50,000 instead of ₱25,000) and PASS with the applied fix.
 
-## Migration
-- **Name**: `database/migrations/2026_11_17_000000_add_reversal_to_payments.php`
-- Adds `deleted_at` (softDeletes), `reversed_by`, `reversal_reason` to `payments` (all with `Schema::hasColumn` guards).
-- **Status: not run: waiting for my approval.**
-- ⚠️ The code depends on it: on a database without `deleted_at`, every default Payment query (payments pages, dashboard, reports) errors. Tests pass because RefreshDatabase runs all migrations on sqlite `:memory:`.
+---
 
-## Permission mapping
-| Action | Permission | Roles |
-|---|---|---|
-| View /record /edit (non-financial) / proof | RECORD_PAYMENTS | admin, branch_manager, loan_officer |
-| Edit amount / payment_date | REVERSE_PAYMENTS | branch_manager only |
-| Reverse a payment (route + controller gate + UI button) | REVERSE_PAYMENTS | branch_manager only |
+## Migrations
 
-The reverse route sits inside the RECORD_PAYMENTS group **and** re-checks REVERSE_PAYMENTS in the controller (RoleMiddleware has no admin bypass, so even admin needs the permission). `$canReverse` (blade) and `$canEditFinancial` (controller) read the same permission, so UI and server can never disagree.
+**None created or run for this session.** All Task 7 changes are application-layer only (controller, model, notification, blade view, route). No `migrate`, `migrate:fresh`, `db:wipe`, or `schema:dump` commands were issued — consistent with CLAUDE.md database-safety rules.
 
-## Places verified to exclude reversed payments
-SoftDeletes global scope excludes them automatically — no per-query edits needed:
-dashboard KPIs (`AdminController:73/81/93`), repayments list + collected totals (`:1828-49`, unless `show_reversed`), Due & Overdue tab last-payment date (`:1892`), reports totals (`:2002`), borrower performance (`:1673`), member-profile delinquency flag (`:3705`), LoanEvaluationService:452, PaymentService::recomputeLoanState (:65) + schedule (:141), LoanApplication::totalPaid()/remainingBalance(), duplicate-ref/duplicate-amount+date/over-pay checks (`:2488/2504/2622/2639/2657`), ReconcileBalances:42, BackfillPaymentRecorders:65, proof route + edit path (404, `:2785/:2589`). PaymentReminderService never queries payments (works off next_due_date), so nothing to exclude there.
+---
 
-## Tests old → new
-- RepaymentTest: **24 → 34**.
-- Changed (7): the amount-editing tests now act as `branch_manager` (loan_officer is refused by the new gate) — edit_repayment_recomputes_balance_and_due_date, edit_repayment_rejects_over_balance, edit_repayment_rejects_duplicate_reference, edit_repayment_recomputes_remaining_balance_after_and_running_balance, editing_repayment_without_new_proof_keeps_old_proof, editing_repayment_with_new_proof_replaces_it_and_failed_edit_keeps_old, editing_repayment_with_reason_saves_it_in_audit_log.
-- Added (10): record_payment_modal_shows_inline_confirmation_panel; branch_manager_can_reverse_a_payment_and_balance_is_recomputed; loan_officer_cannot_reverse_a_payment (403); reversing_an_already_reversed_payment_is_refused (409); reversing_a_payment_requires_a_reason_of_at_least_10_characters (422); non_branch_manager_cannot_edit_amount_or_payment_date (422, amount/payment_date prohibited); reversed_payment_cannot_be_edited (404); reversed_payments_are_hidden_from_the_list_and_totals_but_listable_on_demand; repayment_standing_uses_one_shared_definition (all 5 keys); due_and_overdue_tab_lists_overdue_then_due_today_then_due_soon (order + window exclusion).
-- Full suite: 714/2267/15/3-flaky → **724/2328/15/0**.
+## Data-fix commands — NOT run (user action required)
 
-## Anything not done
-- The reversal migration is **not run** (per instruction — awaiting approval).
-- Task 1's panel is client-side; covered by markup-presence test only. No Playwright browser spec added (no foreground serve/Playwright per standing rule).
-- The 3 Manila/UTC-boundary reminder tests remain flaky in principle (pre-existing, root cause documented above); they passed on this run.
-- Scratch-DB leftover rows from the earlier override fixture still need approval to delete (carried over).
+Two migrations/data-fix steps were identified in earlier task work but deliberately NOT executed against any real database. They must be run by you (the user) when you're ready:
 
-## Approval commands (run after my go-ahead)
-Backup first, then migrate the real `sdcc` database:
+1. **Payment reversal migration** `2026_11_17_000000_add_reversal_to_payments.php` — CREATED but NOT RUN (waiting for your approval). Real-DB payments pages error until applied because SoftDeletes queries a column that doesn't exist yet; tests pass because RefreshDatabase runs all migrations on sqlite `:memory:`.
 
-```cmd
-php artisan sdcc:backup
-php artisan config:cache
-type bootstrap\cache\config.php | findstr DB_DATABASE
-set ALLOW_PROTECTED_DB=1 && php artisan migrate
+2. **Backfill command** `sdcc:backfill-notif-log-loans` (dry-run default, `--apply` flag, sdcc guard) — dry-run on scratch returned 0 rows; `--apply` NOT run.
+
+**Exact commands you must run yourself** (per CLAUDE.md, never edit `.env`, always print DB_DATABASE first):
+
+```bash
+# 1. Print DB_DATABASE before any DB command
+php artisan config:cache --env=scratch
+# check DB_DATABASE in bootstrap/cache/config.php — must be sdcc_scratch
+
+# 2. Apply reversal migration on scratch DB (never sdcc directly)
+php artisan migrate --env=scratch
+
+# 3. Then run the backfill (dry-run first, then --apply)
+php artisan sdcc:backfill-notif-log-loans --env=scratch
+php artisan sdcc:backfill-notif-log-loans --env=scratch --apply
 ```
 
-(PowerShell equivalent of the override: `$env:ALLOW_PROTECTED_DB=1; php artisan migrate`.)
+Never run these against the protected `sdcc` database without `ALLOW_PROTECTED_DB=1` and your explicit approval. Back up before any `--apply`.
 
 ---
 
-Generated: 2026-11-17
+## Anything not done
+
+- Monthly disbursements (~line 90-92 in AdminController) and `loanTypes` (~line 76-80) still aggregate raw `amount` over APPROVED-only rows — left intentionally; the spec's KPI mismatch refers to the stat card.
+- Approve/reject JSON `total_approved` at lines ~653/743 still uses APPROVED-only `sum('amount')`.
+- Task 6 Part D.6 (message-preview migration) — pending your approval.
+- Scratch-DB leftover fixture rows from earlier override testing — need your approval to delete.
+- `C\357\200\272New` untracked directory — left untouched (pre-existing).
+
+---
+
+## Stray root files — LISTED, NOT deleted
+
+Per instructions, these untracked files exist in the project root/tests and are NOT deleted:
+
+- `tests/Feature/TmpDumpNotifPageTest.php`
+- `tmp_notif_page.html`
+
+(Plus earlier-session strays noted in PROGRESS.md: `active-members-proof.png`, `applications-index-proof.png`, `encode-proof.png`, `phpunit_out.txt`, `risk-flags-proof.png`, `server.log`, `storagelogsserve-8001.log`, `test-results/`, `tmp_create_admin_test_user.php`, `tmp_verify_spec.spec.cjs`.)
+
+These were present before this session and are left as-is per instructions.
+
+---
+
+## Pre-existing flaky tests (not caused by this session)
+
+Three reminder/outbox tests intermittently fail due to a UTC-vs-Manila timezone boundary in `PaymentReminderService::alreadySentToday()`:
+- `ReminderTest::running_reminders_twice_in_one_day_does_not_duplicate`
+- `ReminderTest::duplicate_guard_second_run_no_new_send`
+- `NotificationOutboxTest::running_reminders_twice_writes_no_duplicate_log_rows`
+
+Root cause documented in PROGRESS.md / REPORT.md; not introduced by this session's changes.
