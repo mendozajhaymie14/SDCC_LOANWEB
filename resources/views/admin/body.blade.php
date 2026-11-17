@@ -167,7 +167,7 @@
           <thead>
             <tr>
               <th>ID</th>
-              <th>APPLICANT</th>
+              <th>MEMBER</th>
               <th>LOAN TYPE</th>
               <th>AMOUNT</th>
               <th>RECOMMENDED</th>
@@ -199,7 +199,16 @@
               @endphp
               <tr>
                 <td class="font-semibold text-gray-700">#{{ $app->app_id }}</td>
-                <td><strong>{{ $app->loanApplication?->user->name ?? $app->applicant ?? 'Applicant' }}</strong></td>
+                <td>
+                  @php
+                    $memberName = $app->loanApplication?->user->name ?? $app->applicant ?? null;
+                    $memberId   = $app->loanApplication?->memberId();
+                  @endphp
+                  <div style="font-weight: 600;">{{ $memberName ?? 'Applicant' }}</div>
+                  @if($memberId)
+                    <div style="font-size: 0.72rem; color: #6b7280;">{{ $memberId }}</div>
+                  @endif
+                </td>
                 <td><span class="loan-type-tag">{{ $app->loan_type ?? 'educational' }}</span></td>
                 <td class="num">{{ \App\Support\Format::money($app->amount) }}</td>
                 <td class="num">{{ \App\Support\Format::money($app->recommended_amount ?? 0) }}</td>

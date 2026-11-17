@@ -70,9 +70,10 @@
 
       <div class="filter-row">
         <button class="filter-btn active" onclick="filterApps('all',this)">All ({{ $applications->count() }})</button>
-        <button class="filter-btn" onclick="filterApps('approved',this)">Approved</button>
-        <button class="filter-btn" onclick="filterApps('pending',this)">Pending</button>
-        <button class="filter-btn" onclick="filterApps('rejected',this)">Rejected</button>
+        <button class="filter-btn" onclick="filterApps('approved',this)">Approved ({{ $applications->where('status','Approved')->count() }})</button>
+        <button class="filter-btn" onclick="filterApps('pending',this)">Pending ({{ $applications->where('status','Pending')->count() }})</button>
+        <button class="filter-btn" onclick="filterApps('rejected',this)">Rejected ({{ $applications->where('status','Rejected')->count() }})</button>
+        <button class="filter-btn" onclick="filterApps('paid',this)">Paid ({{ $applications->where('status','Paid')->count() }})</button>
       </div>
 
       <div class="table-wrap">
@@ -80,7 +81,7 @@
           <thead>
             <tr>
               <th>ID</th>
-              <th>Applicant</th>
+              <th>Member</th>
               <th>Loan Type</th>
               <th>Requested</th>
               <th>Approved</th>
@@ -95,7 +96,16 @@
             @forelse($applications as $app)
   <tr data-status="{{ strtolower($app->status) }}" data-app-id="{{ $app->app_id }}">
     <td class="td-num">#{{ $app->app_id }}</td>
-    <td class="applicant-name">{{ $app->loanApplication?->fullName() ?? $app->applicant ?? 'Applicant' }}</td>
+    <td class="applicant-name">
+      @php
+        $memberName = $app->loanApplication?->fullName() ?? $app->applicant ?? null;
+        $memberId   = $app->loanApplication?->memberId();
+      @endphp
+      <div style="font-weight: 600;">{{ $memberName ?? '—' }}</div>
+      @if($memberId)
+        <div style="font-size: 0.72rem; color: #6b7280;">{{ $memberId }}</div>
+      @endif
+    </td>
     <td><span class="loan-type-tag">{{ $app->loan_type }}</span></td>
     <td class="num">{{ \App\Support\Format::money($app->amount) }}</td>
     <td class="num">
