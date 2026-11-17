@@ -34,6 +34,8 @@ class LoanApplication extends Model
         'encoded_by',
         // Approval tracking
         'approved_by',
+        // Approved principal (may be less than the requested amount)
+        'approved_amount',
     ];
 
     protected $casts = [
@@ -45,6 +47,7 @@ class LoanApplication extends Model
         'remaining_balance' => 'decimal:2',
         'recommended_amount'=> 'decimal:2',
         'next_due_date'     => 'date',
+        'approved_amount'   => 'decimal:2',
     ];
 
     public function user(): BelongsTo
@@ -61,12 +64,23 @@ class LoanApplication extends Model
     }
 
     /**
+     * Effective principal: approved_amount once granted, otherwise the
+     * requested amount while pending. All money math (EMI, total payable,
+     * amortization, outstanding principal, portal borrowed amounts) must use
+     * this — never raw $amount.
+     */
+    public function getPrincipalAttribute(): float
+    {
+        return (float) ($this->approved_amount ?: $this->amount);
+    }
+
+    /**
      * Monthly payment — delegated to AmortizationService.
      */
     public function getMonthlyPaymentAttribute(): float
     {
         return app(AmortizationService::class)
-            ->emi((float) $this->amount, (int) ($this->term_months ?? 12));
+            ->emi((float) $this->principal, (int) ($this->term_months ?? 12));
     }
 
     /**
@@ -76,7 +90,7 @@ class LoanApplication extends Model
     public function totalPayable(): float
     {
         return (float) app(AmortizationService::class)
-            ->summary((float) $this->amount, (int) ($this->term_months ?? 12))['total_paid'];
+            ->summary((float) $this->principal, (int) ($this->term_months ?? 12))['total_paid'];
     }
 
     /**
@@ -181,6 +195,26 @@ class LoanApplication extends Model
     }
 
     /**
+     * The cooperative member ID for this loan's borrower, or null when no
+     * member record can be resolved.
+     *
+     * Single resolution point for every display surface (repayments table,
+     * due/overdue tab, record/view/edit modals, search): the shared
+     * CoopMember::forLoanApplication() rule — user link first, then the
+     * email fallback for portal-less / staff-encoded loans. The portal path
+     * reads the already eager-loaded user.coopMember relation so the common
+     * case costs no extra query (no N+1).
+     */
+    public function memberId(): ?string
+    {
+        if ($this->relationLoaded('user') && $this->user?->coopMember) {
+            return $this->user->coopMember->member_id;
+        }
+
+        return CoopMember::forLoanApplication($this)?->member_id;
+    }
+
+    /**
      * Human-readable loan product name, resolved from the config matrix.
      */
     public function getLoanTypeLabelAttribute(): string
@@ -197,7 +231,7 @@ class LoanApplication extends Model
     public function amortizationSchedule(): \Illuminate\Support\Collection
     {
         return app(AmortizationService::class)
-            ->schedule((float) $this->amount, (int) ($this->term_months ?? 12));
+            ->schedule((float) $this->principal, (int) ($this->term_months ?? 12));
     }
 
     public static function makeReference(): string
@@ -244,7 +278,7 @@ class LoanApplication extends Model
             return 0;
         }
 
-        return (float) ($this->amount * ($remainingBalance / $totalPayable));
+        return (float) ($this->principal * ($remainingBalance / $totalPayable));
     }
 
     /**

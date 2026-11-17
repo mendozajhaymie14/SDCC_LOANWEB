@@ -71,12 +71,9 @@ class PaymentService
             // If the loan has a related Application row, also recompute that
             $application = Application::where('loan_application_id', $loan->id)->first();
 
-            // Monthly payment from AmortizationService
-            $monthlyPayment = $this->amortization->emi(
-                $totalPayable,
-                $loan->term_months ?? 12,
-                $loan->interest_rate ?? 0
-            );
+            // Monthly installment: the SAME figure the payment was priced on
+            // (principal-based EMI), so installment counting is consistent.
+            $monthlyPayment = $loan->monthly_payment;
 
             // Installments covered: floor(total_paid / monthly_payment)
             // Guard against zero/invalid monthly payment
@@ -86,25 +83,15 @@ class PaymentService
                 $installmentsCovered = (int)floor($totalPaid / $monthlyPayment);
             }
 
-            // First due date: loan's next_due_date if set, else disbursement_date if set, else created_at end-of-month
-            $firstDueDate = null;
-            if ($loan->next_due_date) {
-                $firstDueDate = Carbon::parse($loan->next_due_date);
-            } elseif ($loan->disbursement_date) {
-                $firstDueDate = Carbon::parse($loan->disbursement_date);
-            } else {
-                // Use created_at end-of-month as fallback
-                $firstDueDate = Carbon::parse($loan->created_at)->endOfMonth();
-            }
+            // Stable anchor: the first due date is one month after the money
+            // went out (disbursement/review), NOT the CURRENT next_due_date —
+            // which previous payments already advanced and would compound the
+            // drift on every run.
+            $anchor = $loan->disbursement_date ?? $loan->reviewed_at ?? $loan->created_at ?? now();
+            $firstDueDate = Carbon::parse($anchor)->addMonth();
 
-            // Calculate next_due_date
-            $nextDueDate = null;
-            if ($installmentsCovered > 0) {
-                $nextDueDate = $firstDueDate->copy()->addMonths($installmentsCovered)->format('Y-m-d');
-            } elseif ($firstDueDate) {
-                // No installments covered yet — preserve the original due date
-                $nextDueDate = $firstDueDate->format('Y-m-d');
-            }
+            // next_due_date = first due + installments covered (never negative).
+            $nextDueDate = $firstDueDate->copy()->addMonths($installmentsCovered)->format('Y-m-d');
 
             // Determine new status
             $newStatus = null;

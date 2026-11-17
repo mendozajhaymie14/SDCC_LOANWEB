@@ -77,6 +77,9 @@
   /* Row reversal styling */
   .row-reversed td { opacity: 0.6; }
   .status-pill.reversed { background: #fef2f2; color: #ef4444; border-color: #fee2e2; }
+
+  /* "Show reversed" toggle aligned with the filter row controls */
+  .rep-filter-toggle .rep-show-reversed { padding: 0.55rem 0.25rem; }
 </style>
 </head>
 
@@ -128,16 +131,23 @@
         </div>
       </div>
 
-      <!-- Tabs: Payments / Due &amp; Overdue -->
-      <div class="rep-tab-bar">
-        <button type="button" class="rep-tab active" data-tab="payments">Payments</button>
-        <button type="button" class="rep-tab" data-tab="due">Due &amp; Overdue
+      <!-- Tabs: Payments / Due & Overdue -->
+      @php
+        $activeTab = request('tab') === 'due' ? 'due' : 'payments';
+        $paymentsTabClass  = 'rep-tab' . ($activeTab === 'payments' ? ' active' : '');
+        $dueTabClass       = 'rep-tab' . ($activeTab === 'due' ? ' active' : '');
+        $paymentsPaneClass = 'rep-tab-pane' . ($activeTab !== 'payments' ? ' rep-hidden' : '');
+        $duePaneClass      = 'rep-tab-pane' . ($activeTab !== 'due' ? ' rep-hidden' : '');
+      @endphp
+      <div class="rep-tab-bar" role="tablist">
+        <button type="button" class="{{ $paymentsTabClass }}" data-tab="payments" role="tab" aria-selected="{{ $activeTab === 'payments' ? 'true' : 'false' }}">Payments</button>
+        <button type="button" class="{{ $dueTabClass }}" data-tab="due" role="tab" aria-selected="{{ $activeTab === 'due' ? 'true' : 'false' }}">Due &amp; Overdue
           <span class="rep-tab-count">{{ $dueLoans->count() }}</span>
         </button>
       </div>
 
       <!-- ===== TAB: PAYMENTS ===== -->
-      <div id="tab-payments" class="rep-tab-pane">
+      <div id="tab-payments" class="{{ $paymentsPaneClass }}">
       <!-- Search & Filters -->
       <div class="panel" style="margin-bottom: 1.5rem;">
         <form method="GET" action="{{ route('repayments.index') }}" class="rep-filter-row">
@@ -155,6 +165,12 @@
             <label class="rep-filter-label">End Date</label>
             <input type="date" name="end_date" class="rep-filter-control" value="{{ request('end_date') }}"/>
           </div>
+          <div class="rep-filter-group rep-filter-toggle">
+            <label class="rep-filter-label">Reversed</label>
+            <label class="rep-show-reversed">
+              <input type="checkbox" name="show_reversed" value="1" {{ $showReversed ? 'checked' : '' }} onchange="this.form.submit()"> Show reversed
+            </label>
+          </div>
           <div class="rep-filter-actions">
             <button type="submit" class="rep-btn">Filter</button>
             <a href="{{ route('repayments.index') }}" class="rep-btn rep-btn-danger">Reset</a>
@@ -166,15 +182,6 @@
       <div class="table-wrap">
         <div class="rep-list-toolbar">
           <span class="records-count">{{ $repayments->count() }} record(s)</span>
-          <form method="GET" action="{{ route('repayments.index') }}" class="rep-show-reversed">
-            @if(request('search'))<input type="hidden" name="search" value="{{ request('search') }}">@endif
-            @if(request('start_date'))<input type="hidden" name="start_date" value="{{ request('start_date') }}">@endif
-            @if(request('end_date'))<input type="hidden" name="end_date" value="{{ request('end_date') }}">@endif
-            <label>
-              <input type="checkbox" name="show_reversed" value="1" {{ $showReversed ? 'checked' : '' }}> Show reversed
-            </label>
-            <button type="submit" class="rep-btn">Apply</button>
-          </form>
         </div>
         <table class="app-table" id="repaymentsTable">
           <thead>
@@ -206,7 +213,7 @@
                 $nextDue = $repayment->loanApplication?->next_due_date ?? null;
                 $recordedBy = $repayment->encoder?->name ?? '—';
                 $paymentDateDisplay = $repayment->payment_date ? \Carbon\Carbon::parse($repayment->payment_date)->format('M d, Y') : '';
-                $memberId = $repayment->loanApplication?->user?->coopMember?->member_id;
+                $memberId = $repayment->loanApplication?->memberId();
                 $standing = $repayment->loanApplication?->repaymentStanding();
                 $isReversed = $repayment->isReversed();
                 $reversedBy = $repayment->reversedBy?->name ?? '—';
@@ -294,7 +301,7 @@
       <!-- ===== /TAB: PAYMENTS ===== -->
 
       <!-- ===== TAB: DUE & OVERDUE ===== -->
-      <div id="tab-due" class="rep-tab-pane rep-hidden">
+      <div id="tab-due" class="{{ $duePaneClass }}">
         <div class="panel">
           <input type="text" id="dueSearch" class="form-input rep-due-search"
                  placeholder="Search by name, member ID or loan ID"/>
@@ -384,7 +391,7 @@
               $borrowerName = $loan->loanApplication?->fullName() ?? $loan->applicant ?? 'Unknown';
               $appId = $loan->app_id ?? $loan->id;
               $remainingBalance = (float)($loan->remaining_balance ?? 0);
-              $memberId = $loan->loanApplication?->user?->coopMember?->member_id;
+              $memberId = $loan->loanApplication?->memberId();
               $nextDue = $loan->loanApplication?->next_due_date?->format('Y-m-d') ?? '';
               $monthlyPayment = (float)($loan->loanApplication?->monthly_payment ?? 0);
             @endphp

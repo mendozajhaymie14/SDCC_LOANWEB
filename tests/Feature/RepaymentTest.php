@@ -233,7 +233,8 @@ class RepaymentTest extends TestCase
         $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']));
 
         // Act: Make partial payment
-        $originalDue = $application->next_due_date;
+        // Stable anchor: first due date = created_at + 1 month (no disbursement/review in fixture)
+        $firstDue = Carbon::parse($loanApplication->created_at)->addMonth();
         $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
             ->withHeaders(['Accept' => 'application/json'])
             ->post('/admin/repayments', [
@@ -255,13 +256,19 @@ class RepaymentTest extends TestCase
         $this->assertEquals(10557.12, $application->remaining_balance, '', 1);
 
         // Assert: Next due date advanced by installments covered
-        // PaymentService uses emi(totalPayable, term, interest_rate??0) — rate=0 gives 13557.12/24=564.88
-        // So installmentsCovered = floor(3000/564.88) = 5 months
-        $totalPayable = $loanApplication->totalPayable();
-        $monthlyPayment = app(\App\Services\AmortizationService::class)->emi($totalPayable, 24, 0);
-        $installmentsCovered = (int) floor(3000 / $monthlyPayment);
-        $this->assertEquals($originalDue->copy()->addMonths($installmentsCovered)->format('Y-m-d'), $loanApplication->next_due_date->format('Y-m-d'));
-        $this->assertEquals($originalDue->copy()->addMonths($installmentsCovered)->format('Y-m-d'), $application->next_due_date->format('Y-m-d'));
+        // monthly_payment is principal-based EMI used by PaymentService (no interest here)
+        $installmentsCovered = (int) floor(3000 / $loanApplication->monthly_payment);
+        // First due date anchored at created_at + 1 month per DueDateAnchorTest
+        $this->assertEquals(
+            $firstDue->copy()->addMonths($installmentsCovered)->format('Y-m-d'),
+            $loanApplication->next_due_date->format('Y-m-d'),
+            "After {$installmentsCovered} installment(s) next_due_date must be first due + {$installmentsCovered} month(s), not drift forward"
+        );
+        $this->assertEquals(
+            $firstDue->copy()->addMonths($installmentsCovered)->format('Y-m-d'),
+            $application->next_due_date->format('Y-m-d'),
+            "applications mirror must equal loan_applications after payment {$installmentsCovered}"
+        );
     }
 
     /** @test */
@@ -606,7 +613,8 @@ class RepaymentTest extends TestCase
         $monthlyPayment = app(\App\Services\AmortizationService::class)->emi(12000, 24);
         $partialAmount = min(2000, $monthlyPayment - 100); // well below monthly installment
 
-        $originalDue = $application->next_due_date;
+        // Stable anchor: first due date = created_at + 1 month (no disbursement/review in fixture)
+        $firstDue = Carbon::parse($loanApplication->created_at)->addMonth();
         $response = $this->actingAs(User::factory()->create(['usertype' => 'loan_officer']))
             ->withHeaders(['Accept' => 'application/json'])
             ->post('/admin/repayments', [
@@ -629,8 +637,8 @@ class RepaymentTest extends TestCase
         // Assert: Next due date preserved (not advanced, not cleared)
         $this->assertNotNull($loanApplication->next_due_date);
         $this->assertNotNull($application->next_due_date);
-        $this->assertEquals($originalDue, $loanApplication->next_due_date);
-        $this->assertEquals($originalDue, $application->next_due_date);
+        $this->assertEquals($firstDue->format('Y-m-d'), $loanApplication->next_due_date->format('Y-m-d'));
+        $this->assertEquals($firstDue->format('Y-m-d'), $application->next_due_date->format('Y-m-d'));
     }
 
     /** @test */

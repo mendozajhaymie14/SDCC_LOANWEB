@@ -36,7 +36,7 @@ class UserController extends Controller
             'total'    => $applications->count(),
             'pending'  => $applications->where('status', 'pending')->count(),
             'approved' => $applications->where('status', 'approved')->count(),
-            'borrowed' => $applications->where('status', 'approved')->sum('amount'),
+            'borrowed' => $applications->where('status', 'approved')->sum('principal'),
         ];
 
         // Unread payment reminders for the bell badge and the

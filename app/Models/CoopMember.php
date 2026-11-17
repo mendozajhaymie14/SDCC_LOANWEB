@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Carbon\Carbon;
 use App\Support\LoanStatus;
 use App\Services\CreditLimitService;
+use Illuminate\Support\Facades\DB;
 
 class CoopMember extends Model
 {
@@ -299,7 +300,7 @@ class CoopMember extends Model
                 }
             });
 
-        return (float) $query->sum('amount');
+        return (float) $query->sum(DB::raw('COALESCE(approved_amount, amount)'));
     }
 
     /**

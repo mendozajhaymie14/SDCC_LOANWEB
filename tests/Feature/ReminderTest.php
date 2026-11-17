@@ -935,6 +935,42 @@ class ReminderTest extends TestCase
         $this->assertEquals(1, $data2['skipped'], 'Second same-day run should count the duplicate as skipped');
     }
 
+    /** @test
+     * Task 0C — the duplicate guard must hold across the UTC/Manila day
+     * boundary: a reminder sent at Manila 02:00 (= 18:00 UTC the previous
+     * day) must still count as "sent today" when the batch runs again at
+     * Manila 10:30 the same Manila day.
+     */
+    public function task_0c_duplicate_guard_holds_across_the_manila_midnight_boundary(): void
+    {
+        $member = $this->makeMember();
+        $loan   = $this->makeLoan($member, 'approved', $this->getManilaDate(-10), 800);
+        $admin  = $this->makeAdmin();
+
+        // Manila 2026-11-17 02:00 = UTC 2026-11-16 18:00.
+        Carbon::setTestNow(Carbon::create(2026, 11, 16, 18, 0, 0, 'UTC'));
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $this->assertEquals(1, AppNotification::where('loan_application_id', $loan->id)->count());
+
+        // Same Manila day, later: Manila Nov 17 10:30 = UTC Nov 17 02:30.
+        Carbon::setTestNow(Carbon::create(2026, 11, 17, 10, 30, 0, 'Asia/Manila'));
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->post(route('reminders.run'))
+            ->assertSuccessful();
+
+        $this->assertEquals(1, AppNotification::where('loan_application_id', $loan->id)->count(),
+            'A second run inside the same Manila day must not send a duplicate reminder');
+        $this->assertEquals(1, AppNotificationLog::where('loan_application_id', $loan->id)->where('status', 'Sent')->count(),
+            'The email outbox must not gain a duplicate row for the same Manila day');
+
+        Carbon::setTestNow();
+    }
+
     /** @test */
     public function legacy_loan_type_creates_due_today_notification()
     {

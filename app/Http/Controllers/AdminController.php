@@ -509,35 +509,52 @@ class AdminController extends Controller
         }
 
         $disbursementDate = now();
-        // Use the model's totalPayable() which computes principal + interest,
-        // NOT the raw principal. This is the single source of truth for all flows.
-        $loanApp = $application->loanApplication;
-        $totalPayable = $loanApp ? $loanApp->totalPayable() : $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
 
-        DB::transaction(function () use ($application, $disbursementDate, $totalPayable, $approvedAmount, $reason, $loanApp) {
+        DB::transaction(function () use ($application, $disbursementDate, $approvedAmount, $reason) {
+            // Effective approved principal: approved ?? recommended ?? requested.
+            // This is the value stored on BOTH tables and used for every money
+            // figure (EMI, total payable, remaining balance, schedules, emails).
+            $effectiveAmount = $approvedAmount ?? $application->recommended_amount ?? $application->amount ?? 0.00;
+
+            // 1. Stamp approved_amount on the loan row FIRST so the model's
+            //    principal() accessor resolves to the approved principal for
+            //    every computation below.
+            if ($application->loan_application_id) {
+                LoanApplication::where('id', $application->loan_application_id)->update([
+                    'status'          => 'approved',
+                    'reviewed_at'     => now(),
+                    'approved_amount' => $effectiveAmount,
+                    'approved_by'     => Auth::id(),
+                ]);
+            }
+
+            // 2. Reload the loan row so principal()/totalPayable() see the
+            //    approved amount, then compute the single source of truth.
+            $loanApp = $application->loan_application_id
+                ? LoanApplication::find($application->loan_application_id)
+                : null;
+            $totalPayable = $loanApp
+                ? $loanApp->totalPayable()
+                : $this->totalPayable((float) $application->amount, (int) ($application->term_months ?? 12));
+            $monthlyIncome = $loanApp?->monthly_income ?? 0.00;
+            $phone         = $loanApp?->contact_number ?? 'N/A';
+
+            // 3. Save the applications mirror.
             $application->status = 'Approved';
-            $application->approved_amount = $approvedAmount ?? $application->recommended_amount ?? 0.00;
+            $application->approved_amount = $effectiveAmount;
             $application->next_due_date = $disbursementDate->copy()->addMonth();
             $application->remaining_balance = $totalPayable;
             // Track which staff user approved this application.
             $application->approved_by = Auth::id();
             $application->save();
 
-            if ($application->loan_application_id) {
-                LoanApplication::where('id', $application->loan_application_id)->update([
-                    'status'            => 'approved',
-                    'reviewed_at'       => now(),
+            // 4. Close the loop on the loan row.
+            if ($loanApp) {
+                $loanApp->update([
                     'remaining_balance' => $totalPayable,
                     'next_due_date'     => $disbursementDate->copy()->addMonth(),
-                    'approved_by'       => Auth::id(),
                 ]);
             }
-
-            $loanApp = $application->loan_application_id
-                ? LoanApplication::find($application->loan_application_id)
-                : null;
-            $monthlyIncome = $loanApp?->monthly_income ?? 0.00;
-            $phone         = $loanApp?->contact_number ?? 'N/A';
 
             // Keep the score from the scorer; if no scan has run yet, leave it
             // null so the UI shows "pending scan" rather than inventing a number.
@@ -1830,6 +1847,14 @@ class AdminController extends Controller
                 $query->where(function ($q) use ($search) {
                     $q->whereHas('loanApplication.user', fn ($uq) => $uq->where('name', 'like', "%{$search}%"))
                       ->orWhereHas('loanApplication.user.coopMember', fn ($cq) => $cq->where('member_id', 'like', "%{$search}%"))
+                      // Portal-less loans: their member is matched by email
+                      // (CoopMember::forLoanApplication), so the member ID
+                      // search must reach them the same way.
+                      ->orWhereHas('loanApplication', function ($lq) use ($search) {
+                          $lq->whereNull('user_id')
+                             ->whereNotNull('email')
+                             ->whereRaw('LOWER(TRIM(email)) IN (SELECT LOWER(TRIM(email)) FROM coop_members WHERE member_id LIKE ? AND deleted_at IS NULL)', ["%{$search}%"]);
+                      })
                       ->orWhere('reference_no', 'like', "%{$search}%")
                       ->orWhereHas('loanApplication.application', fn ($aq) => $aq->where('app_id', 'like', "%{$search}%"));
                 });
@@ -2288,7 +2313,7 @@ class AdminController extends Controller
         return (object)[
             'member_name'   => $app->fullName(),
             'member_id'     => $app->user?->id ?? null,
-            'member_ref'    => $member?->member_id ?? null,
+            'member_ref'    => $app->memberId(),
             'loan_type'     => $app->loan_type,
             'loan_type_label' => $app->getLoanTypeLabelAttribute(),
             'overdue_installment' => $emi > 0 ? min($emi, $remaining) : $remaining,

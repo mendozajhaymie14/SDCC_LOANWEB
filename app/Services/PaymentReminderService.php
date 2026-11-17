@@ -219,9 +219,15 @@ class PaymentReminderService
     private function alreadySentToday(int $loanId, string $type): bool
     {
         try {
-            $tz = new \DateTimeZone('Asia/Manila');
-            $start = Carbon::today($tz)->startOfDay();
-            $end   = Carbon::today($tz)->endOfDay();
+            $tz      = new \DateTimeZone('Asia/Manila');
+            $appTz   = new \DateTimeZone(config('app.timezone', 'UTC'));
+            // The day bounds are built in Manila (the business day), but sent_at
+            // is stored in UTC, so the bounds must be converted to UTC before
+            // the whereBetween comparison — otherwise an 8-hour shift lets a
+            // reminder sent just after Manila midnight slip through as "not yet
+            // sent today".
+            $start = Carbon::today($tz)->startOfDay()->setTimezone($appTz);
+            $end   = Carbon::today($tz)->endOfDay()->setTimezone($appTz);
         } catch (\Throwable $e) {
             $start = Carbon::today()->startOfDay();
             $end   = Carbon::today()->endOfDay();
