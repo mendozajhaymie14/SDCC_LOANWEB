@@ -928,6 +928,96 @@ class AdminController extends Controller
         return redirect()->back()->with('success', 'Member status updated to Inactive.');
     }
 
+    // 15. Member Borrowing Performance
+    public function memberPerformance($id)
+    {
+        $member = CoopMember::findOrFail($id);
+
+        // Get all approved loans for this member using the same user_id + email fallback scoping
+        $memberEmail = $member->email ? strtolower(trim($member->email)) : null;
+
+        $loans = LoanApplication::where('status', 'approved')->where(function ($q) use ($member, $memberEmail) {
+            if ($member->user_id) {
+                $q->where('user_id', $member->user_id);
+                if ($memberEmail) {
+                    $q->orWhere(fn ($q2) => $q2->whereNull('user_id')
+                        ->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]));
+                }
+            } elseif ($memberEmail) {
+                $q->whereRaw('LOWER(TRIM(email)) = ?', [$memberEmail]);
+            }
+        })->get();
+
+        // Compute borrowing performance: on-time / late / overdue / performance label
+        $onTime = 0;
+        $late = 0;
+        $overdue = 0;
+
+        foreach ($loans as $la) {
+            // Get ALL payments ordered chronologically for correct ordinal positions
+            $allPayments = Payment::where('loan_application_id', $la->id)
+                ->orderBy('payment_date', 'asc')
+                ->get();
+            $paymentCount = $allPayments->count();
+            $nextDue = $la->next_due_date ?? null;
+
+            // Anchor per-payment due dates backwards from next_due_date
+            if (!$nextDue) {
+                $firstDueDate = $la->disbursement_date
+                    ? Carbon::parse($la->disbursement_date)
+                    : Carbon::parse($la->created_at)->endOfMonth();
+                $emi = (float) $la->monthly_payment;
+                $installmentsCovered = $emi > 0 ? (int) floor((float) ($la->totalPaid() ?? 0) / $emi) : 0;
+                $computedNextDue = $firstDueDate->copy();
+                if ($installmentsCovered > 0) {
+                    $computedNextDue = $computedNextDue->addMonths($installmentsCovered);
+                }
+                $nextDue = $computedNextDue->format('Y-m-d');
+            }
+
+            foreach ($allPayments as $index => $p) {
+                // Issue A: anchor per-payment due date backwards from next_due_date
+                // next_due_date = due date for installment ($paymentCount + 1).
+                // Payment (#$index+1) due date = next_due_date - ($paymentCount - $index) months.
+                $dueDate = null;
+                if ($nextDue) {
+                    $dueDate = Carbon::parse($nextDue)->subMonths($paymentCount - $index)->startOfDay();
+                }
+
+                if ($dueDate && $p->payment_date) {
+                    // diffInDays(signed): payment_date - dueDate
+                    //   >= 0 = payment on or before due date → on-time
+                    //   < 0  = payment after due date → late
+                    // Overdue when > 30 days late (diffDays < -30)
+                    $diffDays = (int) $p->payment_date->startOfDay()->diffInDays($dueDate, false);
+                    if ($diffDays >= 0) {
+                        $onTime++;
+                    } else {
+                        $late++;
+                        if ($diffDays < -30) {
+                            $overdue++;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Performance label: Good if no overdue and late <= on-time, Fair if late > on-time, Poor if overdue > 0
+        $label = 'Good';
+        if ($overdue > 0) {
+            $label = 'Poor';
+        } elseif ($late > $onTime) {
+            $label = 'Fair';
+        }
+
+        return response()->json([
+            'on_time_count' => $onTime,
+            'late_count'    => $late,
+            'overdue_count' => $overdue,
+            'performance_label' => $label,
+        ]);
+    }
+
     // 14. Delete Member
     public function destroyBorrower($id)
     {

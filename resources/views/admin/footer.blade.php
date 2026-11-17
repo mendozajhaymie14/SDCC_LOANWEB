@@ -848,37 +848,22 @@
           </div>
         </div>
 
-        <!-- Recent Loan Applications -->
+        <!-- Borrowing Performance -->
         <div style="margin-top: 1rem;">
-          <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Recent Loan Applications</div>
+          <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Borrowing Performance</div>
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead>
               <tr style="border-bottom: 1px solid #eaecf0;">
-                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Rule-Based Score</th>
-                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">App ID</th>
-                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Borrower</th>
-                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Status</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase; text-align:center;">On-Time</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase; text-align:center;">Late</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase; text-align:center;">Overdue</th>
+                <th style="padding: 0.4rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: #667085; text-transform: uppercase;">Performance</th>
               </tr>
             </thead>
-            <tbody>
-              ${activeLoans.slice(0,5).map(app => {
-                const appStatus = app.status.charAt(0).toUpperCase() + app.status.slice(1);
-                const rowScoreC = app.score != null ? (app.score >= 51 ? '#10b981' : '#ef4444') : 'var(--muted)';
-                return `
-                  <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
-                      <span class="num" style="color:${rowScoreC};">${app.score ?? 'N/A'}</span>
-                    </td>
-                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">${app.app_id || 'N/A'}</td>
-                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">${app.name || app.applicant || 'N/A'}</td>
-                    <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
-                      <span class="status-pill ${app.status}"><span class="status-dot"></span>${appStatus}</span>
-                    </td>
-                  </tr>`;
-              }).join('') || '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--muted);">No loan applications found.</td></tr>'}
+            <tbody id="memberPerfBody-${m.id}">
+              <tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--muted);">Loading…</td></tr>
             </tbody>
           </table>
-          ${activeLoans.slice(0,5).some(a => a.score == null) ? '<div style="font-size:.75rem;color:var(--muted);margin-top:.3rem;font-style:italic;">N/A = rule-based score not available yet (evaluation pending).</div>' : ''}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
@@ -900,6 +885,36 @@
     }
 
     openModal('activeMemberDetail');
+
+    // Fetch borrowing performance (on-time / late / overdue / performance label).
+    fetch('/active-members/' + m.id + '/performance', {
+      headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then(r => { if (!r.ok) throw new Error('Failed to load performance'); return r.json(); })
+      .then(perf => {
+        const tbody = document.getElementById('memberPerfBody-' + m.id);
+        if (!tbody) return;
+        const cls = perf.performance_label === 'Good' ? 'ok'
+          : perf.performance_label === 'Fair' ? 'warn' : 'bad';
+        const pill = {
+          ok:   { bg: '#dcfce7', color: '#166534' },
+          warn: { bg: '#fef3c7', color: '#92400e' },
+          bad:  { bg: '#fee2e2', color: '#991b1b' },
+        }[cls] || { bg: '#e2e8f0', color: '#334155' };
+        const overdueStyle = perf.overdue_count > 0 ? 'color:#b91c1c;font-weight:600;' : '';
+        tbody.innerHTML = `<tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054; text-align:center;">${perf.on_time_count}</td>
+          <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054; text-align:center;">${perf.late_count}</td>
+          <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; ${overdueStyle} text-align:center;">${perf.overdue_count}</td>
+          <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
+            <span style="display:inline-block;padding:.15rem .55rem;border-radius:9999px;font-size:.72rem;font-weight:600;background:${pill.bg};color:${pill.color}">${perf.performance_label}</span>
+          </td>
+        </tr>`;
+      })
+      .catch(() => {
+        const tbody = document.getElementById('memberPerfBody-' + m.id);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--muted);">Could not load performance.</td></tr>';
+      });
   }
 
   // â”€â”€â”€ DELETE ACTIVE MEMBER ACTION â”€â”€â”€

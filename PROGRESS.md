@@ -184,3 +184,11 @@ Branch: credit-limit-wip
 - applications.blade.php: `<th>Applicant</th>` → `<th>Member</th>`; applicant-name cell now renders bold name + member_id below (e.g. "SDCC-2026-0001"), matching the notifications-log page markup. Uses `$app->loanApplication?->fullName()` for the name and `$app->loanApplication?->memberId()` for the id (same accessor the notifications-log page uses). "—" when neither resolves.
 - Dashboard Pending Loan Applications table (body.blade.php): `<th>APPLICANT</th>` → `<th>MEMBER</th>`; same bold-name + member_id two-line rendering.
 - Full suite: 758 tests / 2519 assertions / 15 skipped / 0 failures.
+
+## Active Members modal: Borrowing Performance (2026-11-18)
+
+- **Request**: replace the "RECENT LOAN APPLICATIONS" section in the Active Members view modal with "BORROWING PERFORMANCE" using the same columns as the Reports page Borrower Performance table (On-time / Late / Overdue / Performance).
+- **Reused the reports computation exactly**: new `AdminController::memberPerformance($id)` resolves the member's approved loans with the same user_id + email-fallback scoping used by `CoopMember::outstandingBalance()` and the reports grouping, then runs the identical per-payment due-date anchoring (`next_due_date` backwards, `diffInDays` >=0 on-time, <0 late, <-30 overdue) and Good/Fair/Poor labelling from `borrowerPerformanceData()`.
+- **New endpoint**: `GET /active-members/{id}/performance` (route `active-members.performance`, guarded by `VIEW_MEMBER_PROFILES`), returns JSON `{on_time_count, late_count, overdue_count, performance_label}`.
+- **Modal**: `footer.blade.php` `openActiveMemberDetail()` now renders a "Borrowing Performance" table (On-time / Late / Overdue / Performance with a Good/Fair/Poor pill matching the reports `$pill` colours) and fetches the endpoint on open; loading + error states included.
+- **Tests**: added `MemberPerformanceTest` (3 tests): late/overdue computation (1 on-time / 2 late / 1 overdue → Poor), no-loans → zero/Good, all-on-time → Good.

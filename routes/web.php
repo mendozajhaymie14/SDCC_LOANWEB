@@ -221,6 +221,8 @@ Route::middleware(['auth', 'role'])->group(function () {
     Route::middleware(['role:' . Permissions::VIEW_MEMBER_PROFILES])->group(function () {
         Route::get('/active-members', [AdminController::class, 'borrowers'])
             ->name('active-members.index');
+        Route::get('/active-members/{id}/performance', [AdminController::class, 'memberPerformance'])
+            ->name('active-members.performance');
     });
 
     // Member profile pages for staff
