@@ -1133,6 +1133,21 @@ class NotificationOutboxTest extends TestCase
 
         // Loan ref shows the application's APP-xxxx code
         $this->assertStringContainsString($app->app_id, $content);
+
+        // New column headers: Date, Member, Recipient, Subject, Loan, Type, Status
+        $this->assertStringContainsString('<th>Date</th>', $content);
+        $this->assertStringContainsString('<th>Member</th>', $content);
+        $this->assertStringContainsString('<th>Recipient</th>', $content);
+        $this->assertStringContainsString('<th>Subject</th>', $content);
+        $this->assertStringContainsString('<th>Loan</th>', $content);
+        $this->assertStringContainsString('<th>Type</th>', $content);
+        $this->assertStringContainsString('<th>Status</th>', $content);
+        // Old headers removed (Channel filter label stays, only the column is gone)
+        $this->assertStringNotContainsString('<th>Member Ref</th>', $content);
+        $this->assertStringNotContainsString('<th>Loan Ref</th>', $content);
+        $this->assertStringNotContainsString('<th>Channel</th>', $content);
+        $this->assertStringNotContainsString('<th>Sent At</th>', $content);
+        $this->assertStringNotContainsString('<th>Error</th>', $content);
     }
 
     /** @test */
@@ -1198,5 +1213,19 @@ class NotificationOutboxTest extends TestCase
         // Error text present only for the Failed and Skipped rows
         $this->assertStringContainsString('mail transport down', $content);
         $this->assertStringContainsString('no email on file', $content);
+
+        // New column headers present (old 9-column layout removed)
+        $this->assertStringContainsString('<th>Date</th>', $content);
+        $this->assertStringContainsString('<th>Member</th>', $content);
+        $this->assertStringContainsString('<th>Recipient</th>', $content);
+        $this->assertStringContainsString('<th>Subject</th>', $content);
+        $this->assertStringContainsString('<th>Loan</th>', $content);
+        $this->assertStringContainsString('<th>Type</th>', $content);
+        $this->assertStringContainsString('<th>Status</th>', $content);
+        $this->assertStringNotContainsString('<th>Member Ref</th>', $content);
+        $this->assertStringNotContainsString('<th>Loan Ref</th>', $content);
+        $this->assertStringNotContainsString('<th>Channel</th>', $content);
+        $this->assertStringNotContainsString('<th>Sent At</th>', $content);
+        $this->assertStringNotContainsString('<th>Error</th>', $content);
     }
 }

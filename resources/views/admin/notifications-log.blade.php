@@ -3,6 +3,7 @@
 @php
 use App\Models\Setting;
 use App\Models\AppNotificationLog;
+use App\Models\CoopMember;
 @endphp
 
 @section('admin_content')
@@ -216,6 +217,7 @@ use App\Models\AppNotificationLog;
   .nl-pill-failed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
   .nl-pill-pending { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
   .nl-pill-skipped { background: rgba(107, 114, 128, 0.15); color: var(--muted); }
+  .nl-pill-neutral { background: rgba(2, 132, 199, 0.15); color: var(--accent); }
 
   .nl-muted { color: var(--muted); font-weight: 400; }
   .nl-loan-link { color: var(--accent); text-decoration: none; font-weight: 600; }
@@ -387,24 +389,29 @@ use App\Models\AppNotificationLog;
       <thead>
         <tr>
           <th>Date</th>
+          <th>Member</th>
           <th>Recipient</th>
           <th>Subject</th>
-          <th>Member Ref</th>
-          <th>Loan Ref</th>
+          <th>Loan</th>
           <th>Type</th>
-          <th>Channel</th>
           <th>Status</th>
-          <th>Error</th>
         </tr>
       </thead>
       <tbody id="notifLogsTableBody">
         @if($logs->isNotEmpty())
           @foreach($logs as $log)
             @php
-              $memberId = $log->user?->coopMember?->member_id;
-              $memberName = $log->user?->name;
-              $loanRef = $log->loanApplication?->application?->app_id;
-              $loanAppId = $log->loanApplication?->application?->id;
+              // Resolve member like the Repayments page: user link first,
+              // then email match (portal-less / staff-encoded loans have no user).
+              $loanApplication = $log->loanApplication;
+              $member = $log->user?->coopMember ?? ($loanApplication ? CoopMember::forLoanApplication($loanApplication) : null);
+              $memberId   = $member?->member_id ?? null;
+              $memberName = $log->user?->name ?? $member?->full_name ?? null;
+              // Always read app_id from the mirror row this log's loan was
+              // approved through; never trust applications.id/app_id being
+              // off-by-one from duplicate mirrors.
+              $loanRef = $loanApplication?->application?->app_id ?? null;
+              $loanAppId = $loanApplication?->application?->id ?? null;
             @endphp
             <tr class="hover:bg-gray-50 transition-colors @if($loop->odd) bg-white @else bg-gray-50 @endif" data-status="{{ strtolower($log->status) }}"
                 onclick="openNotifModal(
@@ -422,20 +429,18 @@ use App\Models\AppNotificationLog;
                   {{ json_encode($loanRef) }},
                   {{ $loanAppId ?? 'null' }})">
               <td class="font-medium text-gray-600 text-sm">{{ $log->created_at->format('M d, Y H:i') }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ $log->recipient_email }}</td>
-              <td class="font-medium text-gray-600 text-sm" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $log->subject }}</td>
               <td class="font-medium text-gray-600 text-sm">
-                @if($memberId)
-                  {{ $memberId }}
-                  @if($memberName)
-                    <span class="nl-muted"> · {{ $memberName }}</span>
+                @if($memberId || $memberName)
+                  <div style="font-weight: 600;">{{ $memberName ?? '—' }}</div>
+                  @if($memberId)
+                    <div class="nl-muted" style="font-size: 0.72rem;">{{ $memberId }}</div>
                   @endif
-                @elseif($memberName)
-                  {{ $memberName }}
                 @else
                   —
                 @endif
               </td>
+              <td class="font-medium text-gray-600 text-sm">{{ $log->recipient_email }}</td>
+              <td class="font-medium text-gray-600 text-sm" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $log->subject }}</td>
               <td class="font-medium text-gray-600 text-sm">
                 @if($loanRef)
                   <a href="#" class="nl-loan-link" onclick="openNotifLoan('{{ $loanRef }}', {{ $loanAppId }}); return false;">{{ $loanRef }}</a>
@@ -443,19 +448,24 @@ use App\Models\AppNotificationLog;
                   —
                 @endif
               </td>
-              <td class="font-medium text-gray-600 text-sm">{{ AppNotificationLog::typeLabel($log->notification_type) }}</td>
-              <td class="font-medium text-gray-600 text-sm">{{ ucfirst($log->channel) }}</td>
               <td class="font-medium text-gray-600 text-sm">
-                <span class="nl-pill {{ 'nl-pill-' . strtolower($log->status) }}">
-                  <span class="status-dot"></span>{{ $log->status }}
-                </span>
+                <span class="nl-pill nl-pill-neutral">{{ AppNotificationLog::typeLabel($log->notification_type) }}</span>
               </td>
-              <td class="font-medium text-gray-600 text-sm nl-error-text">{{ $log->error_message ?? '—' }}</td>
+              <td class="font-medium text-gray-600 text-sm">
+                <div>
+                  <span class="nl-pill {{ 'nl-pill-' . strtolower($log->status) }}">
+                    <span class="status-dot"></span>{{ $log->status }}
+                  </span>
+                  @if($log->status === 'Failed' || $log->status === 'Skipped')
+                    <div class="nl-muted" style="font-size: 0.72rem; margin-top: 0.3rem;">{{ $log->error_message }}</div>
+                  @endif
+                </div>
+              </td>
             </tr>
           @endforeach
         @else
           <tr>
-            <td colspan="9" class="nl-empty">No notification logs found.</td>
+            <td colspan="7" class="nl-empty">No notification logs found.</td>
           </tr>
         @endif
       </tbody>

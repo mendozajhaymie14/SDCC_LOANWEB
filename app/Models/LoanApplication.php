@@ -60,7 +60,7 @@ class LoanApplication extends Model
      */
     public function application(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
-        return $this->hasOne(Application::class, 'loan_application_id');
+        return $this->hasOne(Application::class, 'loan_application_id')->latest('id');
     }
 
     /**
