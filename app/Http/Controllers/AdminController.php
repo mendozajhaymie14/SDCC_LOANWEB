@@ -1844,6 +1844,23 @@ class AdminController extends Controller
     public function repayments()
     {
         $base = Payment::with(['loanApplication.user', 'encoder', 'loanApplication.user.coopMember', 'reversedBy'])
+            ->when(request('member_id'), function ($query, $memberId) {
+                // Member dropdown: exact match on the selected active member.
+                // Portal-less loans are reached through the email fallback,
+                // same as the member-ID text search above.
+                $query->where(function ($q) use ($memberId) {
+                    $q->whereHas('loanApplication.user.coopMember', fn ($cq) => $cq->where('member_id', $memberId))
+                      ->orWhereHas('loanApplication', function ($lq) use ($memberId) {
+                          $lq->whereNull('user_id')
+                             ->whereNotNull('email')
+                             ->whereRaw('LOWER(TRIM(email)) IN (SELECT LOWER(TRIM(email)) FROM coop_members WHERE member_id = ? AND deleted_at IS NULL)', [$memberId]);
+                      });
+                });
+            })
+            ->when(request('app_id'), function ($query, $appId) {
+                // Loan Application ID dropdown: exact match on the application mirror.
+                $query->whereHas('loanApplication.application', fn ($aq) => $aq->where('app_id', $appId));
+            })
             ->when(request('search'), function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->whereHas('loanApplication.user', fn ($uq) => $uq->where('name', 'like', "%{$search}%"))
@@ -1883,9 +1900,33 @@ class AdminController extends Controller
         $showReversed = (bool) request('show_reversed');
         $canReverse = Permissions::has(Auth::user(), Permissions::REVERSE_PAYMENTS);
 
+        // Members for the search dropdown: anyone with a loan application,
+        // reached the same two ways memberId() resolves them — portal members
+        // through the user link, portal-less members by email.
+        $activeMembers = CoopMember::where(function ($q) {
+                $q->whereNotNull('user_id')
+                  ->whereHas('loanApplications');
+            })
+            ->orWhere(function ($q) {
+                $q->whereNotNull('email')
+                  ->whereRaw('EXISTS (SELECT 1 FROM loan_applications WHERE loan_applications.user_id IS NULL AND LOWER(TRIM(loan_applications.email)) = LOWER(TRIM(coop_members.email)))');
+            })
+            ->orderBy('full_name')
+            ->get(['id', 'member_id', 'full_name', 'user_id']);
+
+        // Loan Application ID dropdown for the filter row: applications that
+        // actually have payments, newest first. Duplicate mirrors share one
+        // loan (APP-0009/APP-0010 style), so only the newest mirror per loan
+        // is listed — matching Payment::appId()'s canonical resolution.
+        $appOptions = Application::whereHas('loanApplication.payments')
+            ->orderByDesc('id')
+            ->get(['id', 'app_id', 'loan_application_id'])
+            ->unique('loan_application_id')
+            ->values();
+
         return view('admin.repayments', compact(
             'repayments', 'totalRepayments', 'monthlyCollected', 'approvedLoans',
-            'dueLoans', 'showReversed', 'canReverse'
+            'dueLoans', 'showReversed', 'canReverse', 'activeMembers', 'appOptions'
         ));
     }
 
@@ -2159,9 +2200,10 @@ class AdminController extends Controller
             ->keyBy('loan_type')
             ->toArray();
 
-        // Normalise
-        $statusTotalMap = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
-        $countStatusMap = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'paid' => 0, 'flagged' => 0];
+        // Normalise. "Flagged" is an admin-only triage bucket, not a loan
+        // outcome — it is excluded from the By Status summary (page + Excel).
+        $statusTotalMap = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'paid' => 0];
+        $countStatusMap = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'paid' => 0];
 
         foreach ($byStatus as $row) {
             $statusTotalMap[$row['status']] = (float) ($row['total'] ?? 0);
@@ -2169,6 +2211,9 @@ class AdminController extends Controller
         foreach ($countByStatus as $row) {
             $countStatusMap[$row['status']] = (int) ($row['cnt'] ?? 0);
         }
+        // "Flagged" is an admin triage bucket, not a loan outcome — drop it from
+        // the By Status summary (page + Excel) even when flagged rows exist.
+        unset($statusTotalMap['flagged'], $countStatusMap['flagged']);
 
         $typeTotalMap = [];
         $countTypeMap = [];

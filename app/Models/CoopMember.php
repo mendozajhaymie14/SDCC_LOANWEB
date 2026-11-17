@@ -78,7 +78,8 @@ class CoopMember extends Model
      */
     public function loanApplications()
     {
-        return $this->hasMany(LoanApplication::class, 'user_id');
+        // Loan applications keyed by the member's portal user account.
+        return $this->hasMany(LoanApplication::class, 'user_id', 'user_id');
     }
 
     /**

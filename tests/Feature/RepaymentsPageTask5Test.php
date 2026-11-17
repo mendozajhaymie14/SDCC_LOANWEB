@@ -111,6 +111,24 @@ class RepaymentsPageTask5Test extends TestCase
     }
 
     /** @test */
+    public function task_5_4_member_dropdown_lists_portal_and_portal_less_members()
+    {
+        $portalLoan = $this->portalMemberLoan('MEM-DROP-1', 'drop1@example.com')[0];
+        $this->paymentFor($portalLoan, 'REP-DROP-1');
+        $portalLess = $this->portalLessLoan('MEM-DROP-2', 'drop2@example.com');
+        $this->paymentFor($portalLess, 'REP-DROP-2');
+
+        $response = $this->actingAs($this->officer())->get('/repayments');
+
+        $response->assertStatus(200);
+        $html = $response->getContent();
+        // The member search dropdown lists both the portal member (user link)
+        // and the portal-less member (email fallback).
+        $this->assertStringContainsString('value="MEM-DROP-1"', $html);
+        $this->assertStringContainsString('value="MEM-DROP-2"', $html);
+    }
+
+    /** @test */
     public function task_5_1_tab_due_url_param_opens_the_due_tab()
     {
         $response = $this->actingAs($this->officer())->get('/repayments?tab=due');
@@ -187,7 +205,11 @@ class RepaymentsPageTask5Test extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('REP-NOMATCH');
-        $response->assertSee('<td class="applicant-name">—</td>', false);
+        // MEMBER column: borrower name renders, and no member-ID sub-line is
+        // shown when no member matches the loan.
+        $html = $response->getContent();
+        $this->assertStringContainsString('<div style="font-weight: 600;">', $html);
+        $this->assertStringNotContainsString('<div style="font-size: 0.72rem; color: #6b7280;">', $html);
     }
 
     /** @test */
