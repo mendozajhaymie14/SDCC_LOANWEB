@@ -482,8 +482,15 @@
     const fields = [firstName, middleName, lastName, email, contact].filter(Boolean);
     fields.forEach(el => el.addEventListener('blur', () => checkField(el)));
 
-    // Block submit on any duplicate error
+    // Block submit on any duplicate error, or a non-gmail email
     form.addEventListener('submit', function (e) {
+      const eml = email ? email.value.trim().toLowerCase() : '';
+      if (eml && !eml.endsWith('@gmail.com')) {
+        e.preventDefault();
+        showMessage(email, 'Only @gmail.com email addresses are allowed.', 'error');
+        email.focus();
+        return;
+      }
       const errorEls = document.querySelectorAll('.dup-check-msg.error');
       if (errorEls.length > 0) {
         e.preventDefault();

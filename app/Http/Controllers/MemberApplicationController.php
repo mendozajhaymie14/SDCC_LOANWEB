@@ -104,6 +104,12 @@ class MemberApplicationController extends Controller
             'email'          => ['required', 'string', 'email', 'max:255', function ($attribute, $value, $fail) {
                 $email = strtolower(trim($value));
 
+                // Cooperative policy: membership applications only via gmail.
+                if (! str_ends_with($email, '@gmail.com')) {
+                    $fail('Only @gmail.com email addresses are allowed.');
+                    return;
+                }
+
                 // Uniqueness of member_applications.email is handled at the
                 // store level by the firstWhere() lookup + update/create path,
                 // which prevents the MySQL 1062 duplicate-key crash. This check

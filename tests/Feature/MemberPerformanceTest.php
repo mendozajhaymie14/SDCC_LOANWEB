@@ -89,6 +89,37 @@ class MemberPerformanceTest extends TestCase
                 'on_time_count'      => 0,
                 'late_count'         => 0,
                 'overdue_count'      => 0,
+                'performance_label'  => null,
+            ]);
+    }
+
+    /** @test */
+    public function it_counts_payments_on_non_approved_loans_like_the_reports_page()
+    {
+        $officer = $this->loanOfficer();
+        $member  = $this->memberWithUser();
+
+        // A fully-paid loan still contributes its payment history to the
+        // Borrower Performance report — the modal must not filter it out.
+        $paidLoan = LoanApplication::factory()->create([
+            'user_id'       => $member->user_id,
+            'status'        => 'paid',
+            'next_due_date' => '2025-03-01',
+        ]);
+
+        Payment::factory()->create([
+            'loan_application_id' => $paidLoan->id,
+            'payment_date'        => '2024-12-01',   // exactly on due date → on-time
+        ]);
+
+        $response = $this->actingAs($officer)
+            ->getJson(route('active-members.performance', $member->id));
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'on_time_count'      => 1,
+                'late_count'         => 0,
+                'overdue_count'      => 0,
                 'performance_label'  => 'Good',
             ]);
     }

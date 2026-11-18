@@ -192,3 +192,22 @@ Branch: credit-limit-wip
 - **New endpoint**: `GET /active-members/{id}/performance` (route `active-members.performance`, guarded by `VIEW_MEMBER_PROFILES`), returns JSON `{on_time_count, late_count, overdue_count, performance_label}`.
 - **Modal**: `footer.blade.php` `openActiveMemberDetail()` now renders a "Borrowing Performance" table (On-time / Late / Overdue / Performance with a Good/Fair/Poor pill matching the reports `$pill` colours) and fetches the endpoint on open; loading + error states included.
 - **Tests**: added `MemberPerformanceTest` (3 tests): late/overdue computation (1 on-time / 2 late / 1 overdue → Poor), no-loans → zero/Good, all-on-time → Good.
+
+## Active Members modal: Borrowing Performance (2026-11-18)
+
+- **Request**: replace the "RECENT LOAN APPLICATIONS" section in the Active Members view modal with "BORROWING PERFORMANCE" using the same columns as the Reports page Borrower Performance table (On-time / Late / Overdue / Performance).
+- **Reused the reports computation exactly**: new `AdminController::memberPerformance($id)` resolves the member's approved loans with the same user_id + email-fallback scoping used by `CoopMember::outstandingBalance()` and the reports grouping, then runs the identical per-payment due-date anchoring (`next_due_date` backwards, `diffInDays` >=0 on-time, <0 late, <-30 overdue) and Good/Fair/Poor labelling from `borrowerPerformanceData()`.
+- **New endpoint**: `GET /active-members/{id}/performance` (route `active-members.performance`, guarded by `VIEW_MEMBER_PROFILES`), returns JSON `{on_time_count, late_count, overdue_count, performance_label}`.
+- **Modal**: `footer.blade.php` `openActiveMemberDetail()` now renders a "Borrowing Performance" table (On-time / Late / Overdue / Performance with a Good/Fair/Poor pill matching the reports `$pill` colours) and fetches the endpoint on open; loading + error states included.
+- **Tests**: added `MemberPerformanceTest` (3 tests): late/overdue computation (1 on-time / 2 late / 1 overdue → Poor), no-loans → zero/Good, all-on-time → Good.
+
+## Modal vs Reports mismatch fix + email @gmail.com restriction (2026-11-18)
+
+- **Modal vs Reports data mismatch (reported)**: the Active Members modal showed ON-TIME 0 while the Reports page showed ON-TIME 1 for the same member. Root cause: `memberPerformance()` filtered `status='approved'`, while `borrowerPerformanceData()` counts payments across all statuses — so payments on paid/other non-approved loans were dropped in the modal.
+- **Fix**: `memberPerformance()` now delegates to the canonical reports computation — `borrowerPerformanceData($this->buildReportFilters(request()))` (buildReportFilters required; calling with `[]` would warn on missing `status_closures` keys) — so the modal and the Reports page can never drift. Added `MemberPerformanceTest::it_counts_payments_on_non_approved_loans_like_the_reports_page` (paid-status loan with on-time payment → 1/0/0 Good).
+- **Null label**: a member with no loans now renders `performance_label: null` → the JS maps it to `—` (neutral pill), no red false-negative.
+- **Email @gmail.com restriction (Image #31)**: membership applications now only accept `@gmail.com` email addresses.
+  - Server: `MemberApplicationController::store()` email closure rejects anything not ending in `@gmail.com` (lowercased/trimmed) with "Only @gmail.com email addresses are allowed." before the CoopMember duplicate check.
+  - Client: `member-application.blade.php` submit handler blocks submit + shows inline error (existing `showMessage` helper) when the trimmed/lowercased email does not end with `@gmail.com`.
+  - Tests: all `MemberApplicationStoreTest` POST payloads and User factory emails switched from `@example.com` to `@gmail.com`; new `test_non_gmail_email_is_rejected` (asserts `errors('email')` + no row). MembershipApprovalTest already used `jane@gmail.com`.
+- **Full suite**: 764 tests / 2541 assertions / 15 skipped / **0 failures**.

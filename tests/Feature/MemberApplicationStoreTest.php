@@ -22,7 +22,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_same_as_current_address_copies_current_to_permanent(): void
     {
         $user = User::factory()->create([
-            'email' => 'test@example.com',
+            'email' => 'test@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -40,14 +40,14 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Main Street',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'test@example.com',
+            'email'         => 'test@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'same_as_current_address'     => 'on',
             'data_privacy_consent'        => '1',
         ]);
 
-        $application = MemberApplication::where('email', 'test@example.com')->first();
+        $application = MemberApplication::where('email', 'test@gmail.com')->first();
         $this->assertNotNull($application);
 
         // Verify permanent address fields were copied from current address
@@ -58,10 +58,41 @@ class MemberApplicationStoreTest extends TestCase
         $this->assertEquals('1740', $application->perm_zip_code);
     }
 
+    public function test_non_gmail_email_is_rejected(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'test@gmail.com',
+            'password' => 'password',
+            'usertype' => 'user',
+        ]);
+
+        $this->actingAs($user);
+
+        $response = $this->post(route('member.applications.store'), [
+            'first_name'    => 'John',
+            'middle_name'   => 'Middle',
+            'last_name'     => 'Doe',
+            'occupation'    => 'Engineer',
+            'province'      => 'National Capital Region (NCR)',
+            'municipality'  => 'Las Piñas City',
+            'barangay'      => 'B. F. International Village',
+            'address_line'  => '123 Main Street',
+            'zip_code'      => '1740',
+            'contact_number'=> '09171234567',
+            'email'         => 'test@yahoo.com',
+            'monthly_income'              => 50000,
+            'existing_monthly_obligations'=> 2000,
+            'data_privacy_consent'        => '1',
+        ]);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertNull(MemberApplication::where('email', 'test@yahoo.com')->first());
+    }
+
     public function test_same_as_current_unchecked_allows_manual_permanent_address(): void
     {
         $user = User::factory()->create([
-            'email' => 'test2@example.com',
+            'email' => 'test2@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -79,7 +110,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Current Street',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'test2@example.com',
+            'email'         => 'test2@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             // same_as_current_address NOT checked (unchecked checkbox doesn't send value)
@@ -93,7 +124,7 @@ class MemberApplicationStoreTest extends TestCase
 
         $response->assertRedirect();
 
-        $application = MemberApplication::where('email', 'test2@example.com')->first();
+        $application = MemberApplication::where('email', 'test2@gmail.com')->first();
         $this->assertNotNull($application);
 
         // Verify permanent address fields were NOT copied, manual values used
@@ -107,7 +138,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_dob_validation_rejects_future_date(): void
     {
         $user = User::factory()->create([
-            'email' => 'test3@example.com',
+            'email' => 'test3@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -127,7 +158,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Future St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'test3@example.com',
+            'email'         => 'test3@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'date_of_birth'   => $tomorrow, // Future date
@@ -143,7 +174,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_dob_validation_rejects_under_18(): void
     {
         $user = User::factory()->create([
-            'email' => 'test4@example.com',
+            'email' => 'test4@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -163,7 +194,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Young St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'test4@example.com',
+            'email'         => 'test4@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'date_of_birth'   => $dob,
@@ -178,7 +209,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_dob_validation_accepts_valid_past_date(): void
     {
         $user = User::factory()->create([
-            'email' => 'test5@example.com',
+            'email' => 'test5@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -199,7 +230,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Valid St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'test5@example.com',
+            'email'         => 'test5@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'date_of_birth'   => $dob,
@@ -208,7 +239,7 @@ class MemberApplicationStoreTest extends TestCase
 
         $response->assertRedirect();
 
-        $application = MemberApplication::where('email', 'test5@example.com')->first();
+        $application = MemberApplication::where('email', 'test5@gmail.com')->first();
         $this->assertNotNull($application);
         $this->assertEquals('2000-01-01', $application->date_of_birth->format('Y-m-d'));
     }
@@ -219,7 +250,7 @@ class MemberApplicationStoreTest extends TestCase
             'surname'        => 'Doe',
             'first_name'     => 'John',
             'middle_name'    => 'Middle',
-            'email'          => 'john.doe@example.com',
+            'email'          => 'john.doe@gmail.com',
             'contact_number' => '09171234567',
             'occupation'     => 'Engineer',
             'province'       => 'National Capital Region (NCR)',
@@ -260,7 +291,7 @@ class MemberApplicationStoreTest extends TestCase
         $existingMember = CoopMember::create([
             'member_id'     => 'SDCC-2026-0001',
             'full_name'     => 'John Doe',
-            'email'         => 'john.doe2@example.com',
+            'email'         => 'john.doe2@gmail.com',
             'contact_number'=> '09171234567',
             'occupation'    => 'Engineer',
             'date_of_birth' => '1985-01-01',
@@ -272,7 +303,7 @@ class MemberApplicationStoreTest extends TestCase
             'surname'        => 'Doe',
             'first_name'     => 'John',
             'middle_name'    => 'Middle',
-            'email'          => 'john.doe2@example.com',
+            'email'          => 'john.doe2@gmail.com',
             'contact_number' => '09171234567',
             'occupation'     => 'Engineer',
             'province'       => 'National Capital Region (NCR)',
@@ -302,7 +333,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_dob_validation_rejects_17y364d(): void
     {
         $user = User::factory()->create([
-            'email' => 'age_17@example.com',
+            'email' => 'age_17@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -319,7 +350,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '17 Test St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'age_17@example.com',
+            'email'         => 'age_17@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '2009-01-01',
@@ -336,7 +367,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_dob_validation_accepts_exactly_18_today(): void
     {
         $user = User::factory()->create([
-            'email' => 'age_18@example.com',
+            'email' => 'age_18@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -353,7 +384,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '18 Test St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'age_18@example.com',
+            'email'         => 'age_18@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '2008-11-07',
@@ -361,7 +392,7 @@ class MemberApplicationStoreTest extends TestCase
         ]);
         $response->assertRedirect();
 
-        $application = MemberApplication::where('email', 'age_18@example.com')->first();
+        $application = MemberApplication::where('email', 'age_18@gmail.com')->first();
         $this->assertNotNull($application);
         $this->assertEquals('2008-11-07', $application->date_of_birth->format('Y-m-d'));
     }
@@ -372,7 +403,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_dob_validation_accepts_1999(): void
     {
         $user = User::factory()->create([
-            'email' => 'age_1999@example.com',
+            'email' => 'age_1999@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -389,7 +420,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '1999 Test St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'age_1999@example.com',
+            'email'         => 'age_1999@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '1999-01-01',
@@ -397,7 +428,7 @@ class MemberApplicationStoreTest extends TestCase
         ]);
         $response->assertRedirect();
 
-        $application = MemberApplication::where('email', 'age_1999@example.com')->first();
+        $application = MemberApplication::where('email', 'age_1999@gmail.com')->first();
         $this->assertNotNull($application);
         $this->assertEquals('1999-01-01', $application->date_of_birth->format('Y-m-d'));
     }
@@ -408,7 +439,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_same_as_current_copies_all_perm_fields(): void
     {
         $user = User::factory()->create([
-            'email' => 'perm_copy@example.com',
+            'email' => 'perm_copy@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -425,7 +456,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Current St',
             'zip_code'      => '4000',
             'contact_number'=> '09171234567',
-            'email'         => 'perm_copy@example.com',
+            'email'         => 'perm_copy@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'date_of_birth' => '2000-01-01',
@@ -434,7 +465,7 @@ class MemberApplicationStoreTest extends TestCase
         ]);
         $response->assertRedirect();
 
-        $application = MemberApplication::where('email', 'perm_copy@example.com')->first();
+        $application = MemberApplication::where('email', 'perm_copy@gmail.com')->first();
         $this->assertNotNull($application);
         // Verify all permanent address fields were copied
         $this->assertEquals('Laguna', $application->perm_province);
@@ -450,7 +481,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_old_city_barangay_retained_after_validation_failure(): void
     {
         $user = User::factory()->create([
-            'email' => 'old_city@example.com',
+            'email' => 'old_city@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -467,7 +498,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Old St',
             'zip_code'      => '4000',
             'contact_number'=> '09171234567',
-            'email'         => 'old_city@example.com',
+            'email'         => 'old_city@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '2010-01-01', // Invalid - under 18
@@ -487,7 +518,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_savings_balance_stored_on_form_submission(): void
     {
         $user = User::factory()->create([
-            'email' => 'savings_test@example.com',
+            'email' => 'savings_test@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -504,7 +535,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Test St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'savings_test@example.com',
+            'email'         => 'savings_test@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => 5000.00,
@@ -514,7 +545,7 @@ class MemberApplicationStoreTest extends TestCase
         $response->assertRedirect();
         $response->assertSessionHasNoErrors(['savings_balance']);
 
-        $application = MemberApplication::where('email', 'savings_test@example.com')->first();
+        $application = MemberApplication::where('email', 'savings_test@gmail.com')->first();
         $this->assertNotNull($application);
         $this->assertEquals(5000.00, $application->savings_balance);
     }
@@ -522,7 +553,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_savings_balance_negative_rejected(): void
     {
         $user = User::factory()->create([
-            'email' => 'savings_neg@example.com',
+            'email' => 'savings_neg@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -539,7 +570,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Test St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'savings_neg@example.com',
+            'email'         => 'savings_neg@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => -100,
@@ -555,7 +586,7 @@ class MemberApplicationStoreTest extends TestCase
     public function test_savings_balance_non_numeric_rejected(): void
     {
         $user = User::factory()->create([
-            'email' => 'savings_nan@example.com',
+            'email' => 'savings_nan@gmail.com',
             'password' => 'password',
             'usertype' => 'user',
         ]);
@@ -572,7 +603,7 @@ class MemberApplicationStoreTest extends TestCase
             'address_line'  => '123 Test St',
             'zip_code'      => '1740',
             'contact_number'=> '09171234567',
-            'email'         => 'savings_nan@example.com',
+            'email'         => 'savings_nan@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => 'abc',
@@ -591,7 +622,7 @@ class MemberApplicationStoreTest extends TestCase
             'surname'        => 'Savings',
             'first_name'     => 'Test',
             'middle_name'    => '',
-            'email'          => 'savings_approval@example.com',
+            'email'          => 'savings_approval@gmail.com',
             'contact_number' => '09171234567',
             'occupation'     => 'Engineer',
             'province'       => 'National Capital Region (NCR)',
@@ -623,7 +654,7 @@ class MemberApplicationStoreTest extends TestCase
         $existingMember = CoopMember::create([
             'member_id'       => 'SDCC-2026-0099',
             'full_name'       => 'Savings Existing',
-            'email'           => 'savings_existing@example.com',
+            'email'           => 'savings_existing@gmail.com',
             'contact_number'  => '09171234567',
             'occupation'      => 'Engineer',
             'savings_balance' => 10000.00,
@@ -635,7 +666,7 @@ class MemberApplicationStoreTest extends TestCase
             'surname'        => 'Existing',
             'first_name'     => 'Savings',
             'middle_name'    => '',
-            'email'          => 'savings_existing@example.com',
+            'email'          => 'savings_existing@gmail.com',
             'contact_number' => '09171234567',
             'occupation'     => 'Engineer',
             'province'       => 'National Capital Region (NCR)',
@@ -666,7 +697,7 @@ class MemberApplicationStoreTest extends TestCase
             'surname'        => 'Dob',
             'first_name'     => 'Test',
             'middle_name'    => '',
-            'email'          => 'dob_approval@example.com',
+            'email'          => 'dob_approval@gmail.com',
             'contact_number' => '09171234567',
             'occupation'     => 'Engineer',
             'province'       => 'National Capital Region (NCR)',
