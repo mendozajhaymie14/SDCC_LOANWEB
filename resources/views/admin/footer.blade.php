@@ -894,20 +894,22 @@
       .then(perf => {
         const tbody = document.getElementById('memberPerfBody-' + m.id);
         if (!tbody) return;
-        const cls = perf.performance_label === 'Good' ? 'ok'
-          : perf.performance_label === 'Fair' ? 'warn' : 'bad';
+        const label = perf.performance_label ?? '—';
+        const cls = label === 'Good' ? 'ok'
+          : label === 'Fair' ? 'warn' : label === 'Poor' ? 'bad' : 'neutral';
         const pill = {
-          ok:   { bg: '#dcfce7', color: '#166534' },
-          warn: { bg: '#fef3c7', color: '#92400e' },
-          bad:  { bg: '#fee2e2', color: '#991b1b' },
-        }[cls] || { bg: '#e2e8f0', color: '#334155' };
+          ok:      { bg: '#dcfce7', color: '#166534' },
+          warn:    { bg: '#fef3c7', color: '#92400e' },
+          bad:     { bg: '#fee2e2', color: '#991b1b' },
+          neutral: { bg: '#e2e8f0', color: '#334155' },
+        }[cls];
         const overdueStyle = perf.overdue_count > 0 ? 'color:#b91c1c;font-weight:600;' : '';
         tbody.innerHTML = `<tr style="border-bottom: 1px solid var(--border);">
           <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054; text-align:center;">${perf.on_time_count}</td>
           <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054; text-align:center;">${perf.late_count}</td>
           <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; ${overdueStyle} text-align:center;">${perf.overdue_count}</td>
           <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #344054;">
-            <span style="display:inline-block;padding:.15rem .55rem;border-radius:9999px;font-size:.72rem;font-weight:600;background:${pill.bg};color:${pill.color}">${perf.performance_label}</span>
+            <span style="display:inline-block;padding:.15rem .55rem;border-radius:9999px;font-size:.72rem;font-weight:600;background:${pill.bg};color:${pill.color}">${label}</span>
           </td>
         </tr>`;
       })
