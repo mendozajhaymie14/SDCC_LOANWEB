@@ -51,6 +51,7 @@ class CoopMember extends Model
         'occupation',
         'monthly_income',
         'existing_monthly_obligations',
+        'source_of_income',
         'credit_limit_source',
         'credit_limit_computed_at',
         'monthly_credit_limit_source',
@@ -63,6 +64,7 @@ class CoopMember extends Model
         'credit_limit_source' => 'string',
         'credit_limit_computed_at' => 'datetime',
         'monthly_credit_limit_source' => 'string',
+        'source_of_income' => 'string',
     ];
 
     /**

@@ -267,7 +267,12 @@
 
       <div class="form-group">
         <label class="form-label">Purpose <span style="color:var(--red);">*</span></label>
-        <input class="form-input" type="text" name="purpose" maxlength="500" value="{{ old('purpose') }}" required placeholder="e.g. Capital for farm inputs" />
+        <select class="form-select" name="purpose" required>
+          <option value="" @selected(old('purpose') === '')>Select purpose</option>
+          @foreach(config('loan_matrix.form_options.purpose') as $purpose)
+            <option value="{{ $purpose }}" @selected(old('purpose') === $purpose)>{{ $purpose }}</option>
+          @endforeach
+        </select>
         @error('purpose')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
       </div>
 
@@ -850,7 +855,7 @@
 
         <!-- Borrowing Performance -->
         <div style="margin-top: 1rem;">
-          <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Borrowing Performance</div>
+          <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem;">Repayment Performance</div>
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead>
               <tr style="border-bottom: 1px solid #eaecf0;">

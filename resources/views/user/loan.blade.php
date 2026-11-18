@@ -53,34 +53,27 @@
     })();
   </script>
 
-  {{-- Credit Limit Card for the member --}}
+  {{-- Credit Limit Card for the member — monthly limit semantics,
+       matching the monthly limit enforced at request time --}}
   <div style="margin-top: 2rem; padding: 1rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
     <div style="font-weight: 600; font-size: 0.875rem; text-transform: uppercase; letter-spacing: .05em; color: #1e293b; margin-bottom: .5rem;">Credit Limit</div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 2rem; font-size: 0.875rem;">
       <div>
-        <strong>Approved Limit</strong>
-        @if($coopMember?->hasAssessedCreditLimit())
-          <span style="font-family:monospace;">₱{{ number_format($coopMember->approved_credit_limit, 2) }}</span>
+        <strong>Monthly Credit Limit</strong>
+        @if($coopMember?->monthlyCapacity() !== null)
+          <span style="font-family:monospace;">₱{{ number_format($coopMember->monthlyCapacity(), 2) }}</span>
         @else
           <span style="color: var(--muted); font-style: italic;">Not assessed</span>
         @endif
       </div>
       <div>
-        <strong>Outstanding</strong>
-        @if(isset($outstanding))
-          <span style="font-family:monospace;">₱{{ number_format($outstanding, 2) }}</span>
+        <strong>Monthly Available</strong>
+        @if($coopMember?->monthlyAvailable() !== null)
+          <span style="font-family:monospace;">₱{{ number_format($coopMember->monthlyAvailable(), 2) }}</span>
         @else
           <span style="color: var(--muted);">N/A</span>
         @endif
       </div>
-    </div>
-    <div style="margin-top: .5rem; padding-top: .5rem; border-top: 1px solid #e2e8f0; font-size: 0.875rem;">
-      <strong>Available</strong>
-      @if($coopMember?->hasAssessedCreditLimit() && isset($outstanding))
-        <span style="font-family:monospace;">₱{{ number_format($coopMember->approved_credit_limit - $outstanding, 2) }}</span>
-      @else
-        <span style="color: var(--muted);">N/A</span>
-      @endif
     </div>
   </div>
 </body>

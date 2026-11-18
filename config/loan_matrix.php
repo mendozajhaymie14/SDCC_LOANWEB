@@ -30,6 +30,12 @@ return [
     */
 
     'form_options' => [
+        'purpose' => [
+            'Educational',
+            'Business',
+            'Personal',
+            'Emergency',
+        ],
         'monthly_income' => [
             ['10000',  '₱10,000 and below'],
             ['15000',  '₱10,000 – ₱15,000'],

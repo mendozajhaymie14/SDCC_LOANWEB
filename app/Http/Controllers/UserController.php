@@ -86,16 +86,10 @@ class UserController extends Controller
         if ($user->isActiveCoopMember()) {
             $coopMember = $user->coopMember;
 
-            // Sum outstanding balance of all approved loans for this member.
-            // Shared with the admin side via CoopMember::outstandingBalance()
-            // so the email fallback for staff-encoded loans is identical.
-            $outstanding = $coopMember ? CoopMember::outstandingBalance($coopMember) : 0;
-
             return view('user.loan', [
                 'user'      => $user,
                 'loanTypes' => Config::get('loan_matrix.loan_types'),
                 'coopMember' => $coopMember,
-                'outstanding' => $outstanding,
                 // One loan request at a time: when an application is still
                 // under review the form shows a banner and the submit button
                 // stays disabled.

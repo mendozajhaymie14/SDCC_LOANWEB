@@ -211,3 +211,20 @@ Branch: credit-limit-wip
   - Client: `member-application.blade.php` submit handler blocks submit + shows inline error (existing `showMessage` helper) when the trimmed/lowercased email does not end with `@gmail.com`.
   - Tests: all `MemberApplicationStoreTest` POST payloads and User factory emails switched from `@example.com` to `@gmail.com`; new `test_non_gmail_email_is_rejected` (asserts `errors('email')` + no row). MembershipApprovalTest already used `jane@gmail.com`.
 - **Full suite**: 764 tests / 2541 assertions / 15 skipped / **0 failures**.
+
+## Credit limit box → Monthly Credit Limit / Monthly Available + loan form prefill + PURPOSE dropdown (Images #1-5)
+
+- **Member loan form (resources/views/user/loan.blade.php)**: replaced the old "Credit Limit" card (Approved Limit / Outstanding / Available) with two monthly figures computed from the member record:
+  - Monthly Credit Limit → `CoopMember::monthlyCapacity()` (stored approved_monthly_credit_limit or suggestedMonthlyLimit()).
+  - Monthly Available → `CoopMember::monthlyAvailable()` (max(0, capacity - monthlyUsed()), null when capacity null).
+  - Removed the dead `$outstanding` computation from `UserController::createApplication()` and the `outstanding` view variable.
+- **Loan form prefill (resources/views/user/loan-form.blade.php)**: existing_monthly_obligations, monthly_income, and source_of_income now default from the linked CoopMember (`$coopMember?->existing_monthly_obligations`, `$coopMember?->monthly_income`, `$coopMember?->source_of_income`). Old defaults (0 / blank) removed.
+- **PURPOSE dropdown on admin encode page (resources/views/admin/encode-application.blade.php)**: replaced the text input with a `<select>` populated from `config('loan_matrix.form_options.purpose')` (Educational, Business, Personal, Emergency). Server validation unchanged (`required|string|max:500`).
+- **PURPOSE dropdown in shared modal (resources/views/admin/footer.blade.php)**: same change for the modal used on /applications page.
+- **CoopMember model**: added `source_of_income` to `$fillable` and `$casts`.
+- **MemberApplication model**: added `source_of_income` to `$fillable`.
+- **Migration**: `2026_11_18_000000_add_source_of_income_to_coop_members.php` adds nullable `source_of_income` string after `existing_monthly_obligations` with `Schema::hasColumn` guards.
+- **AdminController::approveMember**: copies `source_of_income` from the membership application to the new CoopMember (create path) and fills it when empty on existing member (copy-when-empty path).
+- **config/loan_matrix.php**: added `'purpose' => ['Educational','Business','Personal','Emergency']` to `form_options`.
+- **Tests**: `tests/Feature/LoanFormPrefillTest.php` — 3 tests covering prefill of the three financial fields and the PURPOSE dropdown on both the member form and the admin encode page.
+- **Full suite**: 767 tests / 2558 assertions / 15 skipped / **0 failures** (baseline 764/2541/15).

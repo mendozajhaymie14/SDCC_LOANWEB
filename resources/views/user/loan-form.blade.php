@@ -74,7 +74,7 @@
           <div class="field">
             <label for="existing_monthly_obligations">Existing monthly obligations * <span class="hint">(in pesos)</span></label>
             <input type="number" id="existing_monthly_obligations" name="existing_monthly_obligations" min="0" step="100"
-                   value="{{ old('existing_monthly_obligations', 0) }}"
+                   value="{{ old('existing_monthly_obligations', $coopMember?->existing_monthly_obligations ?? 0) }}"
                    class="@error('existing_monthly_obligations') has-error @enderror" required autocomplete="off">
             @error('existing_monthly_obligations') <span class="error-text">{{ $message }}</span> @enderror
             <p class="note">Existing monthly obligations must exclude loans already with SDCC — SDCC loan payments are counted automatically.</p>
@@ -102,7 +102,7 @@
           <div class="field">
             <label for="monthly_income">Monthly income * <span class="hint">(in pesos)</span></label>
             <input type="number" id="monthly_income" name="monthly_income" min="1" step="0.01"
-                   value="{{ old('monthly_income') }}"
+                   value="{{ old('monthly_income', $coopMember?->monthly_income) }}"
                    class="form-input @error('monthly_income') has-error @enderror" required autocomplete="off" data-validate="positive">
             @error('monthly_income')
     <div class="field-error">{{ $message }}</div>
@@ -115,7 +115,7 @@
                     class="@error('source_of_income') has-error @enderror" required>
               <option value="">Select one</option>
               @foreach (config('loan_matrix.form_options.source_of_income') as $source)
-                <option value="{{ $source }}" @selected(old('source_of_income') === $source)>{{ $source }}</option>
+                <option value="{{ $source }}" @selected(old('source_of_income', $coopMember?->source_of_income) === $source)>{{ $source }}</option>
               @endforeach
             </select>
             @error('source_of_income') <span class="error-text">{{ $message }}</span> @enderror

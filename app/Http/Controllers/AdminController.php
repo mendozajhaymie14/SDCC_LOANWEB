@@ -1302,6 +1302,7 @@ class AdminController extends Controller
                     'status'         => CoopMember::STATUS_ACTIVE,
                     'monthly_income' => $application->monthly_income,
                     'existing_monthly_obligations' => $application->existing_monthly_obligations,
+                    'source_of_income' => $application->source_of_income,
                     'savings_balance' => $application->savings_balance,
                     'date_of_birth'  => $application->date_of_birth,
                 ]);
@@ -1320,6 +1321,9 @@ class AdminController extends Controller
                 }
                 if (empty($coopMember->existing_monthly_obligations) && $application->existing_monthly_obligations) {
                     $coopMember->existing_monthly_obligations = $application->existing_monthly_obligations;
+                }
+                if (empty($coopMember->source_of_income) && $application->source_of_income) {
+                    $coopMember->source_of_income = $application->source_of_income;
                 }
 
                 // Copy savings_balance only when empty

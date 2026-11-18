@@ -67,7 +67,12 @@
           </label>
 
           <label style="font-size:0.75rem;">Purpose
-            <input class="form-input" type="text" name="purpose" maxlength="255" value="{{ old('purpose') }}" required />
+            <select class="form-select" name="purpose" required>
+              <option value="" @selected(old('purpose') === '')>Select purpose</option>
+              @foreach(config('loan_matrix.form_options.purpose') as $purpose)
+                <option value="{{ $purpose }}" @selected(old('purpose') === $purpose)>{{ $purpose }}</option>
+              @endforeach
+            </select>
             @error('purpose')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
           </label>
 

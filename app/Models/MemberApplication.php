@@ -30,6 +30,7 @@ class MemberApplication extends Model
         'date_of_birth',
         'monthly_income',
         'existing_monthly_obligations',
+        'source_of_income',
         'savings_balance',
         'stay_years',
         'stay_months',
