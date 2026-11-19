@@ -51,13 +51,7 @@
                   <tr class="hover:bg-gray-50 transition-colors {{ $loop->odd ? 'bg-white' : 'bg-gray-50' }}">
                     <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ \Carbon\Carbon::parse($log->created_at)->format('M d, Y H:i') }}</td>
                     <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->actor_role ?? 'System' }}</td>
-                    <td class="py-3 px-4 font-medium text-gray-600 text-sm">
-                        @if($log->target_type)
-                            {{ Str::limit($log->target_type, 30) }}${{ $log->target_id ?? '' }}
-                        @else
-                            -
-                        @endif
-                    </td>
+                    <td class="py-3 px-4 font-medium text-gray-600 text-sm">{{ $log->targetLabel() ?? '-' }}</td>
                     <td class="py-3 px-4 font-medium text-gray-600 text-sm">
                         @php
                             $badgeStyle = 'background-color: #f3f4f6; color: #374151;';

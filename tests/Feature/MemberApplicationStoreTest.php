@@ -7,6 +7,7 @@ use App\Models\MemberApplication;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class MemberApplicationStoreTest extends TestCase
@@ -17,6 +18,16 @@ class MemberApplicationStoreTest extends TestCase
     {
         parent::setUp();
         $this->withoutMiddleware();
+    }
+
+    protected function idUploadFields(): array
+    {
+        return [
+            'id_type'    => 'drivers_license',
+            'id_number'  => '1234567890',
+            'id_front'   => UploadedFile::fake()->image('id-front.jpg'),
+            'id_back'    => UploadedFile::fake()->image('id-back.jpg'),
+        ];
     }
 
     public function test_same_as_current_address_copies_current_to_permanent(): void
@@ -44,7 +55,9 @@ class MemberApplicationStoreTest extends TestCase
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'same_as_current_address'     => 'on',
+            'date_of_birth'   => '1990-05-15',
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $application = MemberApplication::where('email', 'test@gmail.com')->first();
@@ -83,6 +96,7 @@ class MemberApplicationStoreTest extends TestCase
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertSessionHasErrors('email');
@@ -113,12 +127,14 @@ class MemberApplicationStoreTest extends TestCase
             'email'         => 'test2@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
+            'date_of_birth'   => '1990-05-15',
             // same_as_current_address NOT checked (unchecked checkbox doesn't send value)
             'perm_street'        => '456 Permanent Ave',
             'perm_barangay'      => 'Almanza Uno',
             'perm_municipality'  => 'Las Piñas City',
             'perm_province'      => 'National Capital Region (NCR)',
             'perm_zip_code'      => '1741',
+            ...$this->idUploadFields(),
             'data_privacy_consent'        => '1',
         ]);
 
@@ -163,6 +179,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations'=> 2000,
             'date_of_birth'   => $tomorrow, // Future date
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertSessionHasErrors('date_of_birth');
@@ -199,6 +216,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations'=> 2000,
             'date_of_birth'   => $dob,
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertSessionHasErrors('date_of_birth');
@@ -235,6 +253,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations'=> 2000,
             'date_of_birth'   => $dob,
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertRedirect();
@@ -262,6 +281,8 @@ class MemberApplicationStoreTest extends TestCase
             'status'         => 'pending',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
+            'id_front_path'  => 'test/front-123.jpg',
+            'id_back_path'   => 'test/back-123.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();
@@ -315,6 +336,8 @@ class MemberApplicationStoreTest extends TestCase
             'status'         => 'pending',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
+            'id_front_path'  => 'test/front-456.jpg',
+            'id_back_path'   => 'test/back-456.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();
@@ -355,6 +378,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '2009-01-01',
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
         $response->assertSessionHasErrors('date_of_birth');
         $errors = $response->getSession()->get('errors')->get('date_of_birth');
@@ -389,6 +413,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '2008-11-07',
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
         $response->assertRedirect();
 
@@ -425,6 +450,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '1999-01-01',
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
         $response->assertRedirect();
 
@@ -462,6 +488,7 @@ class MemberApplicationStoreTest extends TestCase
             'date_of_birth' => '2000-01-01',
             'same_as_current_address' => 'on',
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
         $response->assertRedirect();
 
@@ -503,6 +530,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations' => 2000,
             'date_of_birth' => '2010-01-01', // Invalid - under 18
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         // Should redirect back with validation errors (status 302)
@@ -538,8 +566,10 @@ class MemberApplicationStoreTest extends TestCase
             'email'         => 'savings_test@gmail.com',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
+            'date_of_birth'   => '1990-05-15',
             'savings_balance'             => 5000.00,
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertRedirect();
@@ -575,6 +605,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => -100,
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertSessionHasErrors(['savings_balance']);
@@ -608,6 +639,7 @@ class MemberApplicationStoreTest extends TestCase
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => 'abc',
             'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
         ]);
 
         $response->assertSessionHasErrors(['savings_balance']);
@@ -635,6 +667,8 @@ class MemberApplicationStoreTest extends TestCase
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => 7500.00,
+            'id_front_path'  => 'test/front-789.jpg',
+            'id_back_path'   => 'test/back-789.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();
@@ -679,6 +713,8 @@ class MemberApplicationStoreTest extends TestCase
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
             'savings_balance'             => 5000.00, // Different value - should NOT overwrite
+            'id_front_path'  => 'test/front-101.jpg',
+            'id_back_path'   => 'test/back-101.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();
@@ -709,6 +745,8 @@ class MemberApplicationStoreTest extends TestCase
             'status'         => 'pending',
             'monthly_income'              => 50000,
             'existing_monthly_obligations'=> 2000,
+            'id_front_path'  => 'test/front-102.jpg',
+            'id_back_path'   => 'test/back-102.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();
@@ -721,5 +759,43 @@ class MemberApplicationStoreTest extends TestCase
         $member = CoopMember::find($application->approved_member_id);
         $this->assertNotNull($member);
         $this->assertEquals('1990-05-15', $member->date_of_birth->format('Y-m-d'));
+    }
+
+    public function test_id_storage_path_has_no_email(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'test-noemail@gmail.com',
+            'password' => 'password',
+            'usertype' => 'user',
+        ]);
+        $this->actingAs($user);
+
+        $response = $this->post(route('member.applications.store'), [
+            'first_name'    => 'NoEmail',
+            'middle_name'   => '',
+            'last_name'     => 'Test',
+            'occupation'    => 'Engineer',
+            'province'      => 'National Capital Region (NCR)',
+            'municipality'  => 'Las Piñas City',
+            'barangay'      => 'B. F. International Village',
+            'address_line'  => '123 Test St',
+            'zip_code'      => '1740',
+            'contact_number'=> '09171234567',
+            'email'         => 'test-noemail@gmail.com',
+            'monthly_income'              => 50000,
+            'existing_monthly_obligations'=> 2000,
+            'date_of_birth' => '1990-05-15',
+            'data_privacy_consent'        => '1',
+            ...$this->idUploadFields(),
+        ]);
+
+        $response->assertRedirect();
+
+        $application = MemberApplication::where('email', 'test-noemail@gmail.com')->first();
+        $this->assertNotNull($application);
+
+        // Verify stored path does NOT contain the email address
+        $this->assertStringNotContainsString('test-noemail@gmail.com', $application->id_front_path);
+        $this->assertStringNotContainsString('test-noemail@gmail.com', $application->id_back_path);
     }
 }

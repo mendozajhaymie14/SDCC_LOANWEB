@@ -205,12 +205,12 @@ class ViewPermissionGatingTest extends TestCase
     }
 
     /**
-     * The "Add Member" button belongs to edit_member_profiles, not view_member_profiles.
-     * Credit Investigator and Admin may look at members but must not see the button.
+     * The "+ Add Member" button has been removed from the Active Members page
+     * entirely. No role should see it regardless of EDIT_MEMBER_PROFILES.
      *
      * @dataProvider staffRoleProvider
      */
-    public function test_add_member_button_follows_edit_member_profiles(string $role): void
+    public function test_add_member_button_removed_from_active_members(string $role): void
     {
         $user = User::factory()->create(['usertype' => $role]);
 
@@ -223,12 +223,12 @@ class ViewPermissionGatingTest extends TestCase
 
         $response->assertOk();
 
+        // The "+ Add Member" button has been removed from this page entirely.
         $seesButton = str_contains($response->getContent(), '+ Add Member');
 
-        $this->assertSame(
-            Permissions::has($user, Permissions::EDIT_MEMBER_PROFILES),
+        $this->assertFalse(
             $seesButton,
-            "Role '{$role}' button visibility for '+ Add Member' does not follow edit_member_profiles"
+            "Role '{$role}' should not see '+ Add Member' button — it was removed from active-members"
         );
 
         // The JS-built member modal (activate / suspend / delete) is gated by a flag

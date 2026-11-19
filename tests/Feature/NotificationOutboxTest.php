@@ -688,6 +688,8 @@ class NotificationOutboxTest extends TestCase
         ]);
 
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'          => 'applicant@example.com',
@@ -728,6 +730,8 @@ class NotificationOutboxTest extends TestCase
         ]);
 
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'          => 'applicant@example.com',
@@ -877,6 +881,8 @@ class NotificationOutboxTest extends TestCase
         ]);
 
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'          => 'applicant@example.com',
@@ -912,6 +918,8 @@ class NotificationOutboxTest extends TestCase
         ]);
 
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'          => 'applicant@example.com',

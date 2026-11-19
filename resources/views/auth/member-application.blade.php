@@ -239,18 +239,103 @@
 <!-- Birthdate -->
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
     <div class="field">
-        <label for="date_of_birth" class="field label">Birthdate</label>
+        <label for="date_of_birth" class="field label">Birthdate <span class="text-red-500">*</span></label>
         <input type="date"
                id="date_of_birth"
                name="date_of_birth"
                value="{{ old('date_of_birth') }}"
                class="member-app-input"
+               required
                max="{{ now()->subYears(18)->format('Y-m-d') }}" />
         @isset($errors)@error('date_of_birth')<span class="error-text">{{ $message }}</span>@enderror@endisset
         <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
             Must be at least 18 years old
         </p>
     </div>
+</div>
+
+<!-- ── Valid ID ── -->
+<div class="form-card">
+    <fieldset style="border: none; padding: 0; margin: 0;">
+        <legend style="font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1.2px; color: var(--green-deep); text-transform: uppercase; margin: 0 0 18px 0; border: none; padding: 0;">
+            Valid ID <span class="text-red-500">*</span>
+        </legend>
+
+        <!-- ID Type + ID Number -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+            <div class="field">
+                <label for="id_type" class="field label">ID Type <span class="text-red-500">*</span></label>
+                <select id="id_type" name="id_type" class="member-app-input" required>
+                    <option value="">Select ID type</option>
+                    @foreach ([
+                        'drivers_license' => "Driver's License",
+                        'passport'        => 'Passport',
+                        'national_id'     => 'National ID (PhilSys)',
+                        'voters_id'       => "Voter's ID",
+                        'philhealth_id'   => 'PhilHealth ID',
+                        'umid'            => 'UMID',
+                        'prc_id'          => 'PRC ID',
+                        'sss_id'          => 'SSS ID',
+                    ] as $val => $label)
+                        <option value="{{ $val }}" @selected(old('id_type') === $val)>{{ $label }}</option>
+                    @endforeach
+                </select>
+                @isset($errors)@error('id_type')<span class="error-text">{{ $message }}</span>@enderror@endisset
+            </div>
+            <div class="field">
+                <label for="id_number" class="field label">ID Number <span class="text-red-500">*</span></label>
+                <input type="text"
+                       id="id_number"
+                       name="id_number"
+                       value="{{ old('id_number') }}"
+                       class="member-app-input"
+                       maxlength="50"
+                       inputmode="numeric"
+                       pattern="[0-9]*"
+                       oninput="this.value = this.value.replace(/[^\d]/g, '')"
+                       required
+                       placeholder="e.g. 012345678901" />
+                @isset($errors)@error('id_number')<span class="error-text">{{ $message }}</span>@enderror@endisset
+            </div>
+        </div>
+
+        <!-- Front + Back Upload -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+            <!-- Front -->
+            <div class="field">
+                <label class="field label">ID Front <span class="text-red-500">*</span></label>
+                <div class="file-dropzone id-dropzone" id="idFrontDropzone">
+                    <label for="id_front" class="dz-label">
+                        <span class="dz-icon"><i class="fa-solid fa-id-card"></i></span>
+                        <span class="dz-text">Upload front of ID</span>
+                        <span class="dz-hint">JPG or PNG · up to 5MB</span>
+                        <span class="dz-choose">Choose file</span>
+                    </label>
+                    <input type="file" id="id_front" name="id_front"
+                           accept=".jpg,.jpeg,.png" class="sr-only" required>
+                </div>
+                <div class="file-preview" id="idFrontPreview"></div>
+                @isset($errors)@error('id_front')<span class="error-text">{{ $message }}</span>@enderror@endisset
+            </div>
+
+            <!-- Back -->
+            <div class="field">
+                <label class="field label">ID Back</label>
+                <div class="file-dropzone id-dropzone" id="idBackDropzone">
+                    <label for="id_back" class="dz-label">
+                        <span class="dz-icon"><i class="fa-solid fa-id-card"></i></span>
+                        <span class="dz-text">Upload back of ID</span>
+                        <span class="dz-hint">JPG or PNG · up to 5MB</span>
+                        <span class="dz-choose">Choose file</span>
+                    </label>
+                    <input type="file" id="id_back" name="id_back"
+                           accept=".jpg,.jpeg,.png" class="sr-only">
+                </div>
+                <div class="file-preview" id="idBackPreview"></div>
+                @isset($errors)@error('id_back')<span class="error-text">{{ $message }}</span>@enderror@endisset
+            </div>
+        </div>
+    </fieldset>
 </div>
 
                         </fieldset>
@@ -779,6 +864,87 @@
     parent.querySelectorAll('.dob-error-msg').forEach(m => m.remove());
     input.style.borderColor = '';
   }
+
+  // ─── VALID ID UPLOAD PREVIEW + REMOVE + DRAG AND DROP ───
+  function setupIdPreview(inputId, dropzoneId, previewId) {
+    const input = document.getElementById(inputId);
+    const dz = document.getElementById(dropzoneId);
+    const preview = document.getElementById(previewId);
+    if (!input || !dz || !preview) return;
+
+    function renderPreview(file) {
+      preview.innerHTML = '';
+
+      const wrap = document.createElement('div');
+      wrap.className = 'id-preview-wrap';
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        img.alt = 'ID preview';
+
+        const meta = document.createElement('div');
+        meta.className = 'id-preview-meta';
+
+        const name = document.createElement('span');
+        name.className = 'id-preview-name';
+        name.textContent = file.name;
+
+        const size = document.createElement('span');
+        size.className = 'id-preview-size';
+        size.textContent = (file.size / 1024).toFixed(1) + ' KB';
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = 'Remove';
+        removeBtn.className = 'id-remove-btn';
+        removeBtn.addEventListener('click', function () {
+          input.value = '';
+          preview.innerHTML = '';
+          dz.classList.remove('has-file');
+        });
+
+        meta.appendChild(name);
+        meta.appendChild(size);
+        wrap.appendChild(img);
+        wrap.appendChild(meta);
+        wrap.appendChild(removeBtn);
+        preview.appendChild(wrap);
+        dz.classList.add('has-file');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    input.addEventListener('change', function () {
+      const file = this.files && this.files[0];
+      if (!file) return;
+      if (!/\.(jpe?g|png)$/i.test(file.name)) return;
+      renderPreview(file);
+    });
+
+    // Drag-and-drop on the dropzone
+    dz.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dz.classList.add('is-dragover');
+    });
+    dz.addEventListener('dragleave', function () {
+      dz.classList.remove('is-dragover');
+    });
+    dz.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dz.classList.remove('is-dragover');
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      if (!/\.(jpe?g|png)$/i.test(file.name)) return;
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      renderPreview(file);
+    });
+  }
+  setupIdPreview('id_front', 'idFrontDropzone', 'idFrontPreview');
+  setupIdPreview('id_back', 'idBackDropzone', 'idBackPreview');
 </script>
 
 <style>

@@ -93,4 +93,29 @@ class AuditLog extends Model
             'ip_address'   => $ip,
         ]);
     }
+
+    /**
+     * Human-readable label for the record this entry acted on.
+     *
+     * The TARGET column answers "what was touched?" — e.g. "Payment #12" or
+     * "Member #1441". target_type arrives as a short slug ('payment') or a
+     * FQCN (App\Models\CoopMember); both render as a friendly noun.
+     */
+    public function targetLabel(): ?string
+    {
+        if (!$this->target_type) {
+            return null;
+        }
+
+        $type = strtolower($this->target_type);
+        $noun = match (true) {
+            str_contains($type, 'payment')    => 'Payment',
+            str_contains($type, 'member')     => 'Member',
+            str_contains($type, 'application') => 'Application',
+            str_contains($type, 'user')       => 'User',
+            default => ucfirst(\Illuminate\Support\Str::afterLast($this->target_type, '\\')),
+        };
+
+        return $noun . ($this->target_id ? ' #' . $this->target_id : '');
+    }
 }

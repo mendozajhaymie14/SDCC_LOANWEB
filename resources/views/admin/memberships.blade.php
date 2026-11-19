@@ -46,6 +46,9 @@
           <h2 class="panel-title">Membership Applications</h2>
           <span class="records-count">Total Records: {{ $applications->count() }}</span>
         </div>
+        @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::EDIT_MEMBER_PROFILES))
+        <button class="btn-new" type="button" onclick="openModal('addMembershipApplication')">+ Membership Application</button>
+        @endif
       </div>
 
       <div class="filter-row">
@@ -53,6 +56,7 @@
         <button class="filter-btn" onclick="filterMembers('approved',this)">Approved</button>
         <button class="filter-btn" onclick="filterMembers('pending',this)">Pending</button>
         <button class="filter-btn" onclick="filterMembers('rejected',this)">Rejected</button>
+        <button class="filter-btn" onclick="filterMembers('duplicate',this)">Possible duplicates</button>
       </div>
 
       <div class="table-wrap">
@@ -71,9 +75,20 @@
           <tbody>
             @if($applications->count() > 0)
               @foreach($applications as $app)
-                <tr data-id="{{ $app->id }}" data-status="{{ strtolower($app->status) }}">
+                @php
+                  $dupBadge = '';
+                  if (($app->isPossibleDuplicate ?? false)) {
+                    $level = $app->duplicateLevel ?? 'none';
+                    $msg = $app->duplicateMessage ?? '';
+                    $badgeClass = $level === 'block' ? 'dup-badge-block' : 'dup-badge-warn';
+                    $dupBadge = '<span class="dup-badge ' . $badgeClass . '" title="' . e($msg) . '">'
+                              . ($level === 'block' ? 'Duplicate' : 'Possible dup.')
+                              . '</span>';
+                  }
+                @endphp
+                <tr data-id="{{ $app->id }}" data-status="{{ strtolower($app->status) }}" data-dup="{{ $app->isPossibleDuplicate ?? false ? '1' : '0' }}" data-dup-level="{{ $app->duplicateLevel ?? 'none' }}">
                   <td class="td-num">#{{ str_pad($app->id, 5, '0', STR_PAD_LEFT) }}</td>
-                  <td class="applicant-name">{{ $app->fullName }}</td>
+                  <td class="applicant-name">{{ $app->fullName }} {!! $dupBadge !!}</td>
                   <td>{{ $app->email }}</td>
                   <td class="td-num">{{ $app->contact_number ?? '—' }}</td>
                   <td>
@@ -115,6 +130,15 @@
             $app->perm_municipality,$app->perm_zip_code,
             $app->perm_province,
         ]));
+        // Fallback for older applications saved via the admin modal, which
+        // only collects the current address.
+        if ($address === '') {
+            $address = implode(', ', array_filter([
+                $app->street, $app->barangay,
+                $app->municipality, $app->zip_code,
+                $app->province,
+            ]));
+        }
         $refId = '#' . str_pad($app->id, 5, '0', STR_PAD_LEFT);
         $cdate = $app->created_at ? \Carbon\Carbon::parse($app->created_at)->format('M d, Y') : '—';
         $dob = $app->date_of_birth ? \Carbon\Carbon::parse($app->date_of_birth)->format('M d, Y') : null;
@@ -126,6 +150,15 @@
                 ? \Carbon\Carbon::parse($app->approvedMember->member_since)->format('M d, Y')
                 : 'Not yet';
         }
+        // Duplicate info (precomputed in the controller — memberships())
+        $isPossibleDuplicate = (bool) ($app->isPossibleDuplicate ?? false);
+        $duplicateLevel = $app->duplicateLevel ?? 'none'; // 'block' | 'name_only' | 'none'
+        $duplicateMessage = $app->duplicateMessage ?? '';
+        // ID info
+        $idTypeLabel = $app->id_type ? ucfirst(str_replace('_', ' ', $app->id_type)) : '—';
+        $idNumber = $app->id_number ? \App\Support\Format::maskIdNumber($app->id_number) : '—';
+        $idFrontPath = $app->id_front_path ?? '';
+        $idBackPath = $app->id_back_path ?? '';
       @endphp
       "{{ $app->id }}": {
         id: {{ $app->id }},
@@ -172,6 +205,16 @@
         ?>
         creditLimitRecommendation: @json(['limit' => (float) ($rec['limit'] ?? 0), 'cappedBy' => $rec['cappedBy'] ?? 'affordability']),
         monthlyCreditLimitRecommendation: @json((float) $creditLimitService->calculateMonthlyCapacity($income, $obligations)),
+        // Duplicate info for badge/filter
+        isPossibleDuplicate: @json($isPossibleDuplicate),
+        duplicateLevel: @json($duplicateLevel),
+        duplicateMessage: @json($duplicateMessage),
+        // ID info
+        idType: @json($idTypeLabel),
+        idTypeRaw: @json($app->id_type),
+        idNumber: @json($idNumber),
+        idFrontPath: @json($idFrontPath),
+        idBackPath: @json($idBackPath),
       }{{ !$loop->last ? ',' : '' }}
     @endforeach
   };
@@ -216,6 +259,15 @@
         ${row('Occupation', m.occupation)}
         ${row('Permanent Address', m.address || '—')}
         ${row('Birthdate', m.dateOfBirth ? m.dateOfBirth : '—')}
+        ${row('ID Type', m.idType)}
+        ${row('ID Number', m.idNumber)}
+        <div style="display:flex;gap:1.2rem;padding:.55rem 0;border-bottom:1px solid var(--border);font-size:.86rem;align-items:center;">
+          <span style="color:var(--muted);flex-shrink:0;min-width:80px;">ID Images</span>
+          <div style="display:flex;gap:.6rem;flex-wrap:wrap;">
+            ${m.idFrontPath ? `<img class="id-thumb" src="/admin/memberships/${m.id}/id/front" alt="ID Front" onerror="this.onerror=null;this.outerHTML='<div class=\\'id-thumb-placeholder\\'>Front unavailable</div>'" onclick="openIdViewer('/admin/memberships/${m.id}/id/front')" />` : `<div class="id-thumb-placeholder">No front</div>`}
+            ${m.idBackPath ? `<img class="id-thumb" src="/admin/memberships/${m.id}/id/back" alt="ID Back" onerror="this.onerror=null;this.outerHTML='<div class=\\'id-thumb-placeholder\\'>Back unavailable</div>'" onclick="openIdViewer('/admin/memberships/${m.id}/id/back')" />` : `<div class="id-thumb-placeholder">No back</div>`}
+          </div>
+        </div>
         ${row('Monthly Income', m.monthlyIncome ? fmtMoney(m.monthlyIncome) : '₱0.00')}
         ${row('Savings Balance (declared)', m.savingsBalance && m.savingsBalance !== '—' ? fmtMoney(m.savingsBalance) : '—')}
         ${row('Existing Monthly Obligations', m.existingMonthlyObligations && m.existingMonthlyObligations !== '—' ? fmtMoney(m.existingMonthlyObligations) : '—')}
@@ -238,9 +290,11 @@
 
         <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1.2rem;">
           ${ (m.status === 'pending') ? `
-            <div style="display:flex;gap:.7rem;">
+            <div style="display:flex;gap:.7rem;flex-wrap:wrap;">
               <button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--red);border-color:var(--red);"
                       onclick="openRejectMemberPanel(${m.id})"><i class="fa-solid fa-xmark nav-icon"></i> Reject</button>
+              ${m.isPossibleDuplicate ? `<button class="btn-cancel" type="button" style="width:auto;flex:1;color:var(--orange);border-color:var(--orange);"
+                      onclick="openRejectAsDuplicate(${m.id})"><i class="fa-solid fa-user-slash nav-icon"></i> Reject as Duplicate</button>` : ''}
               <button class="btn-submit" type="button" style="width:auto;flex:1;"
                       onclick="openApproveMemberPanel(${m.id})"><i class="fa-solid fa-check nav-icon"></i> Approve & Register</button>
             </div>
@@ -255,6 +309,31 @@
                 <label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Monthly Credit Limit (Suggested: ${fmtMoney(m.monthlyCreditLimitRecommendation)})</label>
                 <input type="number" id="memberApproveMonthlyLimit_${m.id}" min="0" step="1" value="${m.monthlyCreditLimitRecommendation}" style="width:100%;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:.9rem;box-sizing:border-box;" />
               </div>
+              <!-- Name-only duplicate guard: staff must confirm and leave a note.
+                   Only shown when the system flagged a name-only match (a hard
+                   block is not approvable at all, so the checkbox is moot). -->
+              ${m.duplicateLevel === 'name_only' ? `
+              <div style="margin-bottom:.5rem;padding:.6rem .7rem;border:1px solid #fde68a;background:#fffbeb;border-radius:6px;">
+                <label style="display:flex;align-items:flex-start;gap:.4rem;font-size:.8rem;color:#92400e;cursor:pointer;">
+                  <input type="checkbox" id="memberApproveConfirm_${m.id}" style="margin-top:.1rem;" />
+                  <span>I confirm this applicant is not a duplicate of an existing member despite the name match.</span>
+                </label>
+                <input type="text" id="memberApproveNote_${m.id}" placeholder="Note (required if you tick the box)" style="width:100%;margin-top:.5rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-size:.85rem;box-sizing:border-box;" />
+              </div>` : '' }
+              <!-- ID requirement guard: branch managers can override.
+                   Shown when a REQUIRED ID image is missing: the front is always
+                   required; the back only for non-passport IDs. Mirrors the
+                   server check in AdminController::approveMember(). -->
+              @if(auth()->check() && \App\Support\Permissions::role(auth()->user()) === \App\Support\Permissions::ROLE_BRANCH_MANAGER)
+              ${!m.idFrontPath || (m.idTypeRaw !== 'passport' && !m.idBackPath) ? `
+              <div style="margin-bottom:.5rem;padding:.6rem .7rem;border:1px solid #bfdbfe;background:#eff6ff;border-radius:6px;">
+                <label style="display:flex;align-items:flex-start;gap:.4rem;font-size:.8rem;color:#1e40af;cursor:pointer;">
+                  <input type="checkbox" id="memberIdOverride_${m.id}" style="margin-top:.1rem;" />
+                  <span>I confirm this applicant has no ID images on file but is verified by other means (branch manager override).</span>
+                </label>
+                <input type="text" id="memberIdOverrideNote_${m.id}" placeholder="Override note (required if you tick the box)" style="width:100%;margin-top:.5rem;padding:.4rem .6rem;border:1px solid var(--border);border-radius:6px;font-size:.85rem;box-sizing:border-box;" />
+              </div>` : '' }
+              @endif
               <div style="display:flex;gap:.5rem;">
                 <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;cursor:pointer;box-sizing:border-box;" onclick="confirmApproveMember(${m.id})">Confirm Approve</button>
                 <button type="button" style="flex:1;border-radius:8px;padding:.5rem 1rem;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid var(--border);background:transparent;cursor:pointer;box-sizing:border-box;" onclick="closeApproveMemberPanel(${m.id})">Cancel</button>
@@ -304,6 +383,16 @@
     if (rejectPanel) rejectPanel.style.display = 'block';
   }
 
+  // Reject as duplicate: pre-fill the rejection reason and open the reject panel.
+  function openRejectAsDuplicate(id) {
+    var m = membersData[id];
+    var reason = 'Application is a duplicate of an existing member.'
+      + (m && m.duplicateMessage ? ' Match: ' + m.duplicateMessage : '');
+    var reasonEl = document.getElementById('memberRejectReason_' + id);
+    if (reasonEl) reasonEl.value = reason;
+    openRejectMemberPanel(id);
+  }
+
   function closeRejectMemberPanel(id) {
     var panel = document.getElementById('rejectMemberPanel_' + id);
     if (panel) panel.style.display = 'none';
@@ -344,7 +433,14 @@
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ approved_amount: approvedAmount, monthly_credit_limit: monthlyLimit })
+      body: JSON.stringify({
+        approved_amount: approvedAmount,
+        monthly_credit_limit: monthlyLimit,
+        confirm_continue: document.getElementById('memberApproveConfirm_' + id)?.checked ? true : undefined,
+        duplicate_note: document.getElementById('memberApproveNote_' + id)?.value || undefined,
+        id_override_confirm: document.getElementById('memberIdOverride_' + id)?.checked ? true : undefined,
+        id_override_note: document.getElementById('memberIdOverrideNote_' + id)?.value || undefined,
+      })
     })
       .then(function (res) {
         if (!res.ok) return res.json().then(function (err) { throw err; });
@@ -402,7 +498,13 @@
     if (el) el.classList.add('active');
 
     document.querySelectorAll('.app-table tbody tr[data-status]').forEach(row => {
-      row.style.display = (status === 'all' || row.getAttribute('data-status') === status) ? '' : 'none';
+      var show;
+      if (status === 'duplicate') {
+        show = row.getAttribute('data-dup') === '1';
+      } else {
+        show = (status === 'all' || row.getAttribute('data-status') === status);
+      }
+      row.style.display = show ? '' : 'none';
     });
   }
 
@@ -415,6 +517,37 @@
     });
   }
 
+  // ─── ID IMAGE VIEWER ───
+  function openIdViewer(url) {
+    const overlay = document.getElementById('idViewerOverlay');
+    const img = document.getElementById('idViewerImg');
+    if (!overlay || !img) return;
+    img.src = url;
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeIdViewer() {
+    const overlay = document.getElementById('idViewerOverlay');
+    const img = document.getElementById('idViewerImg');
+    if (!overlay) return;
+    overlay.classList.remove('open');
+    if (img) img.src = '';
+    document.body.style.overflow = '';
+  }
+
+  // Close viewer on ESC
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeIdViewer();
+  });
+
   </script>
+
+  <!-- ID Viewer Overlay -->
+  <div class="id-viewer-overlay" id="idViewerOverlay" onclick="closeIdViewer()">
+    <button class="id-viewer-close" onclick="closeIdViewer()"><i class="fa-solid fa-xmark"></i></button>
+    <img id="idViewerImg" alt="ID Image" />
+  </div>
+
   </body>
 </html>

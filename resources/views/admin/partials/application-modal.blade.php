@@ -317,6 +317,13 @@ function modalActionSection(appId, prefillAmount, monthlyAvailable, totalAvailab
                     'data-recommended="' + prefillAmount + '" ' +
                     'oninput="toggleOverrideBox()" />' +
             '</div>' +
+            /* Reason field: shown whenever the approved amount differs from the
+               requested amount. Required in that case so the audit trail has
+               the justification for the difference. */
+            '<div id="amountDiffReasonBox" style="display:none;margin-bottom:.5rem;">' +
+                '<label style="display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem;">Reason for amount difference <span style="color:#ef4444;">(required when approved ≠ requested)</span></label>' +
+                '<textarea id="amountDiffReason" placeholder="e.g. Member requested more than their available credit this month; approved at recommended amount." style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.82rem;min-height:50px;"></textarea>' +
+            '</div>' +
             (p.override ? '<div id="overrideBox" style="display:' + (initialBox ? 'block' : 'none') + ';margin-bottom:.5rem;padding:.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">' +
                 (isOverLimit ? '<div id="overrideIntro" style="font-size:.78rem;color:#92400e;margin-bottom:.4rem;">' + introText + '</div>' : '') +
                 '<label style="display:flex;align-items:flex-start;gap:.4rem;cursor:pointer;font-size:.82rem;color:#92400e;">' +
@@ -386,6 +393,13 @@ window.toggleOverrideBox = function () {
     if (box) box.style.display = state === 'box' ? 'block' : 'none';
     if (notice) notice.style.display = state === 'notice' ? 'block' : 'none';
     if (btn) btn.disabled = state === 'notice';
+
+    /* Reason field: visible when the approved amount differs from the
+       requested amount, so the officer must justify the difference. */
+    var reasonBox = document.getElementById('amountDiffReasonBox');
+    var requested = parseFloat(String(input.dataset.requested || '').replace(/[^\d.\-]/g, '')) || 0;
+    var approved = parseFloat(String(input.value).replace(/[^\d.\-]/g, '')) || 0;
+    if (reasonBox) reasonBox.style.display = (requested && approved && approved !== requested) ? 'block' : 'none';
 };
 
 /* Override checkbox: checked ⇒ show the required reason box and prefill the
@@ -493,6 +507,9 @@ window.openAppDetail = function (eventOrId) {
 window.openApproveModal = function (appId, recommendedStr) {
     var m = document.getElementById('approveModal');
     if (m) m.style.display = 'block';
+    /* Prefill may already differ from the requested amount — show the
+       reason box immediately so the officer sees it without typing. */
+    if (typeof toggleOverrideBox === 'function') toggleOverrideBox();
 };
 
 window.closeApproveModal = function () {
@@ -530,8 +547,23 @@ window.confirmApprove = function (appId) {
         return;
     }
 
-    /* Use override reason when the override checkbox is checked; otherwise use empty string. */
-    var finalReason = (overrideCheckbox && overrideCheckbox.checked) ? overrideReason : '';
+    /* Reason for amount difference: required when the approved amount
+       differs from the requested amount (e.g. approved below request). */
+    var amountDiffReason = document.getElementById('amountDiffReason');
+    var requested = parseFloat(String(document.getElementById('approvedAmount').dataset.requested || '').replace(/[^\d.\-]/g, '')) || 0;
+    if (requested && approvedAmount !== requested) {
+        var reason = amountDiffReason ? amountDiffReason.value.trim() : '';
+        if (!reason) {
+            showToast('error', 'A reason is required when the approved amount differs from the requested amount.', '<i class="fa-solid fa-xmark"></i>');
+            return;
+        }
+    }
+
+    /* Use override reason when the override checkbox is checked; otherwise
+       fall back to the amount-difference reason. */
+    var finalReason = (overrideCheckbox && overrideCheckbox.checked)
+        ? overrideReason
+        : (amountDiffReason ? amountDiffReason.value.trim() : '');
 
     var token = document.querySelector('meta[name="csrf-token"]')?.content || window.csrfToken;
 

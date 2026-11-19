@@ -26,12 +26,16 @@ class Payment extends Model
         'proof_path',
         'reversed_by',
         'reversal_reason',
+        'due_date',
+        'days_late',
     ];
 
     protected $casts = [
         'amount_paid'               => 'decimal:2',
         'remaining_balance_after'   => 'decimal:2',
         'payment_date'              => 'date',
+        'due_date'                  => 'date',
+        'days_late'                 => 'integer',
         'deleted_at'                => 'datetime',
     ];
 
@@ -87,6 +91,31 @@ class Payment extends Model
             return $loan->fullName() ?? $loan->full_name ?? 'N/A';
         }
         return 'N/A';
+    }
+
+    /**
+     * Human-readable per-payment timeliness result based on the snapshotted
+     * days_late value. Reversed payments always read as "Reversed".
+     *
+     * @return 'On time' | 'Late (N days)' | 'Very late (N days)' | 'Reversed'
+     */
+    public function latenessLabel(): string
+    {
+        if ($this->isReversed()) {
+            return 'Reversed';
+        }
+
+        $late = (int) ($this->days_late ?? 0);
+
+        if ($late === 0) {
+            return 'On time';
+        }
+
+        if ($late <= 30) {
+            return 'Late (' . $late . ' day' . ($late === 1 ? '' : 's') . ')';
+        }
+
+        return 'Very late (' . $late . ' day' . ($late === 1 ? '' : 's') . ')';
     }
 
     /**

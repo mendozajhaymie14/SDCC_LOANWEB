@@ -116,4 +116,74 @@ class DashboardGrantedKpiTest extends TestCase
         $response->assertSee(number_format(25000, 2));
         $response->assertDontSee(number_format(70000, 2));
     }
+
+    /** @test */
+    public function dashboard_chart_matches_kpi_source_approved_plus_paid_summed_on_approved_amount()
+    {
+        $admin = $this->makeAdmin();
+        $member1 = $this->makeMember(['email' => 'kpi-a@example.com']);
+        $member2 = $this->makeMember(['email' => 'kpi-b@example.com']);
+
+        CoopMember::factory()->create([
+            'user_id'      => $member1->id,
+            'share_capital' => 30000,
+            'is_migs'      => false,
+        ]);
+        CoopMember::factory()->create([
+            'user_id'      => $member2->id,
+            'share_capital' => 30000,
+            'is_migs'      => false,
+        ]);
+
+        // APPROVED loan: requested 50000, approved_amount 10000.
+        LoanApplication::factory()->create([
+            'user_id'          => $member1->id,
+            'email'            => $member1->email,
+            'full_name'        => 'Approved Borrower',
+            'loan_type'        => 'regular',
+            'amount'           => 50000,
+            'approved_amount'  => 10000,
+            'status'           => LoanStatus::APPROVED,
+            'monthly_income'   => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'    => 30000,
+            'term_months'      => 12,
+            'remaining_balance' => 0,
+        ]);
+
+        // PAID loan: requested 20000, approved_amount 15000.
+        LoanApplication::factory()->create([
+            'user_id'          => $member2->id,
+            'email'            => $member2->email,
+            'full_name'        => 'Paid Borrower',
+            'loan_type'        => 'regular',
+            'amount'           => 20000,
+            'approved_amount'  => 15000,
+            'status'           => LoanStatus::PAID,
+            'monthly_income'   => 20000,
+            'existing_monthly_obligations' => 0,
+            'share_capital'    => 30000,
+            'term_months'      => 12,
+            'remaining_balance' => 0,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('dashboard'));
+        $response->assertSuccessful();
+
+        // The chart must render the same total as the KPI: 10000 + 15000 = 25000.
+        // Old buggy behavior summed `amount` for APPROVED only (50000) or for both
+        // statuses (70000). Neither must appear in the chart payload.
+        $html = $response->getContent();
+        $this->assertMatchesRegularExpression(
+            "/label: 'Approved Loans',\\s*data: (\\[[^\\]]*\\])/",
+            $html
+        );
+        preg_match("/label: 'Approved Loans',\\s*data: (\\[[^\\]]*\\])/", $html, $m);
+        $chartData = json_decode($m[1], true);
+        // The current month's bar (last element) must equal 25000, not the
+        // requested 50000/70000 or the APPROVED-only amount.
+        $this->assertSame(25000.0, (float) end($chartData));
+        $this->assertNotContains(50000.0, array_map('floatval', $chartData));
+        $this->assertNotContains(70000.0, array_map('floatval', $chartData));
+    }
 }

@@ -103,6 +103,8 @@ class RoleWritePathTest extends TestCase
             'email'         => 'jane@gmail.com',
             'contact_number'=> '09171234567',
             'status'        => 'pending',
+            'id_front_path' => 'front-uuid.jpg',
+            'id_back_path'  => 'back-uuid.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();
@@ -144,6 +146,8 @@ class RoleWritePathTest extends TestCase
             'email'         => 'jdoe@gmail.com',
             'contact_number'=> '09171234567',
             'status'        => 'pending',
+            'id_front_path' => 'front-uuid.jpg',
+            'id_back_path'  => 'back-uuid.jpg',
         ]);
 
         $manager = User::factory()->asBranchManager()->create();

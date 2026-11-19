@@ -82,7 +82,7 @@ class MemberApplicationController extends Controller
             'address_line' => ['nullable', 'string', 'max:255'],
             'zip_code'     => ['nullable', 'string', 'max:12'],
             'perm_province' => ['nullable', 'string', 'max:255'],
-            'date_of_birth' => ['nullable', 'date', 'before_or_equal:today'],
+            'date_of_birth' => ['required', 'date', 'before_or_equal:today'],
             'same_as_current_address' => ['nullable'],
 
             // Permanent address (existing fields kept for compatibility)
@@ -121,6 +121,12 @@ class MemberApplicationController extends Controller
             'data_privacy_consent' => ['required', 'accepted'],
             'nationality'    => ['nullable', 'string', 'max:100'],
             'place_of_birth' => ['nullable', 'string', 'max:255'],
+
+            // Valid ID upload (required)
+            'id_type'    => ['required', 'string', 'in:drivers_license,passport,national_id,voters_id,philhealth_id,umid,prc_id,sss_id'],
+            'id_number'  => ['required', 'string', 'max:50', 'regex:/^[0-9]+$/'],
+            'id_front'   => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:5120'], // 5MB
+            'id_back'    => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'max:5120'], // back optional for some IDs
         ])->validate();
 
         // Normalize strings so the DB never stores stray whitespace
@@ -177,6 +183,15 @@ class MemberApplicationController extends Controller
             }
         }
 
+        // Fallback: if perm_* fields are still empty, populate from current address fields
+        // (admin modal doesn't have perm fields or same_as_current_address checkbox)
+        foreach (['street', 'barangay', 'municipality', 'province', 'zip_code'] as $f) {
+            $permField = 'perm_' . $f;
+            if (empty($data[$permField]) && !empty($data[$f])) {
+                $data[$permField] = $data[$f];
+            }
+        }
+
         // Duplicate detection against existing coop_members (and pending applications).
         $data['surname'] = $request->input('last_name');
         $data['residency_type'] = $request->input('residency_type') ?? $request->input('residency') ?? 'owned';
@@ -195,13 +210,19 @@ class MemberApplicationController extends Controller
 
         // Duplicate detection against existing coop_members (and pending applications).
         // Block on email or contact number match; warn on name-only match.
+        // birthdate/TIN/idNumber are additional block signals.
         $fullName = $data['first_name'] . ' ' . $data['middle_name'] . ' ' . $data['surname'];
         $contactNumber = $data['contact_number'] ?? null;
 
         $check = app(DuplicateMemberService::class)->check(
             $fullName,
             $email,
-            $contactNumber
+            $contactNumber,
+            null,   // excludeMemberId — new member creation, no self to exclude
+            null,   // excludeApplicationId
+            $data['date_of_birth'] ?? null,
+            $data['tin'] ?? null,
+            $data['id_number'] ?? null
         );
 
         // Never show an applicant another member's name, Member ID or which
@@ -225,6 +246,28 @@ class MemberApplicationController extends Controller
             session()->flash('duplicate_warning', $publicDuplicateMessage);
         }
 
+        // Valid ID upload: move the files to the private 'member-ids' disk with
+        // random filenames, and drop the UploadedFile objects from $data so
+        // they never reach mass-assignment.
+        $frontFile = $data['id_front'] ?? null;
+        $backFile  = $data['id_back'] ?? null;
+        unset($data['id_front'], $data['id_back']);
+
+        if ($frontFile && $frontFile->isValid()) {
+            $data['id_front_path'] = $frontFile->storeAs(
+                \Illuminate\Support\Str::uuid()->toString(),
+                'front-' . \Illuminate\Support\Str::random(20) . '.' . $frontFile->getClientOriginalExtension(),
+                'member-ids'
+            );
+        }
+        if ($backFile && $backFile->isValid()) {
+            $data['id_back_path'] = $backFile->storeAs(
+                \Illuminate\Support\Str::uuid()->toString(),
+                'back-' . \Illuminate\Support\Str::random(20) . '.' . $backFile->getClientOriginalExtension(),
+                'member-ids'
+            );
+        }
+
         // Look up an existing application by email before writing, so the
         // MySQL unique constraint on the email column is never hit by an
         // INSERT (which can raise a 1062 duplicate-key crash on concurrent
@@ -238,6 +281,15 @@ class MemberApplicationController extends Controller
             // If it was soft-deleted, restore it first
             if ($application->trashed()) {
                 $application->restore();
+            }
+
+            // A resubmission replaces the stored ID images: delete the old
+            // files so the private disk does not accumulate orphans.
+            foreach (['id_front_path', 'id_back_path'] as $col) {
+                $old = $application->{$col};
+                if ($old && \Illuminate\Support\Facades\Storage::disk('member-ids')->exists($old)) {
+                    \Illuminate\Support\Facades\Storage::disk('member-ids')->delete($old);
+                }
             }
 
             // Update the existing record and put it back in the queue.

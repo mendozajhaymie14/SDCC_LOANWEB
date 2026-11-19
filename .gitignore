@@ -56,3 +56,10 @@ with_changes_failures.txt
 
 # Static-page dumps for the Playwright static-page helper
 tests/tmp/
+
+# Debug / scratch scripts
+debug_login.cjs
+verify_admin_modal.cjs
+
+# Test fixtures
+tests/fixtures/

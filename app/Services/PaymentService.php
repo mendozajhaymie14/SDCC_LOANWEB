@@ -137,4 +137,38 @@ class PaymentService
             }
         });
     }
+
+    /**
+     * Freeze this payment's due date and lateness at the moment it is
+     * recorded. The due date is the loan's CURRENT next_due_date (before
+     * recomputeLoanState advances it), and days_late is the whole-day gap
+     * between the payment date and that due date (0 when paid on or before
+     * the due date).
+     *
+     * Without this snapshot the Borrower Performance report has to
+     * reconstruct each payment's due date by subtracting months from the
+     * loan's CURRENT next_due_date — a value that moves after every payment,
+     * edit and reconciliation, so a payment that was once on time can later
+     * be reported as late (or vice-versa).
+     *
+     * @param  \App\Models\Payment  $payment
+     * @return void
+     */
+    public function snapshotPaymentLateness(Payment $payment): void
+    {
+        $loan = $payment->loanApplication()->lockForUpdate()->first();
+        if (! $loan) {
+            return;
+        }
+
+        $dueDate = $loan->next_due_date;
+        $paymentDate = $payment->payment_date;
+
+        $payment->due_date = $dueDate;
+        $payment->days_late = ($paymentDate && $dueDate)
+            ? max(0, (int) $dueDate->startOfDay()->diffInDays($paymentDate->startOfDay(), false))
+            : 0;
+
+        $payment->save();
+    }
 }

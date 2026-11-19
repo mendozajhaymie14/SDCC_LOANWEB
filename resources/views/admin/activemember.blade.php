@@ -47,9 +47,6 @@
           <h2 class="panel-title">Active Members</h2>
           <span class="records-count">Approved Members: {{ $members->where('is_registered', true)->count() }}</span>
         </div>
-        @if(\App\Support\Permissions::has(auth()->user(), \App\Support\Permissions::EDIT_MEMBER_PROFILES))
-        <button class="btn-new" type="button" onclick="resetAddForm(); openModal('addActiveMember')">+ Add Member</button>
-        @endif
       </div>
 
       {{-- Flash messages (errors, success, warnings) --}}

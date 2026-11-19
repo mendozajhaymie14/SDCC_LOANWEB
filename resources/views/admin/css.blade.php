@@ -688,6 +688,77 @@ body {
 .badge-muted  { background: var(--card2); color: var(--muted); }
 .badge-red    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
 
+/* Duplicate badge (memberships list) */
+.dup-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 50px;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+.dup-badge-block { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.dup-badge-warn  { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
+
+/* ID image thumbnails in membership modal */
+.id-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  display: block;
+}
+.id-thumb-placeholder {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px dashed var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+.id-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.id-viewer-overlay.open { display: flex; }
+.id-viewer-overlay img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.id-viewer-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.id-viewer-close:hover { background: rgba(255,255,255,0.25); }
+
 /* RISK ALERT PANEL */
 .risk-alert-panel {
   border-color: rgba(248, 113, 113, 0.3);
@@ -1220,17 +1291,6 @@ tbody td { padding: 0.8rem 0.8rem; font-size: 0.84rem; }
   background: #fef2f2;
   border-color: #dc2626;
 }
-/* Reverse is intentionally less prominent than View/Edit: same ghost/danger look,
-   but smaller, dashed border — still in the row, confirmation modal keeps the reason. */
-.btn-review.btn-delete.rep-row-reverse {
-  font-size: 0.72rem;
-  padding: 0.25rem 0.6rem;
-  border-style: dashed;
-  color: var(--red);
-  border-color: var(--red);
-  background: transparent !important;
-}
-
 .search-icon {
   color: var(--muted, #64748b);
   font-size: 0.85rem;

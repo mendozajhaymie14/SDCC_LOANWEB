@@ -32,6 +32,8 @@ class MemberStatusTest extends TestCase
 
         // A pending membership application, approved by the branch manager.
         $application = \App\Models\MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Dela Cruz',
             'first_name'     => 'Juan',
             'email'          => 'juan@gmail.com',

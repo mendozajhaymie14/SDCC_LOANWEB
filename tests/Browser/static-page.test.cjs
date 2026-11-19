@@ -114,6 +114,22 @@ async function suiteNotif(browser) {
     body = await page.textContent('#notifModalBody');
     ok('notif: second row replaces content (title = row B type)', title2 === 'Loan Rejected email', title2);
     ok('notif: body shows row B subject only', /rejected/i.test(body) && !/approved/i.test(body), body.slice(0, 120));
+    await page.locator('#modal-notifDetailModal .modal-close').click();
+
+    // (8) Type pills use distinct colours per type (not one blue for all).
+    const pillColor = async (label) => page.locator('#notifLogsTableBody .nl-pill', { hasText: label }).first()
+        .evaluate((el) => getComputedStyle(el).color);
+    const approvedColor = await pillColor('Loan Approved');
+    const rejectedColor = await pillColor('Loan Rejected');
+    ok('notif: type pills differ in colour by type', approvedColor !== rejectedColor, approvedColor + ' vs ' + rejectedColor);
+    ok('notif: approved type pill is green', approvedColor === 'rgb(4, 120, 87)', approvedColor);
+    ok('notif: rejected type pill is red', rejectedColor === 'rgb(185, 28, 28)', rejectedColor);
+
+    // (9) Clicking a loan link in the Loan column opens ONLY the application modal
+    //     (stopPropagation prevents the row click from opening the notif modal too).
+    await page.locator('#notifLogsTableBody tr').filter({ hasText: 'Loan Approved' }).first().locator('.nl-loan-link').click();
+    ok('notif: loan-column link does not open the notif modal', !(await isVisible(page, '#modal-notifDetailModal')));
+    ok('notif: loan-column link opens the application modal', await isVisible(page, '#modal-applicationModal'));
 
     await page.close();
 }
@@ -159,7 +175,8 @@ async function suiteRepay(browser) {
     await page.locator('#modal-recordRepaymentModal .modal-close').click();
     ok('repay: X fully hides Record modal', !(await isVisible(page, '#modal-recordRepaymentModal')));
     await page.getByRole('button', { name: /record payment/i }).click();
-    await page.locator('#modal-recordRepaymentModal .modal-footer .btn-cancel').click();
+    ok('repay: Record Payment modal reopens', await isVisible(page, '#modal-recordRepaymentModal'));
+    await page.locator('#modal-recordRepaymentModal .rep-modal-actions .btn-cancel').click();
     ok('repay: Cancel fully hides Record modal', !(await isVisible(page, '#modal-recordRepaymentModal')));
 
     // View / Edit / Reverse modals, once each.
@@ -170,23 +187,24 @@ async function suiteRepay(browser) {
 
     await page.locator('.btn-edit-repayment').first().click();
     ok('repay: Edit modal opens', await isVisible(page, '#modal-editRepaymentModal'));
-    await page.locator('#modal-editRepaymentModal .modal-footer .btn-cancel').click();
+    await page.locator('#modal-editRepaymentModal .rep-modal-actions .btn-cancel').click();
     ok('repay: Cancel fully hides Edit modal', !(await isVisible(page, '#modal-editRepaymentModal')));
 
     await page.locator('.btn-reverse-repayment').first().click();
     ok('repay: Reverse modal opens', await isVisible(page, '#modal-reverseRepayment'));
     ok('repay: Reverse modal requires a reason', await isVisible(page, '#reverseReason'));
-    await page.locator('#modal-reverseRepayment .modal-footer .btn-cancel').click();
+    await page.locator('#modal-reverseRepayment .rep-modal-actions .btn-cancel').click();
     ok('repay: Cancel fully hides Reverse modal', !(await isVisible(page, '#modal-reverseRepayment')));
 
-    // 9.3 Reverse button: small ghost danger-text (less prominent than View/Edit).
+    // 9.3 Reverse button: red danger-text button, distinct from View/Edit.
     const revBg = await computed(page, '.btn-reverse-repayment', 'backgroundColor');
     const revColor = await computed(page, '.btn-reverse-repayment', 'color');
-    const revSize = await computed(page, '.btn-reverse-repayment', 'fontSize');
-    const viewSize = await computed(page, '.btn-view-repayment', 'fontSize');
-    ok('repay: Reverse is ghost (transparent bg)', revBg === 'rgba(0, 0, 0, 0)', revBg);
+    const revBorder = await computed(page, '.btn-reverse-repayment', 'borderColor');
+    const viewColor = await computed(page, '.btn-view-repayment', 'color');
+    ok('repay: Reverse bg matches View/Edit (white)', revBg === 'rgb(255, 255, 255)', revBg);
     ok('repay: Reverse is danger-text (red)', revColor === 'rgb(220, 38, 38)', revColor);
-    ok('repay: Reverse is smaller than View', parseFloat(revSize) < parseFloat(viewSize), revSize + ' vs ' + viewSize);
+    ok('repay: Reverse border is red', revBorder === 'rgb(220, 38, 38)', revBorder);
+    ok('repay: Reverse text differs from View', revColor !== viewColor, revColor + ' vs ' + viewColor);
 
     await page.close();
 }

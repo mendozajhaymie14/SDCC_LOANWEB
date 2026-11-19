@@ -218,6 +218,10 @@ use App\Models\CoopMember;
   .nl-pill-pending { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
   .nl-pill-skipped { background: rgba(107, 114, 128, 0.15); color: var(--muted); }
   .nl-pill-neutral { background: rgba(2, 132, 199, 0.15); color: var(--accent); }
+  /* Notification-type colour buckets (distinct from the status buckets). */
+  .nl-pill-ok     { background: rgba(5, 150, 105, 0.15); color: #047857; }
+  .nl-pill-danger { background: rgba(220, 38, 38, 0.15); color: #b91c1c; }
+  .nl-pill-warn   { background: rgba(217, 119, 6, 0.15); color: #b45309; }
 
   .nl-muted { color: var(--muted); font-weight: 400; }
   .nl-loan-link { color: var(--accent); text-decoration: none; font-weight: 600; }
@@ -444,13 +448,15 @@ use App\Models\CoopMember;
               <td class="font-medium text-gray-600 text-sm" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $log->subject }}</td>
               <td class="font-medium text-gray-600 text-sm">
                 @if($loanRef)
-                  <a href="#" class="nl-loan-link" onclick="openNotifLoan('{{ $loanRef }}', {{ $loanAppId }}); return false;">{{ $loanRef }}</a>
+                  <a href="#" class="nl-loan-link" onclick="openNotifLoan('{{ $loanRef }}', {{ $loanAppId }}, event); return false;">{{ $loanRef }}</a>
                 @else
                   —
                 @endif
               </td>
               <td class="font-medium text-gray-600 text-sm">
-                <span class="nl-pill nl-pill-neutral">{{ AppNotificationLog::typeLabel($log->notification_type) }}</span>
+                <span class="nl-pill nl-pill-{{ AppNotificationLog::typeColor($log->notification_type) }}">
+                  {{ AppNotificationLog::typeLabel($log->notification_type) }}
+                </span>
               </td>
               <td class="font-medium text-gray-600 text-sm">
                 <div>
@@ -515,7 +521,7 @@ function openNotifModal(id, subject, recipient, typeLabel, status, channel, erro
       ? memberName + (memberId ? ' (' + memberId + ')' : '')
       : (memberId || '—'));
   body += nlField('Loan', loanRef
-      ? '<a href="#" class="nl-loan-link" onclick="openNotifLoan(\'' + loanRef + '\', ' + loanAppId + '); return false;">' + loanRef + '</a>'
+      ? '<a href="#" class="nl-loan-link" onclick="openNotifLoan(\'' + loanRef + '\', ' + loanAppId + ', event); return false;">' + loanRef + '</a>'
       : '—');
   body += nlField('Date and time', created || '—');
   if (sentAt && sentAt !== created) {
@@ -534,7 +540,11 @@ function nlField(label, valueHtml) {
          '<div class="nl-modal-value">' + valueHtml + '</div></div>';
 }
 
-function openNotifLoan(appRef, numericId) {
+function openNotifLoan(appRef, numericId, ev) {
+  if (ev) {
+    ev.stopPropagation(); // stop the row click from opening the notif modal too
+  }
+  closeNotifModal(); // ensure only one modal is open at a time
   if (typeof window.openAppDetail === 'function') {
     window.openAppDetail({ currentTarget: { dataset: { appId: appRef, numericId: String(numericId) } } });
   }

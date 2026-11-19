@@ -73,7 +73,7 @@ class AdminController extends Controller
                 $membershipApplicationsCount = MemberApplication::whereIn('status', ['Pending', 'pending'])->count();
                 $totalRepayments = Payment::sum('amount_paid');
 
-                $loanTypes = LoanApplication::selectRaw('loan_type, count(*) as count, sum(amount) as total_amount')
+                $loanTypes = LoanApplication::selectRaw('loan_type, count(*) as count, sum(COALESCE(approved_amount, amount)) as total_amount')
     ->where('status', 'approved')
     ->groupBy('loan_type')
     ->orderByDesc('total_amount')
@@ -87,9 +87,9 @@ class AdminController extends Controller
                     $monthStart = now()->subMonths($i)->startOfMonth();
                     $monthEnd = now()->subMonths($i)->endOfMonth(); $monthLabels[] = now()->subMonths($i)->format('M');
 
-                    $monthlyApproved = LoanApplication::where('status', LoanStatus::APPROVED)
+                    $monthlyApproved = LoanApplication::whereIn('status', [LoanStatus::APPROVED, LoanStatus::PAID])
                         ->whereBetween('created_at', [$monthStart, $monthEnd])
-                        ->sum('amount');
+                        ->sum(DB::raw('COALESCE(approved_amount, amount)'));
 
                     $collected = Payment::whereBetween('payment_date', [$monthStart, $monthEnd])
                         ->sum('amount_paid');
@@ -1223,7 +1223,200 @@ class AdminController extends Controller
     public function memberships()
     {
         $applications = MemberApplication::with('approvedMember')->latest()->get();
+
+        // Precompute duplicate-check results once per application (used by both
+        // the table badge and the membersData JSON in the view).
+        $dupService = app(DuplicateMemberService::class);
+        foreach ($applications as $app) {
+            $check = $dupService->check(
+                $app->fullName,
+                $app->email,
+                $app->contact_number,
+                $app->approved_member_id ?? null,
+                $app->id,
+                $app->date_of_birth?->format('Y-m-d'),
+                $app->tin,
+                $app->id_number
+            );
+            // Skip the "own-email in coop_members" allowance so the badge is
+            // accurate for the list view (matches approveMember's own rule).
+            $isOwnEmail = $check['matchedFields'] === ['email']
+                && ($check['existingMember'] ?? null) instanceof CoopMember;
+            $app->isPossibleDuplicate = ($check['isDuplicate'] || $check['isWarning']) && !$isOwnEmail;
+            $app->duplicateLevel      = $check['level'] ?? 'none';
+            $app->duplicateMessage    = $check['message'] ?? '';
+        }
+
         return view('admin.memberships', compact('applications'));
+    }
+
+    // 20. Store a membership application submitted by staff from the
+    // Memberships page "+ Membership Application" modal.
+    public function storeMembershipApplication(Request $request)
+    {
+        $data = $request->all();
+
+        $email = strtolower(trim((string) $request->input('email')));
+
+        // One application at a time, and an approved one is final.
+        if ($email !== '') {
+            $existing = MemberApplication::withTrashed()->where('email', $email)->first();
+
+            if ($existing?->status === 'approved') {
+                return back()->withInput()
+                    ->withErrors(['email' => 'This membership application has already been approved.']);
+            }
+
+            if ($existing?->status === 'pending') {
+                return back()->withInput()
+                    ->withErrors(['email' => 'There is already a membership application under review for this email address.']);
+            }
+        }
+
+        Validator::make($data, [
+            'last_name'      => ['required', 'string', 'max:255'],
+            'first_name'     => ['required', 'string', 'max:255'],
+            'middle_name'    => ['nullable', 'string', 'max:255'],
+            'occupation'     => ['required', 'string', 'max:100'],
+            'province'       => ['nullable', 'string', 'max:255'],
+            'municipality'   => ['nullable', 'string', 'max:255'],
+            'barangay'       => ['nullable', 'string', 'max:255'],
+            'address_line'   => ['nullable', 'string', 'max:255'],
+            'zip_code'       => ['nullable', 'string', 'max:12'],
+            'date_of_birth'  => ['required', 'date', 'before_or_equal:today'],
+            'monthly_income'              => ['nullable', 'numeric', 'min:0'],
+            'existing_monthly_obligations' => ['nullable', 'numeric', 'min:0'],
+            'savings_balance' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'contact_number' => ['required', new \App\Rules\PhilippineMobileNumber],
+            'email'          => ['required', 'string', 'email', 'max:255', function ($attribute, $value, $fail) {
+                $email = strtolower(trim($value));
+                if (! str_ends_with($email, '@gmail.com')) {
+                    $fail('Only @gmail.com email addresses are allowed.');
+                    return;
+                }
+                if (\App\Models\CoopMember::where('email', $email)->exists()) {
+                    $fail('This email address is already registered as a cooperative member.');
+                }
+            }],
+            'data_privacy_consent' => ['required', 'accepted'],
+            'nationality'    => ['nullable', 'string', 'max:100'],
+            'place_of_birth' => ['nullable', 'string', 'max:255'],
+            'id_type'    => ['required', 'string', 'in:drivers_license,passport,national_id,voters_id,philhealth_id,umid,prc_id,sss_id'],
+            'id_number'  => ['required', 'string', 'max:50', 'regex:/^[0-9]+$/'],
+            'id_front'   => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:5120'],
+            'id_back'    => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'max:5120'],
+        ])->validate();
+
+        $data['last_name']     = ucwords(strtolower(trim(preg_replace('/\s+/', ' ', (string) $data['last_name']))));
+        $data['first_name']    = ucwords(strtolower(trim(preg_replace('/\s+/', ' ', (string) $data['first_name']))));
+        $data['middle_name']   = isset($data['middle_name']) ? ucwords(strtolower(trim(preg_replace('/\s+/', ' ', (string) $data['middle_name'])))) : null;
+        $data['email']         = strtolower(trim($data['email']));
+
+        foreach (['address_line', 'barangay', 'municipality', 'zip_code'] as $f) {
+            if (!empty($data[$f])) {
+                $data[$f] = ucwords(strtolower(trim(preg_replace('/\s+/', ' ', (string) $data[$f]))));
+            }
+        }
+
+        if (!empty($data['address_line']) && empty($data['street'])) {
+            $data['street'] = ucwords(strtolower(trim(preg_replace('/\s+/', ' ', (string) $data['address_line']))));
+        }
+
+        $dob = Carbon::createFromFormat('Y-m-d', $data['date_of_birth'] ?? '');
+        if ($dob === false || $dob->isFuture()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'date_of_birth' => ['Birthdate must be a past date.'],
+            ]);
+        }
+        if ($dob->age < 18) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'date_of_birth' => ['Applicant must be at least 18 years old.'],
+            ]);
+        }
+
+        $data['surname'] = $data['last_name'];
+        $data['residency_type'] = $request->input('residency_type') ?? 'owned';
+        $data['nationality'] = $request->input('nationality', 'Filipino');
+        $data['place_of_birth'] = $request->input('place_of_birth') ?? 'City of Las Piñas';
+        $data['occupation'] = $request->input('occupation') ?? '';
+        $data['monthly_income'] = $request->input('monthly_income');
+        $data['existing_monthly_obligations'] = $request->input('existing_monthly_obligations');
+
+        $contactNumber = $data['contact_number'] ?? null;
+
+        $fullName = $data['first_name'] . ' ' . ($data['middle_name'] ?: '') . ' ' . $data['surname'];
+
+        $check = app(DuplicateMemberService::class)->check(
+            $fullName,
+            $data['email'],
+            $contactNumber,
+            null,
+            null,
+            $data['date_of_birth'] ?? null,
+            $data['tin'] ?? null,
+            $data['id_number'] ?? null
+        );
+
+        if ($check['isDuplicate']) {
+            \Log::info('Duplicate membership application blocked (staff)', [
+                'matched' => $check['matchedFields'] ?? [],
+            ]);
+
+            return back()->withInput()
+                ->withErrors(['email' => 'Could not process this application: some of the details entered are already on file. Please contact the cooperative office.']);
+        }
+
+        if ($check['isWarning']) {
+            session()->flash('duplicate_warning', $check['publicMessage'] ?? 'Possible duplicate detected — proceeding anyway.');
+        }
+
+        $frontFile = $data['id_front'] ?? null;
+        $backFile  = $data['id_back'] ?? null;
+        unset($data['id_front'], $data['id_back']);
+
+        if ($frontFile && $frontFile->isValid()) {
+            $data['id_front_path'] = $frontFile->storeAs(
+                \Illuminate\Support\Str::uuid()->toString(),
+                'front-' . \Illuminate\Support\Str::random(20) . '.' . $frontFile->getClientOriginalExtension(),
+                'member-ids'
+            );
+        }
+        if ($backFile && $backFile->isValid()) {
+            $data['id_back_path'] = $backFile->storeAs(
+                \Illuminate\Support\Str::uuid()->toString(),
+                'back-' . \Illuminate\Support\Str::random(20) . '.' . $backFile->getClientOriginalExtension(),
+                'member-ids'
+            );
+        }
+
+        $application = MemberApplication::withTrashed()->where('email', $data['email'])->first();
+
+        if ($application) {
+            if ($application->trashed()) {
+                $application->restore();
+            }
+
+            foreach (['id_front_path', 'id_back_path'] as $col) {
+                $old = $application->{$col};
+                if ($old && Storage::disk('member-ids')->exists($old)) {
+                    Storage::disk('member-ids')->delete($old);
+                }
+            }
+
+            $application->update($data + [
+                'status'      => 'pending',
+                'reviewed_at' => null,
+                'reviewed_by' => null,
+            ]);
+        } else {
+            $application = MemberApplication::create($data + ['status' => 'pending']);
+        }
+
+        $message = $application->wasRecentlyCreated
+            ? 'Membership application has been submitted.'
+            : 'Membership application has been updated.';
+
+        return back()->with('success', $message);
     }
 
     // 20. Approve a membership application
@@ -1239,12 +1432,16 @@ class AdminController extends Controller
         // Duplicate detection: block on email or contact number match (other than this application's own email)
         // warn on name-only match. Exclude this application's own ID from member_applications,
         // and any CoopMember already linked to this application (approved_member_id).
+        // birthdate/TIN/idNumber are additional block signals.
         $check = app(DuplicateMemberService::class)->check(
             $application->fullName,
             $application->email,
             $application->contact_number,
             $application->approved_member_id ?? null, // exclude this member (coop_members.id) if already linked
-            $application->id // exclude this application (member_applications.id) from pending check
+            $application->id, // exclude this application (member_applications.id) from pending check
+            $application->date_of_birth?->format('Y-m-d'),
+            $application->tin,
+            $application->id_number
         );
 
         if ($check['isDuplicate']) {
@@ -1255,6 +1452,53 @@ class AdminController extends Controller
                     'success' => false,
                     'message' => $check['message'],
                 ], 422);
+            }
+        }
+
+        // Name-only match requires explicit staff confirmation + note.
+        if ($check['isWarning'] && !$request->filled('confirm_continue')) {
+            return response()->json([
+                'success' => false,
+                'message' => $check['message'] . ' Tick "I confirm this applicant is not a duplicate" and add a note to proceed.',
+            ], 422);
+        }
+
+        if ($check['isWarning'] && $request->filled('confirm_continue') && !$request->filled('duplicate_note')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A note is required when proceeding despite a name-only match.',
+            ], 422);
+        }
+
+        if ($check['isWarning'] && $request->filled('confirm_continue')) {
+            AuditLog::log(
+                'Name-Only Duplicate Override',
+                'Staff confirmed approval of membership application #' . $application->id . ' despite a name-only duplicate match. Note: ' . $request->input('duplicate_note'),
+                Auth::id()
+            );
+        }
+
+        // Require ID images on file (branch managers can override). The front
+        // is always required; the back only for non-passport IDs.
+        $hasIdFront = !blank($application->id_front_path);
+        $hasIdBack  = !blank($application->id_back_path);
+        $backRequired = strtolower((string) $application->id_type) !== 'passport';
+        $user = Auth::user();
+        $isBranchManager = $user && Permissions::role($user) === Permissions::ROLE_BRANCH_MANAGER;
+
+        if (!$hasIdFront || ($backRequired && !$hasIdBack)) {
+            if (!$isBranchManager || !$request->filled('id_override_confirm')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'ID front and back images are required before approval. Branch managers may override by ticking the confirmation.',
+                ], 422);
+            }
+            if ($isBranchManager && $request->filled('id_override_confirm')) {
+                AuditLog::log(
+                    'ID Requirement Override',
+                    'Branch manager approved membership application #' . $application->id . ' without complete ID images. Note: ' . $request->input('id_override_note'),
+                    Auth::id()
+                );
             }
         }
 
@@ -1547,11 +1791,23 @@ class AdminController extends Controller
             );
         }
     } catch (\Throwable $e) {
-        \Log::error('Member approval failed: ' . $e->getMessage());
+        \Log::error('Member approval failed', [
+            'message' => $e->getMessage(),
+            'file'    => $e->getFile(),
+            'line'    => $e->getLine(),
+            'trace'   => $e->getTraceAsString(),
+        ]);
+
+        if ($e instanceof \Illuminate\Database\QueryException) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not approve this membership application: ' . $e->getMessage(),
+            ], 500);
+        }
 
         return response()->json([
             'success' => false,
-            'message' => 'Could not approve this membership application. The database may be missing a required column. Please contact the system administrator.',
+            'message' => 'Could not approve this membership application. Please contact the system administrator.',
         ], 500);
     }
 
@@ -1671,11 +1927,23 @@ class AdminController extends Controller
         });
 
         } catch (\Throwable $e) {
-            \Log::error('Member rejection failed: ' . $e->getMessage());
+            \Log::error('Member rejection failed', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
+            if ($e instanceof \Illuminate\Database\QueryException) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Could not reject this membership application: ' . $e->getMessage(),
+                ], 500);
+            }
 
             return response()->json([
                 'success' => false,
-                'message' => 'Could not reject this membership application. The database may be missing a required column. Please contact the system administrator.',
+                'message' => 'Could not reject this membership application. Please contact the system administrator.',
             ], 500);
         }
 
@@ -1869,10 +2137,15 @@ class AdminController extends Controller
         $base = Payment::with(['loanApplication.user', 'encoder', 'loanApplication.user.coopMember', 'reversedBy'])
             ->when(request('member_id'), function ($query, $memberId) {
                 // Member dropdown: exact match on the selected active member.
-                // Portal-less loans are reached through the email fallback,
-                // same as the member-ID text search above.
+                // Resolved the same three ways as LoanApplication::memberId()
+                // / CoopMember::forLoanApplication(): the primary
+                // users.coop_member_id link, the legacy coop_members.user_id
+                // link, and the email fallback for portal-less loans.
                 $query->where(function ($q) use ($memberId) {
                     $q->whereHas('loanApplication.user.coopMember', fn ($cq) => $cq->where('member_id', $memberId))
+                      ->orWhereHas('loanApplication.user', function ($uq) use ($memberId) {
+                          $uq->whereRaw('EXISTS (SELECT 1 FROM coop_members cm2 WHERE cm2.user_id = users.id AND cm2.member_id = ? AND cm2.deleted_at IS NULL)', [$memberId]);
+                      })
                       ->orWhereHas('loanApplication', function ($lq) use ($memberId) {
                           $lq->whereNull('user_id')
                              ->whereNotNull('email')
@@ -1941,7 +2214,26 @@ class AdminController extends Controller
         // actually have payments, newest first. Duplicate mirrors share one
         // loan (APP-0009/APP-0010 style), so only the newest mirror per loan
         // is listed — matching Payment::appId()'s canonical resolution.
+        //
+        // When a member is selected, scope the dropdown to that member's
+        // applications only (resolved the same three ways as
+        // LoanApplication::memberId / CoopMember::forLoanApplication).
         $appOptions = Application::whereHas('loanApplication.payments')
+            ->when(request('member_id'), function ($query, $memberId) {
+                $query->whereHas('loanApplication', function ($lq) use ($memberId) {
+                    $lq->where(function ($q) use ($memberId) {
+                        $q->whereHas('user.coopMember', fn ($cq) => $cq->where('member_id', $memberId))
+                          ->orWhereHas('user', function ($uq) use ($memberId) {
+                              $uq->whereRaw('EXISTS (SELECT 1 FROM coop_members cm2 WHERE cm2.user_id = users.id AND cm2.member_id = ? AND cm2.deleted_at IS NULL)', [$memberId]);
+                          })
+                          ->orWhere(function ($q) use ($memberId) {
+                              $q->whereNull('user_id')
+                                 ->whereNotNull('email')
+                                 ->whereRaw('LOWER(TRIM(email)) IN (SELECT LOWER(TRIM(email)) FROM coop_members WHERE member_id = ? AND deleted_at IS NULL)', [$memberId]);
+                          });
+                    });
+                });
+            })
             ->orderByDesc('id')
             ->get(['id', 'app_id', 'loan_application_id'])
             ->unique('loan_application_id')
@@ -2488,27 +2780,41 @@ class AdminController extends Controller
 
                     $totalPaid += (float) ($p->amount_paid ?? 0);
 
-                    // Issue A: anchor per-payment due date backwards from next_due_date
-                    // next_due_date = due date for installment ($paymentCount + 1).
-                    // Payment (#$index+1) due date = next_due_date - ($paymentCount - $index) months.
-                    $dueDate = null;
-                    if ($nextDue) {
-                        $dueDate = Carbon::parse($nextDue)->subMonths($paymentCount - $index)->startOfDay();
+                    if (!$pd) {
+                        continue;
                     }
 
-                    if ($dueDate && $p->payment_date) {
-                        // diffInDays(signed): payment_date - dueDate
-                        //   >= 0 = payment on or before due date → on-time
-                        //   < 0  = payment after due date → late
-                        // Overdue when > 30 days late (diffDays < -30)
-                        $diffDays = (int) $p->payment_date->startOfDay()->diffInDays($dueDate, false);
-                        if ($diffDays >= 0) {
-                            $onTime++;
-                        } else {
-                            $late++;
-                            if ($diffDays < -30) {
-                                $overdue++;
-                            }
+                    // Prefer the due date + lateness snapshotted when the payment
+                    // was recorded (payments.due_date / payments.days_late). This
+                    // is frozen at payment time and does not move when the loan's
+                    // next_due_date is advanced by later payments, edits, or
+                    // reconciliation. Fall back to reconstructing from
+                    // next_due_date only for legacy rows not yet backfilled.
+                    if ($p->due_date !== null) {
+                        $daysLate = (int) ($p->days_late ?? 0);
+                    } else {
+                        // Legacy fallback: anchor per-payment due date backwards
+                        // from next_due_date (next_due_date = due date for
+                        // installment $paymentCount + 1).
+                        $dueDate = null;
+                        if ($nextDue) {
+                            $dueDate = Carbon::parse($nextDue)->subMonths($paymentCount - $index)->startOfDay();
+                        }
+                        if (!$dueDate) {
+                            continue;
+                        }
+                        // diffInDays(signed): payment_date - dueDate; > 0 means late.
+                        // With Carbon 3, $a->diffInDays($b) returns $b - $a, so we need
+                        // dueDate->diffInDays(paymentDate) to get positive when payment is after due.
+                        $daysLate = max(0, (int) $dueDate->diffInDays($pd->startOfDay(), false));
+                    }
+
+                    if ($daysLate === 0) {
+                        $onTime++;
+                    } else {
+                        $late++;
+                        if ($daysLate > 30) {
+                            $overdue++;
                         }
                     }
                 }
@@ -2636,6 +2942,13 @@ class AdminController extends Controller
                     'encoded_by'          => Auth::id(),
                     'proof_path'          => $proofPath,
                 ]);
+
+                // Snapshot the due date and lateness for this payment BEFORE
+                // recomputeLoanState advances next_due_date. This freezes the
+                // per-payment result so the Borrower Performance report (and the
+                // Payments table pill) always reflect the state at recording
+                // time, not the current loan schedule.
+                app(PaymentService::class)->snapshotPaymentLateness($payment);
 
                 // Recompute loan state using the single source of truth service.
                 // The new payment is now in the DB, so it will be counted in total_paid.
@@ -2796,6 +3109,20 @@ class AdminController extends Controller
         // Delete the superseded proof only AFTER the transaction commits.
         if ($newProofPath && $oldProofPath && $oldProofPath !== $newProofPath) {
             Storage::delete($oldProofPath);
+        }
+
+        // Re-freeze this payment's lateness against its FROZEN due date. Editing
+        // the payment date must not silently move the due date too — the due
+        // date belongs to the installment, not the payment. Legacy rows missing
+        // a snapshot take one from the current schedule (before recompute moves
+        // next_due_date).
+        if ($repayment->due_date) {
+            $repayment->days_late = $repayment->payment_date
+                ? max(0, (int) $repayment->due_date->startOfDay()->diffInDays($repayment->payment_date->startOfDay()))
+                : 0;
+            $repayment->save();
+        } elseif ($loanApplication) {
+            app(PaymentService::class)->snapshotPaymentLateness($repayment);
         }
 
         // Recompute loan state after update. The payment has already been
@@ -4047,5 +4374,35 @@ public function createBackup(Request $request)
             'valid' => (bool) $validated['valid'],
             'note' => $validated['note'] ?? null,
         ]);
+    }
+
+    /**
+     * View member ID image (front/back) with audit logging.
+     *
+     * @param  Request  $request
+     * @param  int  $id  MemberApplication ID
+     * @param  string  $view  'front' or 'back'
+     */
+    public function viewMemberId(Request $request, $id, $view)
+    {
+        if (!in_array($view, ['front', 'back'])) {
+            abort(404);
+        }
+
+        $application = MemberApplication::findOrFail($id);
+        $path = $view === 'front' ? $application->id_front_path : $application->id_back_path;
+
+        if (blank($path) || !Storage::disk('member-ids')->exists($path)) {
+            abort(404);
+        }
+
+        // Audit log access to ID image
+        AuditLog::log(
+            'Member ID Viewed',
+            "Staff viewed {$view} of ID for membership application #{$application->id} ({$application->fullName})",
+            Auth::id()
+        );
+
+        return Storage::disk('member-ids')->response($path);
     }
 }

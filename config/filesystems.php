@@ -38,6 +38,14 @@ return [
             'report' => false,
         ],
 
+        'member-ids' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/member-ids'),
+            'serve' => true,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

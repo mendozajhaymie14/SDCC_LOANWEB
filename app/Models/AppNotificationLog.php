@@ -30,6 +30,19 @@ class AppNotificationLog extends Model
         return self::TYPE_LABELS[$type] ?? ucfirst($type);
     }
 
+    /**
+     * Colour bucket for a notification type pill.
+     */
+    public static function typeColor(string $type): string
+    {
+        return match (strtolower(trim($type))) {
+            'approved', 'payment_received', 'membership_approved' => 'ok',
+            'rejected', 'membership_rejected'                     => 'danger',
+            'due_soon', 'due_today', 'overdue'                    => 'warn',
+            default                                               => 'neutral',
+        };
+    }
+
     protected $fillable = [
         'recipient_email',
         'subject',

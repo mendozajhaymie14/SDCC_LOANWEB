@@ -106,6 +106,36 @@ class ReportsTest extends TestCase
     }
 
     /**
+     * The Loan Summary "By status" table excludes the Flagged triage bucket.
+     */
+    public function test_loan_summary_excludes_flagged_status(): void
+    {
+        $manager = User::factory()->create(['usertype' => Permissions::ROLE_BRANCH_MANAGER]);
+
+        $member = User::factory()->create(['usertype' => Permissions::ROLE_MEMBER]);
+        CoopMember::factory()->create(['user_id' => $member->id, 'full_name' => 'Test Borrower']);
+
+        LoanApplication::factory()->create([
+            'user_id' => $member->id,
+            'full_name' => 'Test Borrower',
+            'loan_type' => 'regular',
+            'amount' => 5000,
+            'status' => 'flagged',
+            'risk_level' => 'High',
+        ]);
+
+        $response = $this->actingAs($manager)->get('/reports');
+        $response->assertOk();
+
+        $summary = $response->viewData('loanSummary');
+        $this->assertArrayNotHasKey('flagged', $summary['status_totals']);
+        $this->assertArrayNotHasKey('flagged', $summary['by_status_counts']);
+        // No "Flagged" row is rendered in the By Status table (the status filter
+        // dropdown still legitimately offers Flagged as a filter value).
+        $this->assertStringNotContainsString('<td>Flagged</td>', $response->getContent());
+    }
+
+    /**
      * PDF export returns a downloadable response for each report type.
      *
      * @dataProvider reportTypes

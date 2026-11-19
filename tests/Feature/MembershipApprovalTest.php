@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 /**
@@ -42,6 +43,8 @@ class MembershipApprovalTest extends TestCase
         $this->actingAs($this->applicant);
 
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -85,6 +88,8 @@ class MembershipApprovalTest extends TestCase
     public function test_loan_officer_can_approve_membership_application(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -111,6 +116,8 @@ class MembershipApprovalTest extends TestCase
     public function test_credit_investigator_cannot_approve_membership_application(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -136,6 +143,8 @@ class MembershipApprovalTest extends TestCase
     public function test_rejection_keeps_usertype_as_user(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -174,6 +183,8 @@ class MembershipApprovalTest extends TestCase
     public function test_approval_makes_member_active_and_counted_on_active_members_page(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -204,6 +215,8 @@ class MembershipApprovalTest extends TestCase
     public function test_rejection_deactivates_linked_member_row(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -240,6 +253,8 @@ class MembershipApprovalTest extends TestCase
     public function test_approving_twice_is_idempotent(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -264,6 +279,8 @@ class MembershipApprovalTest extends TestCase
     {
         // Approved application with a stale (pending) member row.
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -300,6 +317,8 @@ class MembershipApprovalTest extends TestCase
         $this->actingAs($this->applicant);
 
         MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -325,6 +344,8 @@ class MembershipApprovalTest extends TestCase
     {
         // First approve.
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -354,6 +375,8 @@ class MembershipApprovalTest extends TestCase
     {
         // Approved while nobody was registered yet, so no account was linked.
         MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'       => 'Doe',
             'first_name'    => 'Jane',
             'email'         => 'jane@gmail.com',
@@ -418,6 +441,8 @@ class MembershipApprovalTest extends TestCase
     public function approved_application_birthdate_is_saved_and_shown_on_active_members_edit(): void
     {
         $application = MemberApplication::create([
+            'id_front_path' => 'front-test.jpg',
+            'id_back_path'  => 'back-test.jpg',
             'surname'        => 'Doe',
             'first_name'     => 'Jane',
             'email'          => 'jane@gmail.com',
@@ -479,6 +504,11 @@ class MembershipApprovalTest extends TestCase
             'municipality'       => 'San Dionisio',
             'province'           => 'Parañaque',
             'zip_code'           => '1700',
+            'date_of_birth'      => '1990-05-15',
+            'id_type'            => 'drivers_license',
+            'id_number'          => '1234567890',
+            'id_front'           => UploadedFile::fake()->image('id-front.jpg'),
+            'id_back'            => UploadedFile::fake()->image('id-back.jpg'),
         ]);
 
         $response->assertRedirect();
@@ -497,5 +527,90 @@ class MembershipApprovalTest extends TestCase
         $member = $user->coopMember()->first();
         $this->assertNotNull($member);
         $this->assertSame('Teacher', $member->occupation);
+    }
+
+    /**
+     * Reproduction for application #00002 (Adrias Bea): a portal-less
+     * applicant (no linked user account) who submitted a PASSPORT — front
+     * image only, no back image, no income — must approve cleanly.
+     *
+     * Before the passport carve-out this failed the "ID front and back
+     * required" guard, and an unhandled schema error surfaced as the generic
+     * "database may be missing a required column" message.
+     */
+    public function test_00002_passport_without_back_and_portal_less_approves_cleanly(): void
+    {
+        $application = MemberApplication::create([
+            'surname'        => 'Adrias',
+            'first_name'     => 'Bea',
+            'email'          => 'adrias.bea@example.com',
+            'contact_number' => '09171234567',
+            'id_type'        => 'passport',
+            'id_number'      => '123456789',
+            'id_front_path'  => 'front-test.jpg',
+            'id_back_path'   => null,           // passport → back is optional
+            'occupation'     => 'Vendor',
+            'source_of_income' => 'Sari-sari store',
+            'user_id'        => null,           // portal-less applicant
+            'status'         => 'pending',
+        ]);
+
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+
+        $response = $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+
+        $application->refresh();
+        $this->assertEquals('approved', $application->status);
+        $this->assertNotNull($application->approved_member_id);
+
+        $member = CoopMember::find($application->approved_member_id);
+        $this->assertNotNull($member);
+        $this->assertEquals(CoopMember::STATUS_ACTIVE, $member->status);
+        $this->assertTrue($member->is_registered);
+        $this->assertNull($member->user_id);
+        $this->assertSame('Sari-sari store', $member->source_of_income);
+    }
+
+    /**
+     * A genuine schema drift (a column the approval writes no longer exists)
+     * must be reported with the underlying SQL error, not the old blank
+     * "database may be missing a required column" catch-all.
+     */
+    public function test_approval_failure_surfaces_the_actual_missing_column(): void
+    {
+        $application = MemberApplication::create([
+            'surname'        => 'Doe',
+            'first_name'     => 'Jane',
+            'email'          => 'jane@gmail.com',
+            'contact_number' => '09171234567',
+            'id_front_path'  => 'front-test.jpg',
+            'id_back_path'   => 'back-test.jpg',
+            'status'         => 'pending',
+        ]);
+
+        // Simulate a database that is missing the source_of_income column.
+        \Illuminate\Support\Facades\Schema::table('coop_members', function ($table) {
+            $table->dropColumn('source_of_income');
+        });
+
+        $manager = User::factory()->asBranchManager()->create();
+        $this->actingAs($manager);
+
+        $response = $this->post(route('memberships.approve', $application->id), [
+            '_token' => csrf_token(),
+        ]);
+
+        $response->assertStatus(500);
+        $message = $response->json('message');
+        $this->assertStringContainsString('source_of_income', $message);
+        $this->assertStringNotContainsString(
+            'The database may be missing a required column',
+            $message
+        );
     }
 }

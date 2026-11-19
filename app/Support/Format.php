@@ -32,4 +32,20 @@ class Format
 
         return \Carbon\Carbon::parse($date)->format($format);
     }
+
+    /**
+     * Mask an ID number for display (show only last 4 digits).
+     * e.g., "123456789012" becomes "********** 9012".
+     */
+    public static function maskIdNumber(?string $idNumber): string
+    {
+        if (blank($idNumber)) {
+            return '—';
+        }
+        $digits = preg_replace('/\D/', '', $idNumber);
+        if (strlen($digits) <= 4) {
+            return str_repeat('*', strlen($digits));
+        }
+        return str_repeat('*', strlen($digits) - 4) . ' ' . substr($digits, -4);
+    }
 }

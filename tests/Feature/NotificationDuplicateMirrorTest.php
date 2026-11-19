@@ -126,20 +126,20 @@ class NotificationDuplicateMirrorTest extends TestCase
 
         // Outbox approval row — THIS IS THE CRITICAL ASSERTION
         // Check the exact loan link HTML to see which app_id the outbox renders.
-        // The loan link format: openNotifLoan('APP-XXXX', N); return false;"
+        // The loan link format: openNotifLoan('APP-XXXX', N, event); return false;"
         $outbox = $this->actingAs($manager)->get(route('admin.notifications-log'))->getContent();
 
         // The outbox loan link should show APP-0010 (mirror B), not APP-0009 (mirror A).
         // HasOne without orderBy returns the first mirror by id (APP-0009), which is wrong.
         $this->assertStringContainsString(
-            "openNotifLoan('APP-0010', 9)",
+            "openNotifLoan('APP-0010', 9, event)",
             $outbox,
             'Outbox loan link should point to APP-0010 (mirror B), not APP-0009 (mirror A — wrong!)'
         );
 
         // Sanity: APP-0009 should NOT appear as the loan link in the outbox
         $this->assertStringNotContainsString(
-            "openNotifLoan('APP-0009', 8)",
+            "openNotifLoan('APP-0009', 8, event)",
             $outbox,
             'Outbox should NOT link to APP-0009 (mirror A — that is the wrong mirror)'
         );

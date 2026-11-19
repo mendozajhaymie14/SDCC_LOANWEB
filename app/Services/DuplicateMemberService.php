@@ -9,6 +9,9 @@ use Illuminate\Support\Str;
 
 class DuplicateMemberService
 {
+    private const SUFFIXES = ['jr', 'sr', 'ii', 'iii', 'iv'];
+    private const PARTICLES = ['de', 'del', 'dela', 'la', 'van', 'von', 'di', 'da', 'dos', 'das', 'du', 'le', 'lo', 'li', 'el', 'al', 'ben', 'ibn', 'bin', 'bint', 'ap', 'ferch', 'mac', 'mc', 'fitz', 'van der', 'van den', 'van het', 'de la', 'de los', 'de las', 'van de', 'van der'];
+
     /**
      * Check for duplicate member profiles.
      *
@@ -17,9 +20,13 @@ class DuplicateMemberService
      * @param string|null $contactNumber
      * @param int|null $excludeMemberId Exclude this member ID (edit-self case, coop_members.id)
      * @param int|null $excludeApplicationId Exclude this application ID (member_applications.id)
+     * @param string|null $birthdate Birthdate YYYY-MM-DD. Same date → block; missing/different → name_only.
+     * @param string|null $tin Taxpayer Identification Number. Same TIN → block.
+     * @param string|null $idNumber ID number (e.g. driver's license, passport). Normalized strip+case-insensitive match → block.
      * @return array{
      *     isDuplicate: bool,
      *     isWarning: bool,
+     *     level: "block"|"name_only"|"none",
      *     message: string,
      *     publicMessage: string,
      *     matchedFields: string[],
@@ -31,7 +38,10 @@ class DuplicateMemberService
         string $email,
         ?string $contactNumber,
         ?int $excludeMemberId = null,
-        ?int $excludeApplicationId = null
+        ?int $excludeApplicationId = null,
+        ?string $birthdate = null,
+        ?string $tin = null,
+        ?string $idNumber = null
     ): array {
         $normalizedName   = $this->normalizeName($fullName);
         $normalizedEmail  = strtolower(trim($email));
@@ -155,13 +165,51 @@ class DuplicateMemberService
             }
         }
 
-        // --- Name match (normalized) - WARNING only unless combined with email/contact ---
+        // --- Birthdate match - BLOCK ---
+        // Same YYYY-MM-DD birthdate on another record is a hard block; a
+        // missing or different birthdate only downgrades a name match to
+        // name_only (handled after the name scan).
+        if ($birthdate && !$existingMember) {
+            $candidate = $this->findByBirthdate($birthdate, $excludeMemberId, $excludeApplicationId);
+            if ($candidate) {
+                $matchedFields[] = 'birthdate';
+                $existingMember = $candidate;
+            }
+        }
+
+        // --- TIN match - BLOCK ---
+        if ($tin && !$existingMember) {
+            $candidate = $this->findByTin($tin, $excludeMemberId, $excludeApplicationId);
+            if ($candidate) {
+                $matchedFields[] = 'tin';
+                $existingMember = $candidate;
+            }
+        }
+
+        // --- ID number match - BLOCK ---
+        // Normalized: strip spaces/dashes, case-insensitive.
+        if ($idNumber && !$existingMember) {
+            $normalizedId = $this->normalizeIdNumber($idNumber);
+            if ($normalizedId) {
+                $candidate = $this->findByIdNumber($normalizedId, $excludeMemberId, $excludeApplicationId);
+                if ($candidate) {
+                    $matchedFields[] = 'id_number';
+                    $existingMember = $candidate;
+                }
+            }
+        }
+
+        // --- Name match (normalized) ---
+        // Exact normalized match OR Levenshtein distance <= 1 on surname tokens.
+        // If birthdate was provided and matches candidate's birthdate → BLOCK.
+        // If birthdate missing/different → NAME_ONLY.
         if ($normalizedName) {
-            // CoopMember: compare full names in PHP (SQL REPLACE doesn't sort words)
             $candidate = null;
+
+            // CoopMember: compare full names in PHP
             $coopMembers = CoopMember::when($excludeMemberId, fn ($q) => $q->where('id', '!=', $excludeMemberId))->get();
             foreach ($coopMembers as $row) {
-                if ($this->normalizeName($row->full_name) === $normalizedName) {
+                if ($this->namesMatch($normalizedName, $row->full_name)) {
                     $candidate = $row;
                     break;
                 }
@@ -169,7 +217,7 @@ class DuplicateMemberService
 
             if (!$candidate) {
                 // MemberApplication: compare full name constructed from fields in PHP
-                $candidate = $this->findByNamePhpSide(
+                $candidate = $this->findByNamePhpSideFuzzy(
                     MemberApplication::query(),
                     $excludeMemberId,
                     $excludeApplicationId,
@@ -177,13 +225,24 @@ class DuplicateMemberService
                 );
             }
 
-            if ($candidate && !in_array('email', $matchedFields) && !in_array('contact_number', $matchedFields)) {
-                $matchedFields[] = 'name';
-                $existingMember = $candidate;
+            if ($candidate) {
+                // Birthdate rule: if birthdate was provided and matches → BLOCK; else NAME_ONLY
+                $candidateDob = $candidate->date_of_birth ? $candidate->date_of_birth->format('Y-m-d') : null;
+                $birthdateMatches = $birthdate && $candidateDob && $birthdate === $candidateDob;
+
+                if ($birthdateMatches) {
+                    $matchedFields[] = 'birthdate';
+                    $existingMember = $candidate;
+                } elseif (!in_array('email', $matchedFields) && !in_array('contact_number', $matchedFields)) {
+                    $matchedFields[] = 'name';
+                    $existingMember = $candidate;
+                }
             }
         }
 
-        $isDuplicate = in_array('email', $matchedFields) || in_array('contact_number', $matchedFields);
+        // Block fields: email, contact_number, birthdate (when matched with name), tin, id_number
+        $blockFields = ['email', 'contact_number', 'birthdate', 'tin', 'id_number'];
+        $isDuplicate = array_intersect($matchedFields, $blockFields) !== [];
         $isWarning = !$isDuplicate && in_array('name', $matchedFields);
 
         $message = $this->buildMessage($isDuplicate, $isWarning, $matchedFields, $existingMember);
@@ -211,6 +270,7 @@ class DuplicateMemberService
         return [
             'isDuplicate'   => $isDuplicate,
             'isWarning'     => $isWarning,
+            'level'         => $isDuplicate ? 'block' : ($isWarning ? 'name_only' : 'none'),
             'message'       => $message,          // staff-only, includes details
             'publicMessage' => $publicMessage,    // safe for applicants
             'matchedFields' => $matchedFields,
@@ -242,6 +302,27 @@ class DuplicateMemberService
     }
 
     /**
+     * PHP-side name lookup fallback with fuzzy matching (Levenshtein distance <= 1 on surname).
+     */
+    private function findByNamePhpSideFuzzy($query, ?int $excludeMemberId, ?int $excludeApplicationId, string $normalizedName)
+    {
+        $rows = $query
+            ->when($excludeMemberId, fn ($q) => $q->where('id', '!=', $excludeMemberId))
+            ->when($excludeApplicationId, fn ($q) => $q->where('id', '!=', $excludeApplicationId))
+            ->get();
+        foreach ($rows as $row) {
+            if ($this->isOwnApplication($row, $excludeMemberId)) {
+                continue;
+            }
+            $fullName = trim($row->first_name . ' ' . ($row->middle_name ?? '') . ' ' . $row->surname);
+            if ($this->namesMatch($normalizedName, $fullName)) {
+                return $row;
+            }
+        }
+        return null;
+    }
+
+    /**
      * PHP-side contact number lookup fallback for edge cases SQL can't catch.
      * Rule 1: no member_applications-only column (approved_member_id) filter here.
      * excludeApplicationId maps to id column on both models.
@@ -262,6 +343,93 @@ class DuplicateMemberService
             }
         }
         return null;
+    }
+
+    /**
+     * PHP-side birthdate lookup fallback.
+     * Rule 1: no filter beyond excludeMemberId/excludeApplicationId.
+     * Birthdate YYYY-MM-DD comparison via PHP-side format normalization.
+     */
+    private function findByBirthdate(string $birthdate, ?int $excludeMemberId, ?int $excludeApplicationId)
+    {
+        // CoopMember path
+        $coopMembers = CoopMember::when($excludeMemberId, fn ($q) => $q->where('id', '!=', $excludeMemberId))->get();
+        foreach ($coopMembers as $row) {
+            $rowDob = $row->date_of_birth ? $row->date_of_birth->format('Y-m-d') : null;
+            if ($rowDob === $birthdate) {
+                return $row;
+            }
+        }
+        // MemberApplication path
+        $apps = MemberApplication::when($excludeApplicationId, fn ($q) => $q->where('id', '!=', $excludeApplicationId))->get();
+        foreach ($apps as $row) {
+            $rowDob = $row->date_of_birth ? $row->date_of_birth->format('Y-m-d') : null;
+            if ($rowDob === $birthdate) {
+                return $row;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * PHP-side TIN lookup fallback.
+     * Rule 1: no filter beyond excludeMemberId/excludeApplicationId.
+     */
+    private function findByTin(string $tin, ?int $excludeMemberId, ?int $excludeApplicationId)
+    {
+        $normalizedTin = strtolower(trim($tin));
+        // CoopMember path
+        $coopMembers = CoopMember::when($excludeMemberId, fn ($q) => $q->where('id', '!=', $excludeMemberId))->get();
+        foreach ($coopMembers as $row) {
+            if (strtolower(trim($row->tin ?? '')) === $normalizedTin) {
+                return $row;
+            }
+        }
+        // MemberApplication path
+        $apps = MemberApplication::when($excludeApplicationId, fn ($q) => $q->where('id', '!=', $excludeApplicationId))->get();
+        foreach ($apps as $row) {
+            if (strtolower(trim($row->tin ?? '')) === $normalizedTin) {
+                return $row;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * PHP-side ID number lookup fallback.
+     * Normalized: strip spaces/dashes, case-insensitive.
+     * Rule 1: no filter beyond excludeMemberId/excludeApplicationId.
+     */
+    private function findByIdNumber(string $normalizedId, ?int $excludeMemberId, ?int $excludeApplicationId)
+    {
+        // CoopMember path
+        $coopMembers = CoopMember::when($excludeMemberId, fn ($q) => $q->where('id', '!=', $excludeMemberId))->get();
+        foreach ($coopMembers as $row) {
+            $rowId = $this->normalizeIdNumber($row->id_number ?? '');
+            if ($rowId === $normalizedId) {
+                return $row;
+            }
+        }
+        // MemberApplication path
+        $apps = MemberApplication::when($excludeApplicationId, fn ($q) => $q->where('id', '!=', $excludeApplicationId))->get();
+        foreach ($apps as $row) {
+            $rowId = $this->normalizeIdNumber($row->id_number ?? '');
+            if ($rowId === $normalizedId) {
+                return $row;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Normalize ID number: strip spaces/dashes, lowercase.
+     */
+    private function normalizeIdNumber(?string $id): string
+    {
+        if (!$id) {
+            return '';
+        }
+        return strtolower(preg_replace('/[\s\-]+/', '', $id));
     }
 
     /**
@@ -290,13 +458,79 @@ class DuplicateMemberService
     protected function normalizeName(string $name): string
     {
         $clean = strtolower(trim($name));
-        $clean = preg_replace('/[,\.]/', '', $clean);
+        // Strip accents (Latin-1 + Latin Extended-A)
+        $clean = strtr($clean, [
+            'á'=>'a','à'=>'a','â'=>'a','ä'=>'a','ã'=>'a','å'=>'a','ā'=>'a','ă'=>'a','ą'=>'a',
+            'é'=>'e','è'=>'e','ê'=>'e','ë'=>'e','ē'=>'e','ĕ'=>'e','ė'=>'e','ę'=>'e',
+            'í'=>'i','ì'=>'i','î'=>'i','ï'=>'i','ī'=>'i','ĭ'=>'i','į'=>'i','ı'=>'i',
+            'ó'=>'o','ò'=>'o','ô'=>'o','ö'=>'o','õ'=>'o','ō'=>'o','ŏ'=>'o','ő'=>'o','ø'=>'o',
+            'ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u','ū'=>'u','ŭ'=>'u','ů'=>'u','ų'=>'u',
+            'ý'=>'y','ÿ'=>'y','ŷ'=>'y',
+            'ñ'=>'n','ń'=>'n',
+            'ç'=>'c','ć'=>'c','č'=>'c','ĉ'=>'c','ċ'=>'c',
+            'ß'=>'ss','œ'=>'oe','æ'=>'ae',
+        ]);
+        // Strip punctuation, keep letters and spaces
+        $clean = preg_replace('/[^\p{L}\s]/u', ' ', $clean);
         $clean = preg_replace('/\s+/', ' ', $clean);
+        $clean = trim($clean);
+        if ($clean === '') {
+            return '';
+        }
 
         $words = explode(' ', $clean);
-        sort($words);
+        // Collapse multi-word particles (longest first) into single tokens
+        $collapsed = [];
+        $i = 0;
+        while ($i < count($words)) {
+            $matched = false;
+            foreach (self::PARTICLES as $particle) {
+                $pwords = explode(' ', $particle);
+                $n = count($pwords);
+                if ($i + $n <= count($words)
+                    && implode(' ', array_slice($words, $i, $n)) === $particle) {
+                    $collapsed[] = $particle;
+                    $i += $n;
+                    $matched = true;
+                    break;
+                }
+            }
+            if (!$matched) {
+                $collapsed[] = $words[$i];
+                $i++;
+            }
+        }
+        // Strip suffixes (Jr, Sr, II, III, IV) and particle tokens
+        $collapsed = array_filter($collapsed, function ($w) {
+            return !in_array($w, self::SUFFIXES) && !in_array($w, self::PARTICLES);
+        });
+        // Keep all remaining tokens (including middle names), sort alphabetically
+        sort($collapsed);
+        return implode(' ', $collapsed);
+    }
 
-        return implode(' ', $words);
+    /**
+     * True when the normalized input name matches the existing full name,
+     * allowing Levenshtein distance <= 1 on either the first or surname token.
+     */
+    private function namesMatch(string $normalizedInput, string $fullName): bool
+    {
+        $normalizedExisting = $this->normalizeName($fullName);
+        if ($normalizedInput === $normalizedExisting) {
+            return true;
+        }
+        $inputParts = explode(' ', $normalizedInput);
+        $existingParts = explode(' ', $normalizedExisting);
+        if (count($inputParts) === 2 && count($existingParts) === 2) {
+            if ($inputParts[0] === $existingParts[0]) {
+                return levenshtein($inputParts[1], $existingParts[1]) <= 1;
+            }
+            if ($inputParts[1] === $existingParts[1]) {
+                return levenshtein($inputParts[0], $existingParts[0]) <= 1;
+            }
+        }
+
+        return false;
     }
 
     protected function normalizeContactNumber(?string $contact): ?string

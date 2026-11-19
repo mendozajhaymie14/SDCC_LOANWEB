@@ -114,7 +114,7 @@ class NotificationLoanRefTest extends TestCase
 
         // Outbox link target (numericId) points to the mirror's id (8) so the data route
         // resolves the same mirror; verify the onclick carries numericId=8.
-        $this->assertStringContainsString('openNotifLoan(\'APP-0009\', 8)', $outbox);
+        $this->assertStringContainsString("openNotifLoan('APP-0009', 8, event)", $outbox);
 
         // Repayments page shows the same APP-0009 in the Loan column
         $repay = $this->actingAs($manager)->get('/repayments')->getContent();

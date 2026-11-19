@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -50,7 +51,7 @@ class RepaymentsPageTask5Test extends TestCase
         ]);
         Application::factory()->create([
             'loan_application_id' => $loan->id,
-            'app_id'              => 'APP-0001',
+            'app_id'              => 'APP-' . strtoupper(Str::random(8)),
             'status'              => 'Approved',
             'remaining_balance'   => 8000,
         ]);
@@ -67,7 +68,7 @@ class RepaymentsPageTask5Test extends TestCase
             'user_id'   => null,
         ]);
 
-        return LoanApplication::factory()->create([
+        $loan = LoanApplication::factory()->create([
             'user_id'           => null,
             'email'             => $email,
             'amount'            => 10000,
@@ -76,6 +77,14 @@ class RepaymentsPageTask5Test extends TestCase
             'remaining_balance' => 8000,
             'next_due_date'     => now()->addDays(2),
         ]);
+        Application::factory()->create([
+            'loan_application_id' => $loan->id,
+            'app_id'              => 'APP-' . strtoupper(Str::random(8)),
+            'status'              => 'Approved',
+            'remaining_balance'   => 8000,
+        ]);
+
+        return $loan;
     }
 
     private function paymentFor(LoanApplication $loan, string $ref = 'REP-TEST-1'): Payment
@@ -246,6 +255,80 @@ class RepaymentsPageTask5Test extends TestCase
         $response->assertStatus(200);
         $response->assertSee('REP-SEARCH');
         $response->assertSee('MEM-SEARCH-5');
+    }
+
+    /** @test */
+    public function member_filter_excludes_other_members_payments(): void
+    {
+        [$loanP] = $this->portalMemberLoan('MEM-FILTER-P', 'filterp@example.com');
+        $this->paymentFor($loanP, 'REP-FILTER-P');
+        [$loanQ] = $this->portalMemberLoan('MEM-FILTER-Q', 'filterq@example.com');
+        $this->paymentFor($loanQ, 'REP-FILTER-Q');
+
+        // Filter by member P: only P's payment, not Q's.
+        $response = $this->actingAs($this->officer())
+            ->get('/repayments?member_id=MEM-FILTER-P');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('1 record(s)', $response->getContent());
+        $response->assertSee('REP-FILTER-P');
+        $response->assertDontSee('REP-FILTER-Q');
+    }
+
+    /** @test */
+    public function member_filter_shows_portal_less_member_payments(): void
+    {
+        $loan = $this->portalLessLoan('MEM-FILTER-L', 'filterl@example.com');
+        $this->paymentFor($loan, 'REP-FILTER-L');
+
+        $response = $this->actingAs($this->officer())
+            ->get('/repayments?member_id=MEM-FILTER-L');
+
+        $response->assertStatus(200);
+        $response->assertSee('REP-FILTER-L');
+    }
+
+    /** @test */
+    public function member_filter_scopes_loan_application_id_dropdown_to_that_member(): void
+    {
+        [$loanP] = $this->portalMemberLoan('MEM-DROPDOWN-P', 'dropdownp@example.com');
+        $this->paymentFor($loanP, 'REP-DROPDOWN-P');
+        [$loanQ] = $this->portalMemberLoan('MEM-DROPDOWN-Q', 'dropdownq@example.com');
+        $this->paymentFor($loanQ, 'REP-DROPDOWN-Q');
+
+        $appP = \App\Models\Application::where('loan_application_id', $loanP->id)->value('app_id');
+        $appQ = \App\Models\Application::where('loan_application_id', $loanQ->id)->value('app_id');
+
+        // Selecting member P must list only P's application in the
+        // Loan Application ID dropdown, never Q's.
+        $response = $this->actingAs($this->officer())
+            ->get('/repayments?member_id=MEM-DROPDOWN-P');
+
+        $response->assertStatus(200);
+        $html = $response->getContent();
+
+        // Extract the Loan Application ID dropdown options block.
+        $this->assertMatchesRegularExpression(
+            '/<select name="app_id"[\s\S]*?<\/select>/',
+            $html
+        );
+        preg_match('/<select name="app_id"[\s\S]*?<\/select>/', $html, $m);
+        $dropdown = $m[0];
+
+        $this->assertStringContainsString($appP, $dropdown);
+        $this->assertStringNotContainsString($appQ, $dropdown);
+    }
+
+    /** @test */
+    public function member_filter_with_unknown_member_returns_zero(): void
+    {
+        [$loan] = $this->portalMemberLoan('MEM-FILTER-P', 'filterp@example.com');
+        $this->paymentFor($loan, 'REP-FILTER-P');
+
+        $response = $this->actingAs($this->officer())
+            ->get('/repayments?member_id=MEM-NOBODY');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('0 record(s)', $response->getContent());
+        $response->assertDontSee('REP-FILTER-P');
     }
 
     /** @test */
