@@ -7,6 +7,8 @@ use App\Console\Commands\BackfillApprovers;
 use App\Console\Commands\BackfillPaymentRecorders;
 use App\Console\Commands\SdccBackup;
 use App\Console\Commands\SdccLinkMembers;
+use App\Console\Commands\MirrorDuplicates;
+use App\Console\Commands\ReconcileMirror;
 use App\Console\Commands\ReconcileBalances;
 
 Artisan::command('inspire', function () {
@@ -35,3 +37,11 @@ Schedule::command('sdcc:reconcile-balances', ['--dry-run'])
     ->timezone('Asia/Manila')
     ->withoutOverlapping()
     ->runInBackground();
+
+// Mirror reconciliation — nightly dry-run audit of admin-side mirrors
+Schedule::command('sdcc:reconcile-mirror', ['--dry-run'])
+    ->dailyAt('02:10')
+    ->timezone('Asia/Manila')
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/mirror-reconcile.log'));

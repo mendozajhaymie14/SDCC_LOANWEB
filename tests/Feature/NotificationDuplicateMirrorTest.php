@@ -22,6 +22,14 @@ class NotificationDuplicateMirrorTest extends TestCase
         parent::setUp();
         Mail::fake();
         Storage::fake('local');
+
+        // These tests simulate a legacy database that predates the UNIQUE
+        // index on applications.loan_application_id: they deliberately create
+        // two mirror rows for one loan to prove ref resolution picks the
+        // newest. Drop the index so the fixtures can be inserted.
+        \Illuminate\Support\Facades\Schema::table('applications', function ($t) {
+            $t->dropUnique(['loan_application_id']);
+        });
     }
 
     private function manager(): User

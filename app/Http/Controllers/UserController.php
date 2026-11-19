@@ -10,6 +10,7 @@ use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
 use App\Models\Payment;
+use App\Services\LoanSubmissionService;
 use App\Support\LoanStatus;
 use App\Services\AmortizationService;
 use App\Services\CreditLimitService;
@@ -427,24 +428,9 @@ class UserController extends Controller
         ]);
 
         // ─── MIRROR INTO THE ADMIN APPLICATIONS TABLE ───
-        $lastId = Application::withTrashed()->max('id') ?? 0;
-        $appId  = 'APP-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
-
-        Application::create([
-            'loan_application_id'   => $application->id,
-            'app_id'                => $appId,
-            'applicant'             => $application->full_name,
-            'loan_type'             => $application->loan_type,
-            'amount'                => $application->amount,
-            'term_months'           => $application->term_months,
-            'status'                => 'Pending',
-            'recommended_amount'    => $evaluation['recommended_amount'],
-            'risk_level'            => $evaluation['risk_level'],
-            'risk_score'            => $evaluation['risk_score'],
-            'risk_factors'          => $riskFactors,
-            'evaluation_reasons'    => json_encode($evaluation['evaluation_reasons'] ?? $evaluation['reasons']),
-            'ai_score'              => null, // filled in by the document analysis job
-        ]);
+        // Idempotent: a second write for the same loan reuses the existing
+        // mirror instead of creating a duplicate.
+        app(LoanSubmissionService::class)->writeMirror($application, $evaluation);
 
         // ─── AI DOCUMENT ANALYSIS ───
         // Runs after the mirror row exists so the job can copy ai_score into it.

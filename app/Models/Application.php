@@ -12,6 +12,8 @@ class Application extends Model
 {
     use HasFactory, SoftDeletes;
 
+    /** loan_applications is the source of truth; this table is the admin-side
+     *  workflow record, 1:1 with a loan. */
     protected $table = 'applications';
 
     protected $fillable = [
