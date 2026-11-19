@@ -277,16 +277,16 @@
       </div>
 
       <div style="margin-top:0.5rem; padding:0.75rem; background:#f8fafc; border:1px solid var(--border); border-radius:8px;">
-        <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.5rem;">Member Financial Profile (editable)</div>
+        <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.5rem;">Member Financial Profile</div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Monthly Income (₱)</label>
-            <input type="number" name="monthly_income" id="encodeMonthlyIncome" class="form-input" step="0.01" min="0" placeholder="e.g. 30000" data-validate="money" required />
+            <input type="number" name="monthly_income" id="encodeMonthlyIncome" class="form-input bg-gray-100 cursor-not-allowed" step="0.01" min="0" placeholder="e.g. 30000" data-validate="money" required readonly />
             @error('monthly_income')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
           </div>
           <div class="form-group">
             <label class="form-label">Existing Monthly Obligations (₱)</label>
-            <input type="number" name="existing_monthly_obligations" id="encodeExistingObligations" class="form-input" step="0.01" min="0" placeholder="e.g. 5000" data-validate="money" required />
+            <input type="number" name="existing_monthly_obligations" id="encodeExistingObligations" class="form-input bg-gray-100 cursor-not-allowed" step="0.01" min="0" placeholder="e.g. 5000" data-validate="money" required readonly />
             @error('existing_monthly_obligations')<div style="color:#b91c1c;font-size:0.75rem;margin-top:4px;">{{ $message }}</div>@enderror
             <div style="color:var(--muted);font-size:0.7rem;margin-top:4px;">Existing monthly obligations must exclude loans already with SDCC — SDCC loan payments are counted automatically.</div>
           </div>
@@ -434,6 +434,186 @@
       </div>
 
       <button class="btn-submit" type="submit" id="addAMemberSubmitBtn">Register Member</button>
+      <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
+    </form>
+  </div>
+  @endif
+
+  <!-- 2c. Add Membership Application Modal -->
+  @if($perm(\App\Support\Permissions::APPROVE_MEMBERSHIPS))
+  <div class="modal" id="modal-addMembershipApplication" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" id="addMembershipApplicationTitle"><i class="fa-solid fa-user nav-icon"></i> Add Membership Application</div>
+      <div class="modal-close"><i class="fa-solid fa-xmark nav-icon"></i></div>
+    </div>
+    <form id="addMembershipApplicationForm" action="{{ route('memberships.store') }}" method="POST" enctype="multipart/form-data">
+      @csrf
+      <input type="hidden" name="_method" id="addMMemberMethod" value=""/>
+
+      <div class="form-group">
+        <label class="form-label">First / Given Name *</label>
+        <input type="text" name="first_name" id="addMMemberFirstName" class="form-input" placeholder="e.g. Juan" required data-validate="name"/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Middle Name</label>
+        <input type="text" name="middle_name" id="addMMemberMiddleName" class="form-input" placeholder="e.g. Cruz"/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Last Name *</label>
+        <input type="text" name="last_name" id="addMMemberLastName" class="form-input" placeholder="e.g. Dela Cruz" required data-validate="name"/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Email Address *</label>
+        <input type="email" name="email" id="addMMemberEmail" class="form-input" placeholder="juan@gmail.com" required data-validate="email"/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Mobile Number *</label>
+        <input type="text" name="contact_number" id="addMMemberPhone" class="form-input" placeholder="09XX XXX XXXX" data-validate="phone" required/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Occupation *</label>
+        <input type="text" name="occupation" id="addMMemberOccupation" class="form-input" placeholder="e.g. Farmer" required/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Province *</label>
+        <select name="province" id="addMMemberProvince" class="form-input" required>
+          <option value="National Capital Region (NCR)" selected>National Capital Region (NCR)</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">City / Municipality *</label>
+          <select name="municipality" id="addMMemberMunicipality" class="form-input" required>
+            <option value="">Select City / Municipality</option>
+            <option value="Las Piñas City">Las Piñas City</option>
+            <option value="Parañaque City">Parañaque City</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Barangay *</label>
+          <select name="barangay" id="addMMemberBarangay" class="form-input" required>
+            <option value="">Select Barangay</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+      <label class="form-label">Address Line *</label>
+      <input type="text" name="address_line" id="addMMemberAddressLine" class="form-input" placeholder="e.g. 12 Rizal St" required/>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Zip Code *</label>
+      <input type="text" name="zip_code" id="addMMemberZipCode" class="form-input" placeholder="e.g. 1740" pattern="[0-9]{1,4}" inputmode="numeric" required/>
+    </div>
+
+      <div class="form-group">
+        <label class="form-label">Date of Birth *</label>
+        <input type="date"
+               id="date_of_birth"
+               name="date_of_birth"
+               class="form-input"
+               required
+               max="{{ now()->subYears(18)->format('Y-m-d') }}" />
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+          Must be at least 18 years old
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">ID Type *</label>
+        <select name="id_type" id="addMMemberIdType" class="form-input" required>
+          <option value="">Select ID type</option>
+          @foreach ([
+            'drivers_license' => "Driver's License",
+            'passport'        => 'Passport',
+            'national_id'     => 'National ID (PhilSys)',
+            'voters_id'       => "Voter's ID",
+            'philhealth_id'   => 'PhilHealth ID',
+            'umid'            => 'UMID',
+            'prc_id'          => 'PRC ID',
+            'sss_id'          => 'SSS ID',
+          ] as $val => $label)
+            <option value="{{ $val }}" @selected(old('id_type') === $val)>{{ $label }}</option>
+          @endforeach
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">ID Number *</label>
+        <input type="text"
+               id="id_number"
+               name="id_number"
+               class="form-input"
+               maxlength="50"
+               inputmode="numeric"
+               pattern="[0-9]*"
+               required
+               placeholder="e.g. 012345678901" />
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">ID Front *</label>
+          <div class="file-dropzone id-dropzone" id="idFrontDropzoneM">
+            <label for="id_front" class="dz-label">
+              <span class="dz-icon"><i class="fa-solid fa-id-card"></i></span>
+              <span class="dz-text">Upload front of ID</span>
+              <span class="dz-hint">JPG or PNG · up to 5MB</span>
+              <span class="dz-choose">Choose file</span>
+            </label>
+            <input type="file" id="id_front" name="id_front"
+                   accept=".jpg,.jpeg,.png" class="sr-only" required>
+          </div>
+          <div class="file-preview" id="idFrontPreviewM"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ID Back</label>
+          <div class="file-dropzone id-dropzone" id="idBackDropzoneM">
+            <label for="id_back" class="dz-label">
+              <span class="dz-icon"><i class="fa-solid fa-id-card"></i></span>
+              <span class="dz-text">Upload back of ID</span>
+              <span class="dz-hint">JPG or PNG · up to 5MB</span>
+              <span class="dz-choose">Choose file</span>
+            </label>
+            <input type="file" id="id_back" name="id_back"
+                   accept=".jpg,.jpeg,.png" class="sr-only">
+          </div>
+          <div class="file-preview" id="idBackPreviewM"></div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Savings Balance (₱)</label>
+        <input type="number" name="savings_balance" id="addMMemberSavingsBalance" class="form-input" step="0.01" min="0" placeholder="e.g. 5000" data-validate="money"/>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Existing Monthly Obligations (₱)</label>
+          <input type="number" name="existing_monthly_obligations" id="addMMemberExistingMonthlyObligations" class="form-input" step="0.01" min="0" placeholder="e.g. 2000" data-validate="money"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Monthly Income (₱)</label>
+          <input type="number" name="monthly_income" id="addMMemberMonthlyIncome" class="form-input" step="0.01" min="0" placeholder="e.g. 15000" data-validate="money"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <input type="checkbox" id="dataPrivacy" name="data_privacy_consent" required style="margin-top: 2px;" />
+          I consent to the processing of my personal data for membership evaluation and cooperative purposes, in accordance with the Data Privacy Act.
+        </label>
+      </div>
+
+      <button class="btn-submit" type="submit" id="addMMemberSubmitBtn">Submit Application</button>
       <button class="btn-cancel" type="button" onclick="closeAllModals()">Cancel</button>
     </form>
   </div>
@@ -1498,6 +1678,120 @@
       loanTypeSelect.addEventListener('change', refreshTerms);
       refreshTerms();
     }
+  });
+
+  // ─── ADD MEMBERSHIP APPLICATION MODAL: city → barangay + ID previews ───
+  // The modal's barangay <select> starts empty and its ID dropzones have no
+  // preview handler; both ported from the public application form so the
+  // admin form behaves the same. Same map (Las Piñas / Parañaque only).
+  document.addEventListener('DOMContentLoaded', function () {
+    const municipalityEl = document.getElementById('addMMemberMunicipality');
+    const barangayEl = document.getElementById('addMMemberBarangay');
+    if (!municipalityEl || !barangayEl) return;
+
+    const barangaysByCity = {
+      "Las Piñas City": [
+        "B. F. International Village", "CAA / B.F. International", "Almanza Uno",
+        "Almanza Dos", "Talon Uno", "Talon Dos", "Talon Tres", "Talon Kuatro",
+        "Talon Singko", "Pamplona Uno", "Pamplona Dos", "Pamplona Tres",
+        "Pulang Lupa Uno", "Pulang Lupa Dos", "Zapote", "Manuyo Uno",
+        "Manuyo Dos", "Elias Aldana", "Ilaya", "Daniel Fajardo"
+      ],
+      "Parañaque City": [
+        "Baclaran", "Don Galo", "La Huerta", "San Dionisio", "San Isidro",
+        "Sto. Niño", "Tambo", "Vitalez", "B.F. Homes", "Don Bosco",
+        "Marcelo Green", "Merville", "Moonwalk", "San Antonio",
+        "San Martin de Porres", "Sun Valley"
+      ]
+    };
+
+    function populateBarangays() {
+      const city = municipalityEl.value.trim();
+      barangayEl.innerHTML = '<option value="">Select Barangay</option>';
+      (barangaysByCity[city] || []).forEach(function (b) {
+        const opt = document.createElement('option');
+        opt.value = b;
+        opt.textContent = b;
+        barangayEl.appendChild(opt);
+      });
+    }
+
+    municipalityEl.addEventListener('change', populateBarangays);
+    populateBarangays(); // default city (Las Piñas City) is pre-selected
+
+    // ID front/back preview cards + drag-and-drop.
+    function setupIdPreview(inputId, dropzoneId, previewId) {
+      const input = document.getElementById(inputId);
+      const dz = document.getElementById(dropzoneId);
+      const preview = document.getElementById(previewId);
+      if (!input || !dz || !preview) return;
+
+      function renderPreview(file) {
+        preview.innerHTML = '';
+        const wrap = document.createElement('div');
+        wrap.className = 'id-preview-wrap';
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          const img = document.createElement('img');
+          img.src = e.target.result;
+          img.alt = 'ID preview';
+          const meta = document.createElement('div');
+          meta.className = 'id-preview-meta';
+          const name = document.createElement('span');
+          name.className = 'id-preview-name';
+          name.textContent = file.name;
+          const size = document.createElement('span');
+          size.className = 'id-preview-size';
+          size.textContent = (file.size / 1024).toFixed(1) + ' KB';
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.textContent = 'Remove';
+          removeBtn.className = 'id-remove-btn';
+          removeBtn.addEventListener('click', function () {
+            input.value = '';
+            preview.innerHTML = '';
+            dz.classList.remove('has-file');
+          });
+          meta.appendChild(name);
+          meta.appendChild(size);
+          wrap.appendChild(img);
+          wrap.appendChild(meta);
+          wrap.appendChild(removeBtn);
+          preview.appendChild(wrap);
+          dz.classList.add('has-file');
+        };
+        reader.readAsDataURL(file);
+      }
+
+      input.addEventListener('change', function () {
+        const file = this.files && this.files[0];
+        if (!file) return;
+        if (!/\.(jpe?g|png)$/i.test(file.name)) return;
+        renderPreview(file);
+      });
+
+      dz.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        dz.classList.add('is-dragover');
+      });
+      dz.addEventListener('dragleave', function () {
+        dz.classList.remove('is-dragover');
+      });
+      dz.addEventListener('drop', function (e) {
+        e.preventDefault();
+        dz.classList.remove('is-dragover');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        if (!/\.(jpe?g|png)$/i.test(file.name)) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        renderPreview(file);
+      });
+    }
+
+    setupIdPreview('id_front', 'idFrontDropzoneM', 'idFrontPreviewM');
+    setupIdPreview('id_back', 'idBackDropzoneM', 'idBackPreviewM');
   });
 
   </script>
