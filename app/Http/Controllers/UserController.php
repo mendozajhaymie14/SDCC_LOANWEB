@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\ProcessLoanDocuments;
 use App\Models\AppNotification;
 use App\Models\Application;
+use App\Models\AuditLog;
 use App\Models\CoopMember;
 use App\Models\LoanApplication;
 use App\Models\MemberApplication;
@@ -12,12 +13,15 @@ use App\Models\Payment;
 use App\Support\LoanStatus;
 use App\Services\AmortizationService;
 use App\Services\CreditLimitService;
+use App\Services\DuplicateMemberService;
 use App\Services\LoanEvaluationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
@@ -73,6 +77,144 @@ class UserController extends Controller
             ->first();
 
         return view('user.membership', compact('user', 'application'));
+    }
+
+    /**
+     * Show the member's own cooperative profile.
+     *
+     * Only members (role:view_own_profile) can view/edit their own CoopMember
+     * record. The CoopMember row is resolved from the authenticated user only;
+     * no id from the request is ever used.
+     */
+    public function profile()
+    {
+        $user = Auth::user();
+        $member = $user->coopMember;
+
+        abort_if($member === null, 403, 'Member profile not found.');
+
+        return view('user.profile', compact('user', 'member'));
+    }
+
+    /**
+     * Update the member's own cooperative profile.
+     *
+     * Editable fields: email, contact_number (PhilippineMobileNumber rule),
+     * address, occupation. Everything else is read-only and will be ignored
+     * if sent in the request (mass-assignment safe: use validated() only).
+     *
+     * On update, in ONE DB transaction: update coop_members and users.email
+     * together. Run DuplicateMemberService::check with excludeMemberId = this
+     * member; block on a duplicate email/contact. Write an AuditLog entry
+     * listing old to new values for changed fields only.
+     *
+     * current_password rule is required ONLY when email is being changed;
+     * not needed when only contact_number/address/occupation change.
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = Auth::user();
+        $member = $user->coopMember;
+
+        abort_if($member === null, 403, 'Member profile not found.');
+
+        // current_password is required ONLY when the email is actually changing.
+        $changingEmail = $request->filled('email') && $request->input('email') !== $user->email;
+
+        $rules = [
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users')->ignore($user->id),
+                Rule::unique('coop_members','email')->ignore($member->id),
+            ],
+            'contact_number' => ['nullable', new \App\Rules\PhilippineMobileNumber],
+            'address' => ['nullable', 'string', 'max:500'],
+            'occupation' => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($changingEmail) {
+            $rules['current_password'] = ['required', 'current_password'];
+        }
+
+        // Validate ONLY editable fields
+        $validated = $request->validate($rules, [
+            'email.unique' => 'This email is already registered to another account.',
+            'coop_members.email.unique' => 'This email is already on file for another member.',
+        ]);
+
+        // Sync coop_members.email with users.email (guard: email must have been
+        // validated as unique above, so this is safe to write in the same txn).
+        $oldEmail = $member->email;
+        $newEmail = $validated['email'];
+
+        // DuplicateMemberService::check must pass before we touch DB
+        $dupCheck = app(DuplicateMemberService::class)->check(
+            $member->full_name,
+            $validated['email'],
+            $validated['contact_number'] ?? null,
+            $member->id // exclude this member from the check
+        );
+
+        if ($dupCheck['isDuplicate']) {
+            return back()
+                ->withInput()
+                ->withErrors(['email' => $dupCheck['message']]);
+        }
+
+        // Snapshot old values before the update so the audit log can list
+        // old -> new for each changed field only.
+        $oldValues = [
+            'email'          => $user->email,
+            'contact_number' => $member->contact_number,
+            'address'        => $member->address,
+            'occupation'     => $member->occupation,
+        ];
+
+        // One DB transaction: update coop_members (incl. email) and users.email together
+        DB::transaction(function () use ($member, $validated, $user) {
+            $member->contact_number = $validated['contact_number'] ?? $member->contact_number;
+            $member->address        = $validated['address']        ?? $member->address;
+            $member->occupation     = $validated['occupation']     ?? $member->occupation;
+            $member->email          = $validated['email'];
+            $member->save();
+
+            // Sync User.email
+            $user->email = $validated['email'];
+            $user->save();
+        });
+
+        $newValues = [
+            'email'          => $user->fresh()->email,
+            'contact_number' => $member->fresh()->contact_number,
+            'address'        => $member->fresh()->address,
+            'occupation'     => $member->fresh()->occupation,
+        ];
+
+        // AuditLog entry listing old -> new for changed fields only.
+        $changed = [];
+        foreach (['email', 'contact_number', 'address', 'occupation'] as $field) {
+            if ($oldValues[$field] !== $newValues[$field]) {
+                $changed[] = "{$field}: {$oldValues[$field]} -> {$newValues[$field]}";
+            }
+        }
+
+        if ($changed) {
+            AuditLog::log(
+                'Member Updated Own Profile',
+                implode(', ', $changed),
+                $user->id,
+                $oldValues,
+                $newValues,
+                CoopMember::class,
+                $member->id
+            );
+        }
+
+        return back()
+            ->with('success', 'Your profile has been updated.');
     }
 
     /**

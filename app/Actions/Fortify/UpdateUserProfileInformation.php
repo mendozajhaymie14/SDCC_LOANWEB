@@ -4,6 +4,7 @@ namespace App\Actions\Fortify;
 
 use App\Models\User;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Laravel\Fortify\Contracts\UpdatesUserProfileInformation;
@@ -17,11 +18,20 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
      */
     public function update(User $user, array $input): void
     {
-        Validator::make($input, [
-    'name' => ['required', 'string', 'max:255'],
-    'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
-    'photo' => ['nullable', 'mimes:jpg,jpeg,png', 'max:2048'], // Allows .jpg, .jpeg, and .png up to 2MB
-])->validateWithBag('updateProfileInformation');
+        $member = $user->coopMember;
+
+        $rules = [
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+            'photo' => ['nullable', 'mimes:jpg,jpeg,png', 'max:2048'], // Allows .jpg, .jpeg, and .png up to 2MB
+        ];
+
+        // Members must also keep coop_members.email unique
+        if ($member) {
+            $rules['email'][] = Rule::unique('coop_members')->ignore($member->id);
+        }
+
+        Validator::make($input, $rules)->validateWithBag('updateProfileInformation');
 
         if (isset($input['photo'])) {
             $user->updateProfilePhoto($input['photo']);
@@ -29,12 +39,21 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
 
         if ($input['email'] !== $user->email &&
             $user instanceof MustVerifyEmail) {
-            $this->updateVerifiedUser($user, $input);
+            $this->updateVerifiedUser($user, $input, $member);
         } else {
-            $user->forceFill([
-                'name' => $input['name'],
-                'email' => $input['email'],
-            ])->save();
+            DB::transaction(function () use ($user, $input, $member) {
+                $user->forceFill([
+                    'name' => $input['name'],
+                    'email' => $input['email'],
+                ])->save();
+
+                // Sync coop_members.email so the two tables never drift
+                if ($member) {
+                    $member->forceFill([
+                        'email' => $input['email'],
+                    ])->save();
+                }
+            });
         }
     }
 
@@ -43,14 +62,23 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
      *
      * @param  array<string, string>  $input
      */
-    protected function updateVerifiedUser(User $user, array $input): void
+    protected function updateVerifiedUser(User $user, array $input, $member): void
     {
-        $user->forceFill([
-            'name' => $input['name'],
-            'email' => $input['email'],
-            'email_verified_at' => null,
-        ])->save();
+        DB::transaction(function () use ($user, $input, $member) {
+            $user->forceFill([
+                'name' => $input['name'],
+                'email' => $input['email'],
+                'email_verified_at' => null,
+            ])->save();
 
-        $user->sendEmailVerificationNotification();
+            // Sync coop_members.email so the two tables never drift
+            if ($member) {
+                $member->forceFill([
+                    'email' => $input['email'],
+                ])->save();
+            }
+
+            $user->sendEmailVerificationNotification();
+        });
     }
 }

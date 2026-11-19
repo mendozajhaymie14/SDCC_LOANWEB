@@ -58,6 +58,7 @@ class Permissions
     public const VIEW_DASHBOARD = 'view_dashboard';
     public const OWN_PORTAL = 'own_portal';
     public const VIEW_OWN_LOANS = 'view_own_loans';
+    public const VIEW_OWN_PROFILE = 'view_own_profile';
     public const APPROVE_MEMBERSHIPS = 'approve_memberships';
     public const OVERRIDE_CREDIT_LIMIT = 'override_credit_limit';
 
@@ -131,6 +132,7 @@ class Permissions
             self::VIEW_DASHBOARD => true,
             self::OWN_PORTAL => true,
             self::VIEW_OWN_LOANS => true,
+            self::VIEW_OWN_PROFILE => true,
             self::APPLY_LOAN => true,
             self::VIEW_MEMBERSHIP_PAGE => true,
         ],

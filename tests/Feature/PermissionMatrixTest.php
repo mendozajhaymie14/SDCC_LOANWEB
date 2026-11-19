@@ -55,6 +55,7 @@ class PermissionMatrixTest extends TestCase
         'apply_membership'      => ['route' => '/user/membership', 'method' => 'GET'],
         'view_membership_page' => ['route' => '/user/membership', 'method' => 'GET'],
         'apply_loan'            => ['route' => '/user/loans/apply', 'method' => 'GET', 'fixture' => 'create_active_member'],
+        'view_own_profile'      => ['route' => '/user/profile', 'method' => 'GET', 'fixture' => 'create_active_member'],
     ];
 
     /** The six roles of the matrix. */

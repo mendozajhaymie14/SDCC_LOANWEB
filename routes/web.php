@@ -62,6 +62,13 @@ Route::middleware(['auth', 'role'])->group(function () {
             ->name('loans.amortization');
     });
 
+    // Member's own cooperative profile - view and edit own record only.
+    // Granted to 'member' role only (not 'user', not staff).
+    Route::middleware(['role:' . Permissions::VIEW_OWN_PROFILE])->prefix('user')->name('user.')->group(function () {
+        Route::get('/profile', [UserController::class, 'profile'])->name('profile');
+        Route::put('/profile', [UserController::class, 'updateProfile'])->name('profile.update');
+    });
+
     // Member-facing amortization PDF export - named outside the 'user.' group so
     // the view keeps its original route('export.amortization.pdf') reference.
     Route::middleware(['role:' . Permissions::VIEW_OWN_LOANS])
@@ -141,12 +148,22 @@ Route::middleware(['auth', 'role'])->group(function () {
         // Cooperative membership applications
         Route::get('/memberships', [AdminController::class, 'memberships'])
             ->name('memberships.index');
+        Route::post('/memberships', [AdminController::class, 'storeMembershipApplication'])
+            ->name('memberships.store');
         Route::get('/memberships/{id}/recommendation', [AdminController::class, 'membershipCreditLimitRecommendation'])
             ->name('memberships.recommendation');
         Route::post('/memberships/{id}/approve', [AdminController::class, 'approveMember'])
             ->name('memberships.approve');
         Route::post('/memberships/{id}/reject', [AdminController::class, 'rejectMember'])
             ->name('memberships.reject');
+    });
+
+    // ------------------------------------------------------------------
+    // Staff: view member ID images (front/back) with permission + audit log
+    // ------------------------------------------------------------------
+    Route::middleware(['role:' . Permissions::VERIFY_DOCUMENTS])->group(function () {
+        Route::get('/admin/memberships/{id}/id/{view}', [AdminController::class, 'viewMemberId'])
+            ->name('admin.view-member-id');
     });
 
     // ------------------------------------------------------------------
