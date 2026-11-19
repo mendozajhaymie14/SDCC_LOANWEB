@@ -63,3 +63,7 @@ verify_admin_modal.cjs
 
 # Test fixtures
 tests/fixtures/
+
+# Junk temp files
+*TempDumpTest.php
+*test_results.txt
